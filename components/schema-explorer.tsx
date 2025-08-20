@@ -446,12 +446,16 @@ export function SchemaExplorer() {
     if (!table) {
       throw new Error("No table found for schema data!");
     }
-    const column = table.columns.find((column) => column.name === columnName);
-    if (!column) {
-      throw new Error("No column found for schema data!");
+    if (!!columnName) {
+      const column = table.columns.find((column) => column.name === columnName);
+      if (!column) {
+        throw new Error("No column found for schema data!");
+      }
+  
+      column.description = description;
+    } else {
+      table.description = description;
     }
-
-    column.aiDescription = description;
     console.log("Updating description:", { tableName, columnName, description })
     localStorage.setItem(cacheKey, JSON.stringify(schemaData));
 
@@ -517,13 +521,36 @@ export function SchemaExplorer() {
 
     setSchema(updatedSchema)
 
-    // Save to localStorage cache
-    const activeConnection = localStorage.getItem("currentDbConnection")
-    if (activeConnection) {
-      const connectionData = JSON.parse(activeConnection)
-      const cacheKey = `schema_${connectionData.id}`
-      localStorage.setItem(cacheKey, JSON.stringify(updatedSchema))
-    }
+    // Save to backend
+    try {
+      const result = await fetch("/api/schema/upload-schema", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          data: updatedSchema
+        }),
+      });
+
+      if (result.ok) {
+        const ids = await result.json();
+
+        // Save to localStorage cache
+        const activeConnection = localStorage.getItem("currentDbConnection")
+        if (activeConnection) {
+          const connection = JSON.parse(activeConnection)
+          const cacheKey = `schema_${connection.id}`
+          connection.vectorStoreId = ids.vectorStoreId;
+          connection.schemaFileId = ids.fileId;
+          localStorage.setItem("currentDbConnection", JSON.stringify(connection));
+          // todo: update stored db array also
+          localStorage.setItem(cacheKey, JSON.stringify(updatedSchema))
+        }
+      }
+    } catch (error) {
+      console.error("Failed to upload schema:", error)
+    }    
   }
 
   if (loading || isProcessing) {
@@ -682,7 +709,7 @@ export function SchemaExplorer() {
                       className="min-h-[80px]"
                     />
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={() => saveDescription(table.name)}>
+                      <Button size="sm" onClick={() => saveDescription(table.name, null, tempDescription)}>
                         <Save className="w-4 h-4 mr-1" />
                         Save
                       </Button>
@@ -753,7 +780,7 @@ export function SchemaExplorer() {
                                   placeholder="Add column description..."
                                 />
                                 <div className="flex gap-2">
-                                  <Button size="sm" onClick={() => saveDescription(table.name, column.name)}>
+                                  <Button size="sm" onClick={() => saveDescription(table.name, column.name, tempDescription)}>
                                     <Save className="w-4 h-4" />
                                   </Button>
                                   <Button size="sm" variant="outline" onClick={cancelEditing}>
