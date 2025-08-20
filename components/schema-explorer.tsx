@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ConfirmationModal } from "@/components/ui/confirmation-modal"
+
 import {
   Database,
   TableIcon,
@@ -21,7 +23,8 @@ import {
   RefreshCw,
   AlertCircle,
   ChevronDown,
-  ChevronRight,
+  ChevronRight, 
+  Trash
 } from "lucide-react"
 
 interface Column {
@@ -47,22 +50,25 @@ interface Schema {
 }
 
 export function SchemaExplorer() {
-  const [schema, setSchema] = useState<Schema | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [hasConnection, setHasConnection] = useState(false)
-  const [editingTable, setEditingTable] = useState<string | null>(null)
-  const [editingColumn, setEditingColumn] = useState<string | null>(null)
-  const [tempDescription, setTempDescription] = useState("")
-  const [generatingDescriptions, setGeneratingDescriptions] = useState(false)
-  const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set())
+  const [schema, setSchema] = useState<Schema | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [hasConnection, setHasConnection] = useState(false);
+  const [editingTable, setEditingTable] = useState<string | null>(null);
+  const [editingColumn, setEditingColumn] = useState<string | null>(null);
+  const [tempDescription, setTempDescription] = useState("");
+  const [generatingDescriptions, setGeneratingDescriptions] = useState(false);
+  const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ tableName: string; columnName: string } | null>(null);
 
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [processProgress, setProcessProgress] = useState(0)
-  const [processMessage, setProcessMessage] = useState("")
-  const [processId, setProcessId] = useState<string | null>(null)
 
-  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentBatch: 0, totalBatches: 0 })
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processProgress, setProcessProgress] = useState(0);
+  const [processMessage, setProcessMessage] = useState("");
+  const [processId, setProcessId] = useState<string | null>(null);
+
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentBatch: 0, totalBatches: 0 });
 
   useEffect(() => {
     checkConnectionAndLoadSchema()
@@ -90,7 +96,7 @@ export function SchemaExplorer() {
                 const connectionData = JSON.parse(activeConnection)
                 const cacheKey = `schema_${connectionData.id}`
                 localStorage.setItem(cacheKey, JSON.stringify(status.result.schema))
-                console.log("[v0] Schema data cached")
+                console.log("Schema data cached")
               }
 
               // Show success notification
@@ -109,22 +115,41 @@ export function SchemaExplorer() {
 
       return () => clearInterval(pollInterval)
     }
-  }, [processId, isProcessing])
+  }, [processId, isProcessing]);
+
+  const handleDeleteColumn = (tableName: string, columnName: string) => {
+    setDeleteTarget({ tableName, columnName })
+    setShowDeleteConfirmation(true)
+  }
+
+  const confirmDeleteColumn = async () => {
+    if (!deleteTarget) return
+
+    try {
+      await removeColumnFromTable(deleteTarget.tableName, deleteTarget.columnName);
+      console.log(`Column ${deleteTarget.columnName} removed successfully`);
+    } catch (error) {
+      console.error("Error removing column:", error);
+      alert("Failed to remove column. Please try again.");
+    }
+
+    setDeleteTarget(null);
+  }
 
   const checkConnectionAndLoadSchema = async () => {
     try {
       const activeConnection = localStorage.getItem("currentDbConnection")
-      console.log("[v0] Active connection check:", activeConnection)
+      console.log("Active connection check:", activeConnection)
 
       if (!activeConnection) {
-        console.log("[v0] No active connection found")
+        console.log("No active connection found")
         setHasConnection(false)
         setLoading(false)
         return
       }
 
       const connectionData = JSON.parse(activeConnection)
-      console.log("[v0] Connection data:", connectionData)
+      console.log("Connection data:", connectionData)
       setHasConnection(true)
 
       const cacheKey = `schema_${connectionData.id}`
@@ -133,12 +158,12 @@ export function SchemaExplorer() {
       if (cachedSchema) {
         try {
           const parsedSchema = JSON.parse(cachedSchema)
-          console.log("[v0] Using cached schema data")
+          console.log("Using cached schema data")
           setSchema(parsedSchema)
           setLoading(false)
           return
         } catch (error) {
-          console.log("[v0] Invalid cached schema, fetching fresh data")
+          console.log("Invalid cached schema, fetching fresh data")
           localStorage.removeItem(cacheKey)
         }
       }
@@ -159,16 +184,16 @@ export function SchemaExplorer() {
       if (response.ok) {
         const data = await response.json()
         setProcessId(data.processId)
-        console.log("[v0] Background process started:", data.processId)
+        console.log("Background process started:", data.processId)
       } else {
         const errorData = await response.json()
-        console.log("[v0] API error:", errorData)
+        console.log("API error:", errorData)
         setError(errorData.error || "Failed to start schema introspection")
         setIsProcessing(false)
         setLoading(false)
       }
     } catch (error) {
-      console.error("[v0] Schema loading error:", error)
+      console.error("Schema loading error:", error)
       setError("Failed to connect to database")
       setIsProcessing(false)
       setLoading(false)
@@ -180,7 +205,7 @@ export function SchemaExplorer() {
 
     const activeConnection = localStorage.getItem("currentDbConnection")
     if (!activeConnection) {
-      console.log("[v0] No active connection found at start of AI generation")
+      console.log("No active connection found at start of AI generation")
       alert("No database connection found. Please reconnect to your database.")
       return
     }
@@ -190,9 +215,9 @@ export function SchemaExplorer() {
     try {
       connectionData = JSON.parse(activeConnection)
       databaseDescription = connectionData.description || ""
-      console.log("[v0] Using connection:", connectionData.name)
+      console.log("Using connection:", connectionData.name)
     } catch (error) {
-      console.error("[v0] Failed to parse connection data:", error)
+      console.error("Failed to parse connection data:", error)
       alert("Invalid connection data. Please reconnect to your database.")
       return
     }
@@ -201,15 +226,15 @@ export function SchemaExplorer() {
       const hasTableDescription = table.description || table.aiDescription
       const hasAllColumnDescriptions = table.columns.every((col) => col.description || col.aiDescription)
       return !hasTableDescription || !hasAllColumnDescriptions
-    })
+    });
 
     if (tablesNeedingDescriptions.length === 0) {
-      alert("All tables already have AI descriptions!")
-      return
+      alert("All tables already have AI descriptions!");
+      return;
     }
 
     console.log(
-      `[v0] Processing ${tablesNeedingDescriptions.length} tables (${schema.tables.length - tablesNeedingDescriptions.length} already have descriptions)`,
+      `Processing ${tablesNeedingDescriptions.length} tables (${schema.tables.length - tablesNeedingDescriptions.length} already have descriptions)`,
     )
 
     setGeneratingDescriptions(true)
@@ -227,7 +252,7 @@ export function SchemaExplorer() {
       const updatedSchema = { ...schema }
 
       for (let batchIndex = 0; batchIndex < tableBatches.length; batchIndex++) {
-        console.log(`[v0] Processing batch ${batchIndex + 1}/${tableBatches.length}`)
+        console.log(`Processing batch ${batchIndex + 1}/${tableBatches.length}`)
 
         setBatchProgress((prev) => ({
           ...prev,
@@ -258,7 +283,7 @@ export function SchemaExplorer() {
 
           if (response.ok) {
             const data = await response.json()
-            console.log(`[v0] Batch ${batchIndex + 1} completed successfully`)
+            console.log(`Batch ${batchIndex + 1} completed successfully`)
 
             // Update the schema with the batch results
             data.schema.tables.forEach((updatedTable: any) => {
@@ -277,21 +302,21 @@ export function SchemaExplorer() {
 
             const cacheKey = `schema_${connectionData.id}`
             localStorage.setItem(cacheKey, JSON.stringify(updatedSchema))
-            console.log(`[v0] Schema cached for batch ${batchIndex + 1}`)
+            console.log(`Schema cached for batch ${batchIndex + 1}`)
           } else {
             const errorText = await response.text()
-            console.error(`[v0] Failed to process batch ${batchIndex + 1}:`, errorText)
+            console.error(`Failed to process batch ${batchIndex + 1}:`, errorText)
             throw new Error(`Batch ${batchIndex + 1} failed: ${response.status} ${response.statusText}`)
           }
         } catch (batchError) {
-          console.error(`[v0] Error processing batch ${batchIndex + 1}:`, batchError)
+          console.error(`Error processing batch ${batchIndex + 1}:`, batchError)
           alert(`Failed to process batch ${batchIndex + 1}. Check console for details.`)
           break // Stop processing further batches
         }
 
         // Small delay between batches to prevent rate limiting
         if (batchIndex < tableBatches.length - 1) {
-          console.log(`[v0] Waiting 1 second before next batch...`)
+          console.log(`Waiting 1 second before next batch...`)
           await new Promise((resolve) => setTimeout(resolve, 1000))
         }
       }
@@ -304,14 +329,86 @@ export function SchemaExplorer() {
           ? `AI descriptions generated for ${tablesNeedingDescriptions.length} tables (${skippedCount} already had descriptions)`
           : `AI descriptions generated for all ${tablesNeedingDescriptions.length} tables`
 
-      console.log(`[v0] AI generation completed: ${message}`)
+      console.log(`AI generation completed: ${message}`)
       alert(message)
     } catch (error) {
-      console.error("[v0] Failed to generate descriptions:", error)
+      console.error("Failed to generate descriptions:", error)
       alert(`Failed to generate AI descriptions: ${error}`)
     } finally {
       setGeneratingDescriptions(false)
       setBatchProgress({ current: 0, total: 0, currentBatch: 0, totalBatches: 0 })
+    }
+  }
+
+  const removeColumnFromTable = async (tableName: string, columnName: string) => {
+    if (!schema) return
+
+    const activeConnection = localStorage.getItem("currentDbConnection");
+    let connection;
+
+    if (!!activeConnection) {
+      try {
+        connection = JSON.parse(activeConnection);
+      } catch (error) {
+        console.error("Failed to parse connection or schema data:", error);
+      }
+    } else {
+      throw new Error("No active connection!");
+    }
+    connection.vectorStoreId = undefined;
+    connection.schemaFileId = undefined;
+    localStorage.setItem("currentDbConnection", JSON.stringify(connection));
+
+    const cacheKey = `schema_${connection.id}`
+    const cachedSchema = localStorage.getItem(cacheKey)
+    let schemaData;
+    if (cachedSchema) {
+      schemaData = JSON.parse(cachedSchema)
+    }
+
+    if (!schemaData) {
+      throw new Error("No schema data found! Be sure to parse database schema before trying to upload.");
+    }
+
+    const table = schemaData.tables.find((table) => table.name === tableName);
+    if (!table) {
+      throw new Error("No table found for schema data!");
+    }
+    const index = table.columns.findIndex((t) => t.name === columnName);
+    if (index < 0) {
+      throw new Error("No column found for schema data!");
+    }
+    
+    table.columns.splice(index, 1);    
+
+    console.log(`Removed column ${columnName} from table ${tableName}`);
+    localStorage.setItem(cacheKey, JSON.stringify(schemaData));
+
+    setSchema({...schemaData})
+    setEditingTable(null)
+    setEditingColumn(null)
+    setTempDescription("")
+
+    // Save to backend
+    try {
+      const result = await fetch("/api/schema/upload-schema", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          data: schemaData
+        }),
+      });
+      
+      if (result.ok) {
+        const ids = await result.json();
+        connection.vectorStoreId = ids.vectorStoreId;
+        connection.schemaFileId = ids.fileId;
+        localStorage.setItem("currentDbConnection", JSON.stringify(connection));
+      }
+    } catch (error) {
+      console.error("Failed to upload schema:", error)
     }
   }
 
@@ -374,7 +471,7 @@ export function SchemaExplorer() {
           data: schemaData
         }),
       });
-      
+
       if (result.ok) {
         const ids = await result.json();
         connection.vectorStoreId = ids.vectorStoreId;
@@ -568,6 +665,7 @@ export function SchemaExplorer() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      title="Edit Table description"
                       onClick={() => startEditing(table.name, undefined, table.description)}
                     >
                       <Edit3 className="w-4 h-4" />
@@ -680,9 +778,18 @@ export function SchemaExplorer() {
                             <Button
                               variant="ghost"
                               size="sm"
+                              title="Edit this Column's description"
                               onClick={() => startEditing(table.name, column.name, column.description)}
                             >
                               <Edit3 className="w-4 h-4" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                title="Remove the current Column from this Table"
+                                onClick={() => handleDeleteColumn(table.name, column.name)}
+                            >
+                              <Trash className="w-4 h-4" />
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -730,6 +837,16 @@ export function SchemaExplorer() {
           </Card>
         </TabsContent>
       </Tabs>
+      <ConfirmationModal
+          open={showDeleteConfirmation}
+          onOpenChange={setShowDeleteConfirmation}
+          title="Delete Column"
+          description={`Are you sure you want to delete the column "${deleteTarget?.columnName}" from table "${deleteTarget?.tableName}"? This action cannot be undone and will remove this column from future Query Generations.`}
+          confirmText="Delete"
+          cancelText="Cancel"
+          variant="destructive"
+          onConfirm={confirmDeleteColumn}
+      />
     </div>
-  )
+)
 }

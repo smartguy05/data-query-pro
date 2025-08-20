@@ -144,15 +144,25 @@ async function processSchemaInBackground(processId: string, connection: any) {
         fkMap.set(fk.column_name, `${fk.foreign_table_name}.${fk.foreign_column_name}`)
       })
 
-      const processedColumns = columns.map((col: any) => ({
-        name: col.column_name,
-        type: col.data_type,
-        nullable: col.is_nullable,
-        primary_key: col.is_primary_key,
-        foreign_key: fkMap.get(col.column_name) || undefined,
-        description: null,
-        aiDescription: null,
-      }))
+      const columnMap = new Map<string, any>();
+
+      columns.forEach((col: any) => {
+        const columnName = col.column_name;
+
+        if (!columnMap.has(columnName)) {
+          columnMap.set(columnName, {
+            name: col.column_name,
+            type: col.data_type,
+            nullable: col.is_nullable,
+            primary_key: col.is_primary_key,
+            foreign_key: fkMap.get(col.column_name) || undefined,
+            description: null,
+            aiDescription: null,
+          });
+        }
+      });
+
+      const processedColumns = Array.from(columnMap.values());
 
       schema.tables.push({
         name: table.table_name,
