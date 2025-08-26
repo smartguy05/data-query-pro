@@ -12,41 +12,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Database, CheckCircle, Loader2, Plus, Trash2, Download, Upload } from "lucide-react"
-
-interface DatabaseConnection {
-  id: string
-  name: string
-  type: string
-  host: string
-  port: string
-  database: string
-  username: string
-  password: string
-  description?: string
-  status: "connected" | "disconnected"
-  schemaFileId?: string;
-  vectorStoreId?: string;
-  createdAt: string,
-}
-
-interface ConnectionFormData {
-  type: string
-  name: string
-  host: string
-  port: string
-  database: string
-  username: string
-  password: string
-  description: string
-}
+import {useDatabaseOptions} from "@/lib/database-connection-options";
 
 export default function DatabasePage() {
-  const [isConnecting, setIsConnecting] = useState(false)
-  const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle")
-  const [savedConnections, setSavedConnections] = useState<DatabaseConnection[]>([])
-  const [isExporting, setIsExporting] = useState(false)
-  const [isImporting, setIsImporting] = useState(false)
-  const [importStatus, setImportStatus] = useState<"idle" | "success" | "error">("idle")
+  const connectionInformation = useDatabaseOptions();
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState<"idle" | "success" | "error">("idle");
+  
+  const savedConnections = connectionInformation.connections;
+  const connectionStatus = connectionInformation.connectionStatus;
 
   const {
     register,
@@ -71,17 +47,6 @@ export default function DatabasePage() {
   const selectedType = watch("type")
 
   useEffect(() => {
-    const saved = localStorage.getItem("databaseConnections")
-    if (saved) {
-      try {
-        setSavedConnections(JSON.parse(saved))
-      } catch (error) {
-        console.error("Failed to parse saved connections:", error)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
     const defaultPorts: Record<string, string> = {
       postgresql: "5432",
       mysql: "3306",
@@ -96,12 +61,12 @@ export default function DatabasePage() {
 
   const handleConnect = async (data: ConnectionFormData) => {
     if (!data.type || !data.name || !data.host || !data.database || !data.username) {
-      setConnectionStatus("error")
+      connectionInformation.setConnectionStatus("error")
       return
     }
 
     setIsConnecting(true)
-    setConnectionStatus("idle")
+    connectionInformation.setConnectionStatus("idle")
 
     try {
       // Simulate connection test
@@ -120,52 +85,21 @@ export default function DatabasePage() {
         description: data.description,
         status: "connected",
         createdAt: new Date().toISOString(),
-      }
+      };
 
-      // Save to localStorage
-      const updatedConnections = [...savedConnections, newConnection]
-      setSavedConnections(updatedConnections)
-      localStorage.setItem("databaseConnections", JSON.stringify(updatedConnections))
+      connectionInformation.addConnection(newConnection);
 
       // Also save current connection for schema introspection
-      localStorage.setItem("currentDbConnection", JSON.stringify(newConnection))
+      connectionInformation.setCurrentConnection(newConnection);
 
-      setConnectionStatus("success")
+      connectionInformation.setConnectionStatus("success")
       reset() // Clear form after successful connection
     } catch (error) {
       console.error("Connection failed:", error)
-      setConnectionStatus("error")
+      connectionInformation.setConnectionStatus("error")
     } finally {
       setIsConnecting(false)
     }
-  }
-
-  const deleteConnection = (id: string) => {
-    const updatedConnections = savedConnections.filter((conn) => conn.id !== id)
-    setSavedConnections(updatedConnections)
-    localStorage.setItem("databaseConnections", JSON.stringify(updatedConnections))
-  }
-
-  const setCurrentConnection = (connection: DatabaseConnection) => {
-    localStorage.setItem("currentDbConnection", JSON.stringify(connection))
-    // Update connection status to connected
-    const updatedConnections = savedConnections.map((conn) =>
-      conn.id === connection.id
-        ? { ...conn, status: "connected" as const }
-        : { ...conn, status: "disconnected" as const },
-    )
-    setSavedConnections(updatedConnections)
-    localStorage.setItem("databaseConnections", JSON.stringify(updatedConnections))
-  }
-
-  const updateConnection = (connection: DatabaseConnection) => {
-    const updatedConnections = savedConnections.map((conn) =>
-        conn.id === connection.id
-            ? { ...conn, ...connection }
-            : conn
-    )
-    setSavedConnections(updatedConnections)
-    localStorage.setItem("databaseConnections", JSON.stringify(updatedConnections))
   }
 
   const exportData = async () => {
@@ -174,19 +108,15 @@ export default function DatabasePage() {
       const exportData = {
         version: "1.0",
         exportDate: new Date().toISOString(),
-        databaseConnections: JSON.parse(localStorage.getItem("databaseConnections") || "[]"),
-        currentDbConnection: JSON.parse(localStorage.getItem("currentDbConnection") || "null"),
+        databaseConnections: connectionInformation.connections,
+        currentDbConnection: connectionInformation.currentConnection,
         schemaData: {},
-      }
-
-      // Export all cached schema data
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key && key.startsWith("schema_")) {
-          const schemaData = localStorage.getItem(key)
-          if (schemaData) {
-            exportData.schemaData[key] = JSON.parse(schemaData)
-          }
+      };
+      
+      for (let i = 0; i < connectionInformation.connections.length; i++) {
+        const schemaData = connectionInformation.getSchema(connectionInformation.connections[i].id);
+        if (!!schemaData) {
+          (exportData.schemaData as any)[connectionInformation.connections[i].id] = schemaData;
         }
       }
 
@@ -225,16 +155,16 @@ export default function DatabasePage() {
 
         // Import database connections
         if (importData.databaseConnections && Array.isArray(importData.databaseConnections)) {
-          localStorage.setItem("databaseConnections", JSON.stringify(importData.databaseConnections))
-          setSavedConnections(importData.databaseConnections)
+          connectionInformation.importConnections(importData.databaseConnections);
         }
 
         // Import current connection
         if (importData.currentDbConnection) {
-          localStorage.setItem("currentDbConnection", JSON.stringify(importData.currentDbConnection))
+          connectionInformation.setCurrentConnection(importData.currentDbConnection);
         }
 
         // Import schema data
+        // todo: fix
         if (importData.schemaData && typeof importData.schemaData === "object") {
           Object.entries(importData.schemaData).forEach(([key, value]) => {
             if (key.startsWith("schema_")) {
@@ -260,12 +190,8 @@ export default function DatabasePage() {
 
   // Upload schema data as a file
   const uploadSchema = async (connection: DatabaseConnection) => {
-    const cacheKey = `schema_${connection.id}`
-    const cachedSchema = localStorage.getItem(cacheKey)
-    let schemaData = {}
-    if (cachedSchema) {
-      schemaData = JSON.parse(cachedSchema)
-    }
+    
+    let schemaData = connectionInformation.getSchema(connection.id);
     
     if (!schemaData) {
       throw new Error("No schema data found! Be sure to parse database schema before trying to upload.");
@@ -286,7 +212,7 @@ export default function DatabasePage() {
         const data = await response.json();
         connection.schemaFileId = data.fileId;
         connection.vectorStoreId = data.vectorStoreId;
-        updateConnection(connection);
+        connectionInformation.updateConnection(connection);
       } else {
         const errorText = await response.text();
         console.error(`Failed to upload schema file`, errorText);
@@ -296,6 +222,14 @@ export default function DatabasePage() {
       alert(error);
     }
   };
+  
+  const deleteConnection = (id: string) => {
+    connectionInformation.deleteConnection(id);
+  }
+  
+  const setCurrentConnection = (connection: DatabaseConnection) => {
+    connectionInformation.setCurrentConnection(connection);
+  }
   
   return (
     <div className="min-h-screen bg-slate-50 p-6">
@@ -357,7 +291,7 @@ export default function DatabasePage() {
         <Tabs defaultValue="connect" className="space-y-6">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="connect">New Connection</TabsTrigger>
-            <TabsTrigger value="existing">Existing Connections ({savedConnections.length})</TabsTrigger>
+            <TabsTrigger value="existing">Existing Connections ({savedConnections?.length ?? 0})</TabsTrigger>
           </TabsList>
 
           <TabsContent value="connect">
@@ -475,7 +409,7 @@ export default function DatabasePage() {
 
           <TabsContent value="existing">
             <div className="space-y-4">
-              {savedConnections.length === 0 ? (
+              {!savedConnections?.length ? (
                 <Card>
                   <CardContent className="flex items-center justify-center py-12">
                     <div className="text-center space-y-2">

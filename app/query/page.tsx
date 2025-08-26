@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { QueryResultsDisplay } from "@/components/query-results-display"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
+import {useDatabaseOptions} from "@/lib/database-connection-options";
 
 interface QueryResult {
   sql: string
@@ -55,6 +56,8 @@ export default function QueryPage() {
     }
   }, [queryResult]);
 
+  const connectionInformation = useDatabaseOptions();
+
   const generateSQL = async () => {
     if (!naturalQuery.trim()) return
 
@@ -62,19 +65,8 @@ export default function QueryPage() {
     setError("")
 
     try {
-      const activeConnection = localStorage.getItem("currentDbConnection")
-      let connection;
+      let connection = connectionInformation.getConnection();
 
-      if (!!activeConnection) {
-        try {
-          connection = JSON.parse(activeConnection);          
-        } catch (error) {
-          console.error("Failed to parse connection or schema data:", error);
-        }
-      } else {
-        throw new Error("No active connection!");
-      }
-      
       if (!connection?.schemaFileId) {
         throw new Error("You must upload schema information file before creating queries!");
       }
@@ -120,23 +112,14 @@ export default function QueryPage() {
     setError("")
 
     try {
-      const activeConnection = localStorage.getItem("currentDbConnection")
-      let connectionData = null
-
-      if (activeConnection) {
-        try {
-          connectionData = JSON.parse(activeConnection)
-        } catch (error) {
-          console.error("Failed to parse connection data:", error)
-        }
-      }
-
+      const activeConnection = connectionInformation.getConnection();
+      
       const response = await fetch("/api/query/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sql: editableSql, // Use editableSql instead of queryResult.sql
-          connection: connectionData,
+          connection: activeConnection,
         }),
       })
 

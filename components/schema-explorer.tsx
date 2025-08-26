@@ -10,7 +10,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ConfirmationModal } from "@/components/ui/confirmation-modal"
-
 import {
   Database,
   TableIcon,
@@ -26,31 +25,11 @@ import {
   ChevronRight, 
   Trash
 } from "lucide-react"
-
-interface Column {
-  name: string
-  type: string
-  nullable: boolean
-  primary_key?: boolean
-  foreign_key?: string
-  description?: string
-  aiDescription?: string
-}
-
-interface DatabaseTable {
-  name: string
-  columns: Column[]
-  description?: string
-  aiDescription?: string
-  hidden?: boolean
-}
-
-interface Schema {
-  tables: DatabaseTable[]
-}
+import {useDatabaseOptions} from "@/lib/database-connection-options";
 
 export function SchemaExplorer() {
-  const [schema, setSchema] = useState<Schema | null>(null);
+  const connectionInformation = useDatabaseOptions();
+  
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasConnection, setHasConnection] = useState(false);
@@ -62,7 +41,6 @@ export function SchemaExplorer() {
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ tableName: string; columnName: string } | null>(null);
 
-
   const [isProcessing, setIsProcessing] = useState(false);
   const [processProgress, setProcessProgress] = useState(0);
   const [processMessage, setProcessMessage] = useState("");
@@ -71,8 +49,10 @@ export function SchemaExplorer() {
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentBatch: 0, totalBatches: 0 });
 
   useEffect(() => {
-    checkConnectionAndLoadSchema()
-  }, [])
+    if (connectionInformation.isInitialized) {
+      checkConnectionAndLoadSchema();      
+    }
+  }, [connectionInformation.isInitialized])
 
   useEffect(() => {
     if (processId && isProcessing) {
@@ -85,21 +65,16 @@ export function SchemaExplorer() {
             setProcessMessage(status.message)
 
             if (status.status === "completed") {
-              setSchema(status.result.schema)
+              const schema: Schema = {
+                connectionId: connectionInformation.currentConnection?.id ?? "",
+                tables: status.result.schema.tables
+              };
+              connectionInformation.setSchema(schema);
               setIsProcessing(false)
               setLoading(false)
               setError(null)
               clearInterval(pollInterval)
 
-              const activeConnection = localStorage.getItem("currentDbConnection")
-              if (activeConnection) {
-                const connectionData = JSON.parse(activeConnection)
-                const cacheKey = `schema_${connectionData.id}`
-                localStorage.setItem(cacheKey, JSON.stringify(status.result.schema))
-                console.log("Schema data cached")
-              }
-
-              // Show success notification
               alert("Schema introspection completed successfully!")
             } else if (status.status === "error") {
               setError(status.error || "Schema introspection failed")
@@ -138,34 +113,21 @@ export function SchemaExplorer() {
 
   const checkConnectionAndLoadSchema = async () => {
     try {
-      const activeConnection = localStorage.getItem("currentDbConnection")
-      console.log("Active connection check:", activeConnection)
+      const connection = connectionInformation.currentConnection;
+      console.log("Active connection check:", connection);
 
-      if (!activeConnection) {
-        console.log("No active connection found")
-        setHasConnection(false)
-        setLoading(false)
-        return
+      if (!connection) {
+        console.log("No active connection found");
+        setHasConnection(false);
+        setLoading(false);
+        return;
       }
 
-      const connectionData = JSON.parse(activeConnection)
-      console.log("Connection data:", connectionData)
       setHasConnection(true)
-
-      const cacheKey = `schema_${connectionData.id}`
-      const cachedSchema = localStorage.getItem(cacheKey)
-
-      if (cachedSchema) {
-        try {
-          const parsedSchema = JSON.parse(cachedSchema)
-          console.log("Using cached schema data")
-          setSchema(parsedSchema)
-          setLoading(false)
-          return
-        } catch (error) {
-          console.log("Invalid cached schema, fetching fresh data")
-          localStorage.removeItem(cacheKey)
-        }
+      const schema = connectionInformation.getSchema();
+      if (!!schema) {
+        setLoading(false);
+        return;
       }
 
       setIsProcessing(true)
@@ -178,7 +140,7 @@ export function SchemaExplorer() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ connection: connectionData }),
+        body: JSON.stringify({ connection }),
       })
 
       if (response.ok) {
@@ -201,32 +163,29 @@ export function SchemaExplorer() {
   }
 
   const generateAIDescriptions = async () => {
-    if (!schema) return
+    if (!connectionInformation.currentSchema) return
 
-    const activeConnection = localStorage.getItem("currentDbConnection")
+    const activeConnection = connectionInformation.currentConnection;
     if (!activeConnection) {
-      console.log("No active connection found at start of AI generation")
-      alert("No database connection found. Please reconnect to your database.")
-      return
+      console.log("No active connection found at start of AI generation");
+      alert("No database connection found. Please reconnect to your database.");
+      return;
+    }
+    
+    if (!activeConnection.description) {
+      alert("A description for the database must be set before table and column descriptions can be generated.");
+      return;
     }
 
-    let connectionData
-    let databaseDescription = ""
-    try {
-      connectionData = JSON.parse(activeConnection)
-      databaseDescription = connectionData.description || ""
-      console.log("Using connection:", connectionData.name)
-    } catch (error) {
-      console.error("Failed to parse connection data:", error)
-      alert("Invalid connection data. Please reconnect to your database.")
-      return
-    }
+    const databaseDescription = activeConnection.description;
 
-    const tablesNeedingDescriptions = schema.tables.filter((table) => {
-      const hasTableDescription = table.description || table.aiDescription
-      const hasAllColumnDescriptions = table.columns.every((col) => col.description || col.aiDescription)
-      return !hasTableDescription || !hasAllColumnDescriptions
-    });
+    const tablesNeedingDescriptions = connectionInformation.currentSchema.tables
+        .filter((table) => {
+          const hasTableDescription = table.description || table.aiDescription;
+          const hasAllColumnDescriptions = table.columns.every((col) => col.description || col.aiDescription);
+          const isHidden = table.hidden;
+          return (!hasTableDescription || !hasAllColumnDescriptions) && !isHidden;
+        });
 
     if (tablesNeedingDescriptions.length === 0) {
       alert("All tables already have AI descriptions!");
@@ -234,7 +193,7 @@ export function SchemaExplorer() {
     }
 
     console.log(
-      `Processing ${tablesNeedingDescriptions.length} tables (${schema.tables.length - tablesNeedingDescriptions.length} already have descriptions)`,
+      `Processing ${tablesNeedingDescriptions.length} tables (${connectionInformation.currentSchema.tables.length - tablesNeedingDescriptions.length} already have descriptions)`,
     )
 
     setGeneratingDescriptions(true)
@@ -249,7 +208,7 @@ export function SchemaExplorer() {
       }
 
       setBatchProgress((prev) => ({ ...prev, totalBatches: tableBatches.length }))
-      const updatedSchema = { ...schema }
+      const updatedSchema = { ...connectionInformation.currentSchema }
 
       for (let batchIndex = 0; batchIndex < tableBatches.length; batchIndex++) {
         console.log(`Processing batch ${batchIndex + 1}/${tableBatches.length}`)
@@ -294,36 +253,32 @@ export function SchemaExplorer() {
             })
 
             // Update the UI with progress
-            setSchema({ ...updatedSchema })
+            connectionInformation.setSchema(updatedSchema);
             setBatchProgress((prev) => ({
               ...prev,
               current: (batchIndex + 1) * batchSize,
-            }))
-
-            const cacheKey = `schema_${connectionData.id}`
-            localStorage.setItem(cacheKey, JSON.stringify(updatedSchema))
-            console.log(`Schema cached for batch ${batchIndex + 1}`)
+            }));
           } else {
-            const errorText = await response.text()
-            console.error(`Failed to process batch ${batchIndex + 1}:`, errorText)
-            throw new Error(`Batch ${batchIndex + 1} failed: ${response.status} ${response.statusText}`)
+            const errorText = await response.text();
+            console.error(`Failed to process batch ${batchIndex + 1}:`, errorText);
+            throw new Error(`Batch ${batchIndex + 1} failed: ${response.status} ${response.statusText}`);
           }
         } catch (batchError) {
-          console.error(`Error processing batch ${batchIndex + 1}:`, batchError)
-          alert(`Failed to process batch ${batchIndex + 1}. Check console for details.`)
-          break // Stop processing further batches
+          console.error(`Error processing batch ${batchIndex + 1}:`, batchError);
+          alert(`Failed to process batch ${batchIndex + 1}. Check console for details.`);
+          break;
         }
 
         // Small delay between batches to prevent rate limiting
         if (batchIndex < tableBatches.length - 1) {
-          console.log(`Waiting 1 second before next batch...`)
-          await new Promise((resolve) => setTimeout(resolve, 1000))
+          console.log(`Waiting 1 second before next batch...`);
+          await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       }
 
       setBatchProgress((prev) => ({ ...prev, current: tablesNeedingDescriptions.length }))
 
-      const skippedCount = schema.tables.length - tablesNeedingDescriptions.length
+      const skippedCount = connectionInformation.currentSchema.tables.length - tablesNeedingDescriptions.length
       const message =
         skippedCount > 0
           ? `AI descriptions generated for ${tablesNeedingDescriptions.length} tables (${skippedCount} already had descriptions)`
@@ -341,30 +296,19 @@ export function SchemaExplorer() {
   }
 
   const removeColumnFromTable = async (tableName: string, columnName: string) => {
-    if (!schema) return
+    if (!connectionInformation.currentSchema) return
 
-    const activeConnection = localStorage.getItem("currentDbConnection");
-    let connection;
-
-    if (!!activeConnection) {
-      try {
-        connection = JSON.parse(activeConnection);
-      } catch (error) {
-        console.error("Failed to parse connection or schema data:", error);
-      }
-    } else {
-      throw new Error("No active connection!");
+    const connection = connectionInformation.currentConnection;
+    
+    if (!connection) {
+      throw new Error("No connection found!");
     }
+
     connection.vectorStoreId = undefined;
     connection.schemaFileId = undefined;
-    localStorage.setItem("currentDbConnection", JSON.stringify(connection));
+    connectionInformation.updateConnection(connection);
 
-    const cacheKey = `schema_${connection.id}`
-    const cachedSchema = localStorage.getItem(cacheKey)
-    let schemaData;
-    if (cachedSchema) {
-      schemaData = JSON.parse(cachedSchema)
-    }
+    const schemaData = connectionInformation.getSchema();
 
     if (!schemaData) {
       throw new Error("No schema data found! Be sure to parse database schema before trying to upload.");
@@ -381,10 +325,7 @@ export function SchemaExplorer() {
     
     table.columns.splice(index, 1);    
 
-    console.log(`Removed column ${columnName} from table ${tableName}`);
-    localStorage.setItem(cacheKey, JSON.stringify(schemaData));
-
-    setSchema({...schemaData})
+    connectionInformation.setSchema(schemaData);
     setEditingTable(null)
     setEditingColumn(null)
     setTempDescription("")
@@ -405,7 +346,7 @@ export function SchemaExplorer() {
         const ids = await result.json();
         connection.vectorStoreId = ids.vectorStoreId;
         connection.schemaFileId = ids.fileId;
-        localStorage.setItem("currentDbConnection", JSON.stringify(connection));
+        connectionInformation.updateConnection(connection);
       }
     } catch (error) {
       console.error("Failed to upload schema:", error)
@@ -413,30 +354,18 @@ export function SchemaExplorer() {
   }
 
   const saveDescription = async (tableName: string, columnName?: string, description?: string) => {
-    if (!schema) return
+    if (!connectionInformation.currentSchema) return
 
-    const activeConnection = localStorage.getItem("currentDbConnection")
-    let connection;
-
-    if (!!activeConnection) {
-      try {
-        connection = JSON.parse(activeConnection);
-      } catch (error) {
-        console.error("Failed to parse connection or schema data:", error);
-      }
-    } else {
-      throw new Error("No active connection!");
+    const connection = connectionInformation.currentConnection;
+    if (!connection) {
+      throw new Error("No connection found!");
     }
+    
     connection.vectorStoreId = undefined;
     connection.schemaFileId = undefined;
-    localStorage.setItem("currentDbConnection", JSON.stringify(connection));
+    connectionInformation.updateConnection(connection);
 
-    const cacheKey = `schema_${connection.id}`
-    const cachedSchema = localStorage.getItem(cacheKey)
-    let schemaData;
-    if (cachedSchema) {
-      schemaData = JSON.parse(cachedSchema)
-    }
+    const schemaData = connectionInformation.getSchema();
 
     if (!schemaData) {
       throw new Error("No schema data found! Be sure to parse database schema before trying to upload.");
@@ -456,10 +385,9 @@ export function SchemaExplorer() {
     } else {
       table.description = description;
     }
-    console.log("Updating description:", { tableName, columnName, description })
-    localStorage.setItem(cacheKey, JSON.stringify(schemaData));
+    console.log("Updating description:", { tableName, columnName, description });
 
-    setSchema({...schemaData})
+    connectionInformation.setSchema(schemaData);
     setEditingTable(null)
     setEditingColumn(null)
     setTempDescription("")
@@ -480,7 +408,7 @@ export function SchemaExplorer() {
         const ids = await result.json();
         connection.vectorStoreId = ids.vectorStoreId;
         connection.schemaFileId = ids.fileId;
-        localStorage.setItem("currentDbConnection", JSON.stringify(connection));
+        connectionInformation.updateConnection(connection);
       }
     } catch (error) {
       console.error("Failed to upload schema:", error)
@@ -510,16 +438,16 @@ export function SchemaExplorer() {
   }
 
   const toggleTableVisibility = async (tableName: string) => {
-    if (!schema) return
+    if (!connectionInformation.currentSchema) return
 
-    const updatedSchema = { ...schema }
+    const updatedSchema = { ...connectionInformation.currentSchema }
     const table = updatedSchema.tables.find((t) => t.name === tableName)
 
     if (table) {
-      table.hidden = !table.hidden
+      table.hidden = !table.hidden;
     }
 
-    setSchema(updatedSchema)
+    connectionInformation.setSchema(updatedSchema);
 
     // Save to backend
     try {
@@ -536,17 +464,13 @@ export function SchemaExplorer() {
       if (result.ok) {
         const ids = await result.json();
 
-        // Save to localStorage cache
-        const activeConnection = localStorage.getItem("currentDbConnection")
-        if (activeConnection) {
-          const connection = JSON.parse(activeConnection)
-          const cacheKey = `schema_${connection.id}`
-          connection.vectorStoreId = ids.vectorStoreId;
-          connection.schemaFileId = ids.fileId;
-          localStorage.setItem("currentDbConnection", JSON.stringify(connection));
-          // todo: update stored db array also
-          localStorage.setItem(cacheKey, JSON.stringify(updatedSchema))
+        const connection = connectionInformation.currentConnection;
+        if (!connection) {
+          throw new Error("No connection found!");
         }
+        connection.vectorStoreId = ids.vectorStoreId;
+        connection.schemaFileId = ids.fileId;
+        connectionInformation.updateConnection(connection);
       }
     } catch (error) {
       console.error("Failed to upload schema:", error)
@@ -608,7 +532,7 @@ export function SchemaExplorer() {
     )
   }
 
-  if (!schema || !schema.tables || schema.tables.length === 0) {
+  if (!connectionInformation.currentSchema || !connectionInformation.currentSchema.tables || connectionInformation.currentSchema.tables.length === 0) {
     return (
       <Alert>
         <AlertCircle className="h-4 w-4" />
@@ -623,10 +547,10 @@ export function SchemaExplorer() {
         <div className="flex items-center gap-2">
           <Database className="w-5 h-5 text-accent" />
           <span className="text-lg font-semibold">
-            {schema.tables.length} Tables Found
-            {schema.tables.filter((t) => t.hidden).length > 0 && (
+            {connectionInformation.currentSchema.tables.length} Tables Found
+            {connectionInformation.currentSchema.tables.filter((t) => t.hidden).length > 0 && (
               <span className="text-sm text-muted-foreground ml-2">
-                ({schema.tables.filter((t) => t.hidden).length} hidden from queries)
+                ({connectionInformation.currentSchema.tables.filter((t) => t.hidden).length} hidden from queries)
               </span>
             )}
           </span>
@@ -654,7 +578,7 @@ export function SchemaExplorer() {
         </TabsList>
 
         <TabsContent value="tables" className="space-y-4">
-          {schema.tables.map((table) => (
+          {connectionInformation.currentSchema.tables.map((table) => (
             <Card key={table.name} className={table.hidden ? "opacity-60 border-dashed" : ""}>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -709,7 +633,7 @@ export function SchemaExplorer() {
                       className="min-h-[80px]"
                     />
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={() => saveDescription(table.name, null, tempDescription)}>
+                      <Button size="sm" onClick={() => saveDescription(table.name, undefined, tempDescription)}>
                         <Save className="w-4 h-4 mr-1" />
                         Save
                       </Button>
@@ -837,7 +761,7 @@ export function SchemaExplorer() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {schema.tables.map((table) => {
+                {connectionInformation.currentSchema.tables.map((table) => {
                   const foreignKeys = table.columns.filter((col) => col.foreign_key)
                   if (foreignKeys.length === 0) return null
 

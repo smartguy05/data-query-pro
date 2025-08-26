@@ -2,6 +2,7 @@ import type React from "react"
 import type { Metadata } from "next"
 import "./globals.css"
 import { Navigation } from "@/components/navigation"
+import {DatabaseConnectionOptions} from "@/lib/database-connection-options";
 
 export const metadata: Metadata = {
   title: "Database Query & Reporting Platform",
@@ -17,8 +18,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="antialiased">
       <body className="font-sans">
-        <Navigation />
-        <main>{children}</main>
+        <DatabaseConnectionOptions>
+          <Navigation />
+          <main>{children}</main>
+        </DatabaseConnectionOptions>
       </body>
     </html>
   )
