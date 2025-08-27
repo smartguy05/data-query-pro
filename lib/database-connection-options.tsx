@@ -90,9 +90,12 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             conn.id === connection.id
                 ? { ...conn, ...connection }
                 : conn
-        )
-        setConnections(updatedConnections)
-        localStorage.setItem("databaseConnections", JSON.stringify(updatedConnections))
+        );
+        setConnections(updatedConnections);
+        if (!!currentConnection && connection.id === currentConnection.id) {
+            setCurrentConnection(connection);
+        }
+        localStorage.setItem("databaseConnections", JSON.stringify(updatedConnections));
     }
     
     const addConnection = (connection: DatabaseConnection) => {
