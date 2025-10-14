@@ -115,7 +115,7 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             return connectionSchemas.find(f => f.connectionId === id);
         }
         if (!!currentConnection) {
-            return currentSchema;            
+            return currentSchema;
         }
         return undefined;
     }
@@ -124,19 +124,23 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
         if (!schema) {
             throw new Error("No schema supplied!");
         }
-        
+
         const connectionSchema = connectionSchemas.find(f => f.connectionId === schema.connectionId);
         if (!!connectionSchema) {
-            const updatedSchemas = connectionSchemas.map((conn) => {
-                conn.tables = schema.tables;
-                return conn;
+            const updatedSchemas = connectionSchemas.map((s) => {
+                if (s.connectionId === schema.connectionId) {
+                    return schema;
+                }
+                return s;
             });
             setConnectionSchemas(updatedSchemas);
         } else {
             setConnectionSchemas([...connectionSchemas, schema]);
-            if (schema.connectionId === currentSchema?.connectionId) {
-                setCurrentSchema(schema);
-            }
+        }
+
+        // Update current schema if it matches
+        if (schema.connectionId === currentSchema?.connectionId) {
+            setCurrentSchema(schema);
         }
     }
     

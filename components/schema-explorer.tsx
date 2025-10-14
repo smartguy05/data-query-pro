@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ConfirmationModal } from "@/components/ui/confirmation-modal"
+import { SchemaUpdateModal } from "@/components/ui/schema-update-modal"
 import {
   Database,
   TableIcon,
@@ -22,14 +23,19 @@ import {
   RefreshCw,
   AlertCircle,
   ChevronDown,
-  ChevronRight, 
-  Trash
+  ChevronRight,
+  Trash,
+  Eye,
+  EyeOff
 } from "lucide-react"
 import {useDatabaseOptions} from "@/lib/database-connection-options";
+import { useToast } from "@/hooks/use-toast";
+import { compareSchemas, hasSchemaChanges, getChangeSummary } from "@/utils/compare-schemas";
 
 export function SchemaExplorer() {
   const connectionInformation = useDatabaseOptions();
-  
+  const { toast } = useToast();
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasConnection, setHasConnection] = useState(false);
@@ -48,11 +54,30 @@ export function SchemaExplorer() {
 
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentBatch: 0, totalBatches: 0 });
 
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const [isUpdatingSchema, setIsUpdatingSchema] = useState(false);
+  const [showUpdateConfirmation, setShowUpdateConfirmation] = useState(false);
+  const [pendingSchemaUpdate, setPendingSchemaUpdate] = useState<Schema | null>(null);
+  const [showDiscardAllConfirmation, setShowDiscardAllConfirmation] = useState(false);
+
   useEffect(() => {
     if (connectionInformation.isInitialized) {
-      checkConnectionAndLoadSchema();      
+      checkConnectionAndLoadSchema();
     }
   }, [connectionInformation.isInitialized])
+
+  // Check if schema has unsaved change flags on load
+  useEffect(() => {
+    if (connectionInformation.currentSchema) {
+      const schemaHasChanges = hasSchemaChanges(connectionInformation.currentSchema);
+      if (schemaHasChanges && !hasUnsavedChanges) {
+        console.log('Schema has change tracking flags - marking as unsaved');
+        setHasUnsavedChanges(true);
+      }
+    }
+  }, [connectionInformation.currentSchema])
 
   useEffect(() => {
     if (processId && isProcessing) {
@@ -92,16 +117,32 @@ export function SchemaExplorer() {
     }
   }, [processId, isProcessing]);
 
+  // Navigation guard for unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
+
   const handleDeleteColumn = (tableName: string, columnName: string) => {
     setDeleteTarget({ tableName, columnName })
     setShowDeleteConfirmation(true)
   }
 
-  const confirmDeleteColumn = async () => {
+  const confirmDeleteColumn = () => {
     if (!deleteTarget) return
 
     try {
-      await removeColumnFromTable(deleteTarget.tableName, deleteTarget.columnName);
+      removeColumnFromTable(deleteTarget.tableName, deleteTarget.columnName);
       console.log(`Column ${deleteTarget.columnName} removed successfully`);
     } catch (error) {
       console.error("Error removing column:", error);
@@ -295,18 +336,8 @@ export function SchemaExplorer() {
     }
   }
 
-  const removeColumnFromTable = async (tableName: string, columnName: string) => {
+  const removeColumnFromTable = (tableName: string, columnName: string) => {
     if (!connectionInformation.currentSchema) return
-
-    const connection = connectionInformation.currentConnection;
-    
-    if (!connection) {
-      throw new Error("No connection found!");
-    }
-
-    connection.vectorStoreId = undefined;
-    connection.schemaFileId = undefined;
-    connectionInformation.updateConnection(connection);
 
     const schemaData = connectionInformation.getSchema();
 
@@ -322,48 +353,18 @@ export function SchemaExplorer() {
     if (index < 0) {
       throw new Error("No column found for schema data!");
     }
-    
-    table.columns.splice(index, 1);    
+
+    table.columns.splice(index, 1);
 
     connectionInformation.setSchema(schemaData);
     setEditingTable(null)
     setEditingColumn(null)
     setTempDescription("")
-
-    // Save to backend
-    try {
-      const result = await fetch("/api/schema/upload-schema", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          data: schemaData
-        }),
-      });
-      
-      if (result.ok) {
-        const ids = await result.json();
-        connection.vectorStoreId = ids.vectorStoreId;
-        connection.schemaFileId = ids.fileId;
-        connectionInformation.updateConnection(connection);
-      }
-    } catch (error) {
-      console.error("Failed to upload schema:", error)
-    }
+    setHasUnsavedChanges(true);
   }
 
-  const saveDescription = async (tableName: string, columnName?: string, description?: string) => {
+  const saveDescription = (tableName: string, columnName?: string, description?: string) => {
     if (!connectionInformation.currentSchema) return
-
-    const connection = connectionInformation.currentConnection;
-    if (!connection) {
-      throw new Error("No connection found!");
-    }
-    
-    connection.vectorStoreId = undefined;
-    connection.schemaFileId = undefined;
-    connectionInformation.updateConnection(connection);
 
     const schemaData = connectionInformation.getSchema();
 
@@ -380,7 +381,7 @@ export function SchemaExplorer() {
       if (!column) {
         throw new Error("No column found for schema data!");
       }
-  
+
       column.description = description;
     } else {
       table.description = description;
@@ -391,28 +392,7 @@ export function SchemaExplorer() {
     setEditingTable(null)
     setEditingColumn(null)
     setTempDescription("")
-
-    // Save to backend
-    try {
-      const result = await fetch("/api/schema/upload-schema", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          data: schemaData
-        }),
-      });
-
-      if (result.ok) {
-        const ids = await result.json();
-        connection.vectorStoreId = ids.vectorStoreId;
-        connection.schemaFileId = ids.fileId;
-        connectionInformation.updateConnection(connection);
-      }
-    } catch (error) {
-      console.error("Failed to upload schema:", error)
-    }
+    setHasUnsavedChanges(true);
   }
 
   const startEditing = (tableName: string, columnName?: string, currentDescription?: string) => {
@@ -437,7 +417,7 @@ export function SchemaExplorer() {
     setExpandedTables(newExpanded)
   }
 
-  const toggleTableVisibility = async (tableName: string) => {
+  const toggleTableVisibility = (tableName: string) => {
     if (!connectionInformation.currentSchema) return
 
     const updatedSchema = { ...connectionInformation.currentSchema }
@@ -448,33 +428,255 @@ export function SchemaExplorer() {
     }
 
     connectionInformation.setSchema(updatedSchema);
+    setHasUnsavedChanges(true);
+  }
 
-    // Save to backend
+  const toggleColumnVisibility = (tableName: string, columnName: string) => {
+    if (!connectionInformation.currentSchema) return
+
+    const updatedSchema = { ...connectionInformation.currentSchema }
+    const table = updatedSchema.tables.find((t) => t.name === tableName)
+
+    if (table) {
+      const column = table.columns.find((c) => c.name === columnName)
+      if (column) {
+        column.hidden = !column.hidden
+      }
+    }
+
+    connectionInformation.setSchema(updatedSchema);
+    setHasUnsavedChanges(true);
+  }
+
+  const saveChangesToOpenAI = async () => {
+    if (!connectionInformation.currentSchema) return;
+
+    const connection = connectionInformation.currentConnection;
+    if (!connection) {
+      alert("No connection found!");
+      return;
+    }
+
+    setIsSaving(true);
+
     try {
+      // Capture existing IDs BEFORE clearing them
+      const existingFileId = connection.schemaFileId;
+      const existingVectorStoreId = connection.vectorStoreId;
+
+      const schemaData = connectionInformation.getSchema();
+      if (!schemaData) {
+        throw new Error("No schema data found!");
+      }
+
+      // Clean change tracking flags before saving
+      schemaData.tables.forEach(table => {
+        delete table.isNew;
+        table.columns.forEach(column => {
+          delete column.isNew;
+          delete column.isModified;
+        });
+      });
+
+      // Update schema with cleaned flags
+      connectionInformation.setSchema(schemaData);
+
       const result = await fetch("/api/schema/upload-schema", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          data: updatedSchema
+          data: schemaData,
+          existingFileId,
+          existingVectorStoreId
         }),
       });
 
       if (result.ok) {
         const ids = await result.json();
-
-        const connection = connectionInformation.currentConnection;
-        if (!connection) {
-          throw new Error("No connection found!");
-        }
         connection.vectorStoreId = ids.vectorStoreId;
         connection.schemaFileId = ids.fileId;
         connectionInformation.updateConnection(connection);
+        setHasUnsavedChanges(false);
+        toast({
+          title: "Schema saved successfully",
+          description: "Your schema changes have been uploaded to OpenAI",
+        });
+      } else {
+        throw new Error("Failed to upload schema");
       }
     } catch (error) {
-      console.error("Failed to upload schema:", error)
-    }    
+      console.error("Failed to upload schema:", error);
+      toast({
+        variant: "destructive",
+        title: "Failed to save changes",
+        description: "Please try again. Check the console for more details.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  const updateSchemaFromDatabase = async () => {
+    if (!connectionInformation.currentSchema) return;
+
+    const connection = connectionInformation.currentConnection;
+    if (!connection) {
+      alert("No connection found!");
+      return;
+    }
+
+    setIsUpdatingSchema(true);
+
+    try {
+      // Fetch fresh schema from database
+      const response = await fetch("/api/schema/introspect", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ connection }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch schema from database");
+      }
+
+      const data = await response.json();
+      const freshSchema: Schema = {
+        connectionId: connectionInformation.currentConnection?.id ?? "",
+        tables: data.schema.tables
+      };
+
+      // Compare schemas and mark changes
+      const comparedSchema = compareSchemas(connectionInformation.currentSchema, freshSchema);
+
+      // Check if there are any changes
+      if (!hasSchemaChanges(comparedSchema)) {
+        toast({
+          title: "Schema is up to date",
+          description: "No changes detected in the database schema",
+        });
+        setIsUpdatingSchema(false);
+        return;
+      }
+
+      // Show confirmation modal with changes
+      setPendingSchemaUpdate(comparedSchema);
+      setShowUpdateConfirmation(true);
+    } catch (error) {
+      console.error("Failed to update schema:", error);
+      toast({
+        variant: "destructive",
+        title: "Failed to update schema",
+        description: "Could not fetch schema from database. Check the console for details.",
+      });
+    } finally {
+      setIsUpdatingSchema(false);
+    }
+  }
+
+  const confirmSchemaUpdate = () => {
+    if (!pendingSchemaUpdate) return;
+
+    // Apply the schema update
+    connectionInformation.setSchema(pendingSchemaUpdate);
+    setHasUnsavedChanges(true);
+
+    const summary = getChangeSummary(pendingSchemaUpdate);
+    toast({
+      title: "Schema updated",
+      description: `${summary.newTables} new tables, ${summary.newColumns} new columns, ${summary.modifiedColumns} modified columns`,
+    });
+
+    setPendingSchemaUpdate(null);
+    setShowUpdateConfirmation(false);
+  }
+
+  const cancelSchemaUpdate = () => {
+    setPendingSchemaUpdate(null);
+    setShowUpdateConfirmation(false);
+  }
+
+  const discardAllChanges = () => {
+    if (!connectionInformation.currentSchema) return;
+
+    const schemaData = connectionInformation.getSchema();
+    if (!schemaData) return;
+
+    // Remove all change tracking flags
+    schemaData.tables.forEach(table => {
+      delete table.isNew;
+      table.columns.forEach(column => {
+        delete column.isNew;
+        delete column.isModified;
+      });
+    });
+
+    connectionInformation.setSchema(schemaData);
+    setHasUnsavedChanges(false);
+
+    toast({
+      title: "Changes discarded",
+      description: "All schema changes have been discarded",
+    });
+  }
+
+  const discardTableChanges = (tableName: string) => {
+    if (!connectionInformation.currentSchema) return;
+
+    const schemaData = connectionInformation.getSchema();
+    if (!schemaData) return;
+
+    const table = schemaData.tables.find(t => t.name === tableName);
+    if (!table) return;
+
+    // Remove change flags from this table and its columns
+    delete table.isNew;
+    table.columns.forEach(column => {
+      delete column.isNew;
+      delete column.isModified;
+    });
+
+    connectionInformation.setSchema(schemaData);
+
+    // Check if there are still other changes
+    const stillHasChanges = hasSchemaChanges(schemaData);
+    setHasUnsavedChanges(stillHasChanges);
+
+    toast({
+      title: "Table changes discarded",
+      description: `Changes to table "${tableName}" have been discarded`,
+    });
+  }
+
+  const discardColumnChange = (tableName: string, columnName: string) => {
+    if (!connectionInformation.currentSchema) return;
+
+    const schemaData = connectionInformation.getSchema();
+    if (!schemaData) return;
+
+    const table = schemaData.tables.find(t => t.name === tableName);
+    if (!table) return;
+
+    const column = table.columns.find(c => c.name === columnName);
+    if (!column) return;
+
+    // Remove change flags from this column
+    delete column.isNew;
+    delete column.isModified;
+
+    connectionInformation.setSchema(schemaData);
+
+    // Check if there are still other changes
+    const stillHasChanges = hasSchemaChanges(schemaData);
+    setHasUnsavedChanges(stillHasChanges);
+
+    toast({
+      title: "Column change discarded",
+      description: `Changes to column "${columnName}" have been discarded`,
+    });
   }
 
   if (loading || isProcessing) {
@@ -536,7 +738,17 @@ export function SchemaExplorer() {
     return (
       <Alert>
         <AlertCircle className="h-4 w-4" />
-        <AlertDescription>No tables found in the database schema.</AlertDescription>
+        <AlertDescription>
+          No tables found in the database schema.
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-2"
+            onClick={checkConnectionAndLoadSchema}
+          >
+            Reload Schema
+          </Button>
+        </AlertDescription>
       </Alert>
     )
   }
@@ -555,20 +767,70 @@ export function SchemaExplorer() {
             )}
           </span>
         </div>
-        <Button onClick={generateAIDescriptions} disabled={generatingDescriptions} className="flex items-center gap-2">
-          {generatingDescriptions ? (
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={updateSchemaFromDatabase}
+            disabled={isUpdatingSchema}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            {isUpdatingSchema ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                Checking for updates...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4" />
+                Update Schema
+              </>
+            )}
+          </Button>
+          {hasUnsavedChanges && (
             <>
-              <RefreshCw className="w-4 h-4 animate-spin mr-1" />
-              Generating... ({batchProgress.currentBatch}/{batchProgress.totalBatches} batches, {batchProgress.current}/
-              {batchProgress.total} tables)
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-4 h-4" />
-              Generate AI Descriptions
+              <Button
+                onClick={saveChangesToOpenAI}
+                disabled={isSaving}
+                variant="default"
+                className="flex items-center gap-2 bg-accent"
+              >
+                {isSaving ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    Save to OpenAI
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={() => setShowDiscardAllConfirmation(true)}
+                variant="destructive"
+                className="flex items-center gap-2"
+              >
+                <X className="w-4 h-4" />
+                Discard All Changes
+              </Button>
             </>
           )}
-        </Button>
+          <Button onClick={generateAIDescriptions} disabled={generatingDescriptions} className="flex items-center gap-2">
+            {generatingDescriptions ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin mr-1" />
+                Generating... ({batchProgress.currentBatch}/{batchProgress.totalBatches} batches, {batchProgress.current}/
+                {batchProgress.total} tables)
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                Generate AI Descriptions
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="tables" className="w-full">
@@ -578,8 +840,14 @@ export function SchemaExplorer() {
         </TabsList>
 
         <TabsContent value="tables" className="space-y-4">
-          {connectionInformation.currentSchema.tables.map((table) => (
-            <Card key={table.name} className={table.hidden ? "opacity-60 border-dashed" : ""}>
+          {connectionInformation.currentSchema.tables.map((table) => {
+            const hasChanges = table.isNew || table.columns.some(c => c.isNew || c.isModified);
+
+            return (
+            <Card
+              key={table.name}
+              className={`${table.hidden ? "opacity-60 border-dashed" : ""} ${hasChanges ? "border-2 border-red-500" : ""}`}
+            >
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -597,14 +865,35 @@ export function SchemaExplorer() {
                     </Button>
                     <TableIcon className="w-5 h-5 text-accent" />
                     <CardTitle className="text-xl">{table.name}</CardTitle>
+                    {table.isNew && (
+                      <Badge variant="destructive" className="bg-red-500">
+                        NEW
+                      </Badge>
+                    )}
                     <Badge variant="secondary">{table.columns.length} columns</Badge>
+                    {table.columns.filter((c) => c.hidden).length > 0 && (
+                      <Badge variant="outline" className="text-xs">
+                        {table.columns.filter((c) => c.hidden).length} hidden
+                      </Badge>
+                    )}
                     {table.hidden && (
                       <Badge variant="outline" className="text-xs">
-                        Hidden from Queries
+                        Table Hidden from Queries
                       </Badge>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
+                    {hasChanges && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => discardTableChanges(table.name)}
+                        title="Discard all changes to this table"
+                      >
+                        <X className="w-4 h-4 mr-1" />
+                        Discard Changes
+                      </Button>
+                    )}
                     <Button
                       variant={table.hidden ? "default" : "outline"}
                       size="sm"
@@ -669,8 +958,28 @@ export function SchemaExplorer() {
                     </TableHeader>
                     <TableBody>
                       {table.columns.map((column, columnIndex) => (
-                        <TableRow key={`${table.name}-${column.name}-${columnIndex}`}>
-                          <TableCell className="font-medium">{column.name}</TableCell>
+                        <TableRow
+                          key={`${table.name}-${column.name}-${columnIndex}`}
+                          className={`${column.hidden ? "opacity-50" : ""} ${column.isNew || column.isModified ? "border-l-4 border-l-red-500" : ""}`}
+                        >
+                          <TableCell className="font-medium">
+                            {column.name}
+                            {column.isNew && (
+                              <Badge variant="destructive" className="ml-2 text-xs bg-red-500">
+                                NEW
+                              </Badge>
+                            )}
+                            {column.isModified && (
+                              <Badge variant="destructive" className="ml-2 text-xs bg-red-500">
+                                MODIFIED
+                              </Badge>
+                            )}
+                            {column.hidden && (
+                              <Badge variant="outline" className="ml-2 text-xs">
+                                Hidden
+                              </Badge>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Badge variant="outline">{column.type}</Badge>
                           </TableCell>
@@ -726,22 +1035,43 @@ export function SchemaExplorer() {
                             )}
                           </TableCell>
                           <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              title="Edit this Column's description"
-                              onClick={() => startEditing(table.name, column.name, column.description)}
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </Button>
-                            <Button
+                            <div className="flex items-center gap-1">
+                              {(column.isNew || column.isModified) && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  title="Discard change to this column"
+                                  onClick={() => discardColumnChange(table.name, column.name)}
+                                  className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                                >
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title={column.hidden ? "Show in queries" : "Hide from queries"}
+                                onClick={() => toggleColumnVisibility(table.name, column.name)}
+                              >
+                                {column.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="Edit this Column's description"
+                                onClick={() => startEditing(table.name, column.name, column.description)}
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </Button>
+                              <Button
                                 variant="ghost"
                                 size="sm"
                                 title="Remove the current Column from this Table"
                                 onClick={() => handleDeleteColumn(table.name, column.name)}
-                            >
-                              <Trash className="w-4 h-4" />
-                            </Button>
+                              >
+                                <Trash className="w-4 h-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -750,7 +1080,8 @@ export function SchemaExplorer() {
                 </CardContent>
               )}
             </Card>
-          ))}
+            );
+          })}
         </TabsContent>
 
         <TabsContent value="relationships">
@@ -788,6 +1119,51 @@ export function SchemaExplorer() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Floating Save Button */}
+      {hasUnsavedChanges && (
+        <div className="fixed bottom-8 right-8 z-50">
+          <Card className="shadow-lg border-2 border-accent">
+            <CardContent className="p-4">
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5 text-accent" />
+                  <span className="font-semibold">Unsaved Changes</span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  You have unsaved changes to your schema
+                </p>
+                <Button
+                  onClick={saveChangesToOpenAI}
+                  disabled={isSaving}
+                  className="w-full"
+                >
+                  {isSaving ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Save to OpenAI
+                    </>
+                  )}
+                </Button>
+                <Button
+                  onClick={() => setShowDiscardAllConfirmation(true)}
+                  variant="destructive"
+                  className="w-full"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Discard All Changes
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       <ConfirmationModal
           open={showDeleteConfirmation}
           onOpenChange={setShowDeleteConfirmation}
@@ -797,6 +1173,25 @@ export function SchemaExplorer() {
           cancelText="Cancel"
           variant="destructive"
           onConfirm={confirmDeleteColumn}
+      />
+
+      <SchemaUpdateModal
+          open={showUpdateConfirmation}
+          onOpenChange={setShowUpdateConfirmation}
+          schema={pendingSchemaUpdate}
+          onConfirm={confirmSchemaUpdate}
+          onCancel={cancelSchemaUpdate}
+      />
+
+      <ConfirmationModal
+          open={showDiscardAllConfirmation}
+          onOpenChange={setShowDiscardAllConfirmation}
+          title="Discard All Changes"
+          description="Are you sure you want to discard all schema changes? This will remove all NEW and MODIFIED flags from your schema. This action cannot be undone."
+          confirmText="Discard All"
+          cancelText="Cancel"
+          variant="destructive"
+          onConfirm={discardAllChanges}
       />
     </div>
 )

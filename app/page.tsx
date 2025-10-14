@@ -132,12 +132,12 @@ export default function ContextualDashboard() {
   
   if (!hasConnection) {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <div className="bg-white border-b border-slate-200">
+      <div className="min-h-screen bg-background">
+        <div className="bg-card border-b border-border">
           <div className="max-w-4xl mx-auto px-6 py-8">
             <div className="text-center">
-              <h1 className="text-3xl font-bold text-slate-900 mb-2">Welcome to Database Query & Reporting</h1>
-              <p className="text-lg text-slate-600">Get started by connecting your database and exploring your data</p>
+              <h1 className="text-3xl font-bold text-foreground mb-2">Welcome to Database Query & Reporting</h1>
+              <p className="text-lg text-muted-foreground">Get started by connecting your database and exploring your data</p>
             </div>
           </div>
         </div>
@@ -152,7 +152,7 @@ export default function ContextualDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-slate-600 mb-4">
+                <p className="text-muted-foreground mb-4">
                   Connect to your PostgreSQL, MySQL, SQL Server, or SQLite database to start analyzing your data.
                 </p>
                 <Link href="/database">
@@ -173,7 +173,7 @@ export default function ContextualDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-slate-600 mb-4">
+                <p className="text-muted-foreground mb-4">
                   After connecting, visit the Schema page to generate AI descriptions for your tables and columns. This
                   helps the system understand your data better.
                 </p>
@@ -192,7 +192,7 @@ export default function ContextualDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-slate-600 mb-4">
+                <p className="text-muted-foreground mb-4">
                   Use natural language to query your data. The AI will convert your questions into SQL and execute them.
                 </p>
                 <Button variant="outline" disabled className="flex items-center gap-2 bg-transparent">
@@ -208,13 +208,13 @@ export default function ContextualDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="bg-white border-b border-slate-200">
+    <div className="min-h-screen bg-background">
+      <div className="bg-card border-b border-border">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">Dashboard - {connectionName}</h1>
-              <p className="text-slate-600">AI-powered insights and suggested metrics for your data</p>
+              <h1 className="text-2xl font-bold text-foreground">Dashboard - {connectionName}</h1>
+              <p className="text-muted-foreground">AI-powered insights and suggested metrics for your data</p>
             </div>
             <Badge variant="outline" className="text-green-700 border-green-200">
               <CheckCircle className="h-3 w-3 mr-1" />
@@ -234,7 +234,7 @@ export default function ContextualDashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-slate-600 mb-4">
+              <p className="text-muted-foreground mb-4">
                 To get personalized metric suggestions, generate AI descriptions for your database schema. This helps
                 the system understand your data structure and suggest relevant business metrics.
               </p>
@@ -273,14 +273,14 @@ export default function ContextualDashboard() {
                 </div>
               </CardHeader>
               <CardContent>
-                <p className="text-slate-600 mb-4">
+                <p className="text-muted-foreground mb-4">
                   Based on your database schema, here are some metrics and reports you might find valuable:
                 </p>
 
                 {loadingSuggestions ? (
                   <div className="text-center py-8">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                    <p className="text-slate-600 mt-2">Analyzing your schema to generate suggestions...</p>
+                    <p className="text-muted-foreground mt-2">Analyzing your schema to generate suggestions...</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -289,7 +289,7 @@ export default function ContextualDashboard() {
                         <CardHeader>
                           <CardTitle>
                             <div className="flex items-start justify-between mb-2">
-                              <h4 className="font-semibold text-slate-900">{suggestion.title}</h4>
+                              <h4 className="font-semibold text-foreground">{suggestion.title}</h4>
                               <button onClick={() => removeSuggestion(index)}>
                                 <CircleX></CircleX>
                               </button>
@@ -302,7 +302,7 @@ export default function ContextualDashboard() {
                           </CardDescription>
                         </CardHeader>
                         <CardContent className="p-4">
-                          <p className="text-sm text-slate-600 mb-3">{suggestion.description}</p>
+                          <p className="text-sm text-muted-foreground mb-3">{suggestion.description}</p>
                         </CardContent>
                         <CardFooter>
                           <Link
@@ -325,7 +325,7 @@ export default function ContextualDashboard() {
                 <CardContent className="p-6 text-center">
                   <Database className="h-8 w-8 text-blue-600 mx-auto mb-3" />
                   <h3 className="font-semibold mb-2">Explore Schema</h3>
-                  <p className="text-sm text-slate-600 mb-4">View tables, columns, and relationships</p>
+                  <p className="text-sm text-muted-foreground mb-4">View tables, columns, and relationships</p>
                   <Link href="/schema">
                     <Button variant="outline" size="sm">
                       View Schema
@@ -338,7 +338,7 @@ export default function ContextualDashboard() {
                 <CardContent className="p-6 text-center">
                   <MessageSquare className="h-8 w-8 text-green-600 mx-auto mb-3" />
                   <h3 className="font-semibold mb-2">Query Data</h3>
-                  <p className="text-sm text-slate-600 mb-4">Ask questions in natural language</p>
+                  <p className="text-sm text-muted-foreground mb-4">Ask questions in natural language</p>
                   <Link href="/query">
                     <Button variant="outline" size="sm">
                       Start Querying
@@ -351,7 +351,7 @@ export default function ContextualDashboard() {
                 <CardContent className="p-6 text-center">
                   <FileText className="h-8 w-8 text-purple-600 mx-auto mb-3" />
                   <h3 className="font-semibold mb-2">Manage Reports</h3>
-                  <p className="text-sm text-slate-600 mb-4">Save and schedule reports</p>
+                  <p className="text-sm text-muted-foreground mb-4">Save and schedule reports</p>
                   <Link href="/reports">
                     <Button variant="outline" size="sm">
                       View Reports

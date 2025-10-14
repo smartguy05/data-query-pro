@@ -148,12 +148,12 @@ export default function QueryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
+    <div className="min-h-screen bg-background p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold text-slate-900">Natural Language Query</h1>
-          <p className="text-slate-600">Ask questions about your data in plain English</p>
+          <h1 className="text-3xl font-bold text-foreground">Natural Language Query</h1>
+          <p className="text-muted-foreground">Ask questions about your data in plain English</p>
         </div>
 
         {/* Query Input */}
@@ -218,7 +218,7 @@ export default function QueryPage() {
               )}
 
               {/* SQL Code */}
-              <div className="bg-slate-900 text-slate-100 p-4 rounded-lg font-mono text-sm overflow-x-auto">
+              <div className="bg-slate-900 dark:bg-slate-950 text-slate-100 p-4 rounded-lg font-mono text-sm overflow-x-auto">
                 <textarea
                     value={editableSql}
                     onChange={(e) => setEditableSql(e.target.value)}

@@ -14,13 +14,13 @@ export default function ReportsPage() {
   const [searchTerm, setSearchTerm] = useState("")
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
+    <div className="min-h-screen bg-background p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900">Reports & Analytics</h1>
-            <p className="text-slate-600">Create, manage, and schedule your business reports</p>
+            <h1 className="text-3xl font-bold text-foreground">Reports & Analytics</h1>
+            <p className="text-muted-foreground">Create, manage, and schedule your business reports</p>
           </div>
           <Button className="bg-blue-600 hover:bg-blue-700">
             <Plus className="h-4 w-4 mr-2" />
@@ -37,8 +37,8 @@ export default function ReportsPage() {
                   <FileText className="h-5 w-5 text-blue-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-slate-600">Total Reports</p>
-                  <p className="text-2xl font-bold text-slate-900">24</p>
+                  <p className="text-sm text-muted-foreground">Total Reports</p>
+                  <p className="text-2xl font-bold text-foreground">24</p>
                 </div>
               </div>
             </CardContent>
@@ -51,8 +51,8 @@ export default function ReportsPage() {
                   <Clock className="h-5 w-5 text-green-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-slate-600">Scheduled</p>
-                  <p className="text-2xl font-bold text-slate-900">8</p>
+                  <p className="text-sm text-muted-foreground">Scheduled</p>
+                  <p className="text-2xl font-bold text-foreground">8</p>
                 </div>
               </div>
             </CardContent>
@@ -65,8 +65,8 @@ export default function ReportsPage() {
                   <Share2 className="h-5 w-5 text-purple-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-slate-600">Shared</p>
-                  <p className="text-2xl font-bold text-slate-900">12</p>
+                  <p className="text-sm text-muted-foreground">Shared</p>
+                  <p className="text-2xl font-bold text-foreground">12</p>
                 </div>
               </div>
             </CardContent>
@@ -79,8 +79,8 @@ export default function ReportsPage() {
                   <TrendingUp className="h-5 w-5 text-orange-600" />
                 </div>
                 <div>
-                  <p className="text-sm text-slate-600">This Month</p>
-                  <p className="text-2xl font-bold text-slate-900">156</p>
+                  <p className="text-sm text-muted-foreground">This Month</p>
+                  <p className="text-2xl font-bold text-foreground">156</p>
                 </div>
               </div>
             </CardContent>
@@ -89,7 +89,7 @@ export default function ReportsPage() {
 
         {/* Search */}
         <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search reports..."
             value={searchTerm}

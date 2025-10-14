@@ -4,4 +4,5 @@ interface DatabaseTable {
     description?: string
     aiDescription?: string
     hidden?: boolean
+    isNew?: boolean
 }

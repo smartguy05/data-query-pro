@@ -323,11 +323,11 @@ export default function DatabasePage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
+    <div className="min-h-screen bg-background p-6">
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold text-slate-900">Database Connections</h1>
-          <p className="text-slate-600">Connect to your data sources for analysis and reporting</p>
+          <h1 className="text-3xl font-bold text-foreground">Database Connections</h1>
+          <p className="text-muted-foreground">Connect to your data sources for analysis and reporting</p>
         </div>
 
         <Card>
@@ -504,9 +504,9 @@ export default function DatabasePage() {
                 <Card>
                   <CardContent className="flex items-center justify-center py-12">
                     <div className="text-center space-y-2">
-                      <Database className="h-12 w-12 text-slate-400 mx-auto" />
-                      <p className="text-slate-600">No saved connections yet</p>
-                      <p className="text-sm text-slate-500">Create your first database connection to get started</p>
+                      <Database className="h-12 w-12 text-muted-foreground mx-auto" />
+                      <p className="text-muted-foreground">No saved connections yet</p>
+                      <p className="text-sm text-muted-foreground">Create your first database connection to get started</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -529,14 +529,14 @@ export default function DatabasePage() {
                           </div>
                           <div>
                             <h3 className="font-semibold">{connection.name}</h3>
-                            <p className="text-sm text-slate-600">
+                            <p className="text-sm text-muted-foreground">
                               {connection.type.toUpperCase()} • {connection.host}:{connection.port}/
                               {connection.database}
                             </p>
                             {connection.description && (
-                              <p className="text-xs text-slate-500 mt-1 max-w-md truncate">{connection.description}</p>
+                              <p className="text-xs text-muted-foreground mt-1 max-w-md truncate">{connection.description}</p>
                             )}
-                            <p className="text-xs text-slate-500">
+                            <p className="text-xs text-muted-foreground">
                               Created: {new Date(connection.createdAt).toLocaleDateString()}
                             </p>
                           </div>
