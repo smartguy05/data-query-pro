@@ -244,11 +244,11 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
             <div className="overflow-x-auto border rounded-lg">
               <table className="w-full border-collapse">
                 <thead>
-                  <tr className="bg-slate-50 border-b">
+                  <tr className="bg-slate-50 dark:bg-slate-800 border-b">
                     {data.columns.map((col, i) => (
                       <th
                         key={i}
-                        className="px-4 py-3 text-left font-semibold text-slate-700 cursor-pointer hover:bg-slate-100 transition-colors"
+                        className="px-4 py-3 text-left font-semibold text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
                         onClick={() => handleSort(i)}
                       >
                         <div className="flex items-center gap-2">
@@ -269,9 +269,9 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
                 </thead>
                 <tbody>
                   {paginatedData.map((row, i) => (
-                    <tr key={i} className="border-b hover:bg-slate-50 transition-colors">
+                    <tr key={i} className="border-b hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                       {row.map((cell, j) => (
-                        <td key={j} className="px-4 py-3 text-slate-900">
+                        <td key={j} className="px-4 py-3 text-slate-900 dark:text-slate-100">
                           {formatCellValue(cell, j)}
                         </td>
                       ))}
@@ -284,7 +284,7 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
             {/* Pagination */}
             {totalPages > 1 && (
               <div className="flex items-center justify-between">
-                <div className="text-sm text-slate-600">
+                <div className="text-sm text-slate-600 dark:text-slate-400">
                   Showing {(currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, processedData.length)}{" "}
                   of {processedData.length} results
                 </div>
@@ -299,7 +299,7 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
 
-                  <span className="text-sm text-slate-600">
+                  <span className="text-sm text-slate-600 dark:text-slate-400">
                     Page {currentPage} of {totalPages}
                   </span>
 
