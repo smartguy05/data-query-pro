@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              model: "gpt-4o-mini",
+              model: process.env.OPENAI_MODEL,
               messages: [{ role: "user", content: prompt }],
               temperature: 0.2,
               max_tokens: maxTokens,

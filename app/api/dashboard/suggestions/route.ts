@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     console.log("Calling OpenAI Responses API with model:", process.env.OPENAI_MODEL);
 
     const response = await client.responses.create({
-      model: process.env.OPENAI_MODEL || "gpt-4o",
+      model: process.env.OPENAI_MODEL || "gpt-5",
       tools: [{
         type: "file_search",
         vector_store_ids: [vectorStoreId]

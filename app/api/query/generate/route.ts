@@ -108,6 +108,7 @@ export async function POST(request: NextRequest) {
               # IMPORTANT!!!!
               - Respond ONLY with a valid JSON object.
               - Do not include any explanatory text, markdown, or other content outside the JSON.
+              - Do not use variable placeholders, supply actual values.
 
               # Formatting
               Required JSON format:

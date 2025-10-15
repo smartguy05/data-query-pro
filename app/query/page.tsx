@@ -39,8 +39,17 @@ export default function QueryPage() {
 
   useEffect(() => {
     const queryParam = searchParams.get("suggestion")
+    const descriptionParam = searchParams.get("description")
+
     if (queryParam) {
-      setNaturalQuery(decodeURIComponent(queryParam))
+      // If both description and query are provided, combine them for better context
+      if (descriptionParam) {
+        const description = decodeURIComponent(descriptionParam)
+        const query = decodeURIComponent(queryParam)
+        setNaturalQuery(`Goal: ${description}\n\nQuery: ${query}`)
+      } else {
+        setNaturalQuery(decodeURIComponent(queryParam))
+      }
     }
 
     const tablesParam = searchParams.get("tables")

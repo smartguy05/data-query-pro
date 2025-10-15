@@ -1125,7 +1125,7 @@ export default function ContextualDashboard() {
                         </CardContent>
                         <CardFooter>
                           <Link
-                              href={`/query?suggestion=${encodeURIComponent(suggestion.query)}&tables=${encodeURIComponent(JSON.stringify(suggestion.relevantTables || []))}`}
+                              href={`/query?suggestion=${encodeURIComponent(suggestion.query)}&description=${encodeURIComponent(suggestion.description)}&tables=${encodeURIComponent(JSON.stringify(suggestion.relevantTables || []))}`}
                           >
                             <Button size="sm" variant="outline" className="w-full bg-transparent">
                               Generate This Report
