@@ -6,12 +6,16 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Play, Database, AlertTriangle } from "lucide-react"
+import { Loader2, Play, Database, AlertTriangle, Save } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { QueryResultsDisplay } from "@/components/query-results-display"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
-import {useDatabaseOptions} from "@/lib/database-connection-options";
+import {useDatabaseOptions} from "@/lib/database-connection-options"
+import { SaveReportDialog } from "@/components/save-report-dialog"
+import { SavedReport, ReportParameter } from "@/models/saved-report.interface"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Label } from "@/components/ui/label"
 
 interface QueryResult {
   sql: string
@@ -31,6 +35,7 @@ export default function QueryPage() {
   const [executionResults, setExecutionResults] = useState<any>(null)
   const [error, setError] = useState("")
   const [relevantTables, setRelevantTables] = useState<string[]>([])
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
 
   useEffect(() => {
     const queryParam = searchParams.get("suggestion")
@@ -47,6 +52,20 @@ export default function QueryPage() {
         console.error("Failed to parse tables parameter:", error)
         setRelevantTables([])
       }
+    }
+
+    // Handle pre-filled SQL from parameterized reports
+    const sqlParam = searchParams.get("sql")
+    if (sqlParam) {
+      const sql = decodeURIComponent(sqlParam)
+      setEditableSql(sql)
+      // Create a fake query result so the UI shows the SQL editor and execute button
+      setQueryResult({
+        sql: sql,
+        explanation: "Query loaded from saved report with parameter values applied",
+        confidence: 1.0,
+        warnings: []
+      })
     }
   }, [searchParams]);
 
@@ -70,14 +89,19 @@ export default function QueryPage() {
       if (!connection?.schemaFileId) {
         throw new Error("You must upload schema information file before creating queries!");
       }
-      
+
+      // Get the schema data for potential re-upload
+      const schema = connectionInformation.getSchema();
+
       const response = await fetch("/api/query/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: naturalQuery,
           vectorStoreId: connection.vectorStoreId,
-          databaseType: connection.type
+          databaseType: connection.type,
+          schemaData: schema,
+          existingFileId: connection.schemaFileId
         }),
       })
 
@@ -87,6 +111,22 @@ export default function QueryPage() {
       }
 
       const result = await response.json()
+
+      // Check if schema was re-uploaded and update connection with new IDs
+      if (result.schemaReuploaded && result.newFileId && result.newVectorStoreId) {
+        console.log("Schema was re-uploaded. Updating connection with new IDs...");
+        const updatedConnection = {
+          ...connection,
+          schemaFileId: result.newFileId,
+          vectorStoreId: result.newVectorStoreId
+        };
+        connectionInformation.updateConnection(updatedConnection);
+        toast({
+          title: "Schema Re-uploaded",
+          description: "Vector store was invalid and has been automatically re-created",
+        });
+      }
+
       setQueryResult(result)
       toast({
         title: "SQL Generated Successfully",
@@ -113,7 +153,7 @@ export default function QueryPage() {
 
     try {
       const activeConnection = connectionInformation.getConnection();
-      
+
       const response = await fetch("/api/query/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -147,6 +187,45 @@ export default function QueryPage() {
     }
   }
 
+  const saveReport = (name: string, description: string, parameters: ReportParameter[]) => {
+    if (!queryResult || !naturalQuery) return
+
+    const activeConnection = connectionInformation.getConnection()
+    if (!activeConnection) {
+      toast({
+        title: "Error",
+        description: "No active database connection",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const report: SavedReport = {
+      id: `report_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      connectionId: activeConnection.id,
+      name,
+      description,
+      naturalLanguageQuery: naturalQuery,
+      sql: editableSql,
+      explanation: queryResult.explanation,
+      warnings: queryResult.warnings,
+      confidence: queryResult.confidence,
+      parameters: parameters.length > 0 ? parameters : undefined,
+      createdAt: new Date().toISOString(),
+      lastModified: new Date().toISOString(),
+    }
+
+    // Get existing reports
+    const existingReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
+    existingReports.push(report)
+    localStorage.setItem("saved_reports", JSON.stringify(existingReports))
+
+    toast({
+      title: "Report Saved",
+      description: `"${name}" has been saved successfully`,
+    })
+  }
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -155,6 +234,43 @@ export default function QueryPage() {
           <h1 className="text-3xl font-bold text-foreground">Natural Language Query</h1>
           <p className="text-muted-foreground">Ask questions about your data in plain English</p>
         </div>
+
+        {/* Connection Selector */}
+        {connectionInformation.connections.length > 1 && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-4">
+                <Label htmlFor="connection-select" className="text-sm font-medium whitespace-nowrap">
+                  Active Connection:
+                </Label>
+                <Select
+                  value={connectionInformation.currentConnection?.id || ""}
+                  onValueChange={(connectionId) => {
+                    const connection = connectionInformation.connections.find(c => c.id === connectionId)
+                    if (connection) {
+                      connectionInformation.setCurrentConnection(connection)
+                      toast({
+                        title: "Connection Changed",
+                        description: `Switched to ${connection.name || connection.database}`,
+                      })
+                    }
+                  }}
+                >
+                  <SelectTrigger id="connection-select" className="w-full max-w-md">
+                    <SelectValue placeholder="Select a database connection" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {connectionInformation.connections.map((conn) => (
+                      <SelectItem key={conn.id} value={conn.id}>
+                        {conn.name || conn.database} ({conn.host})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Query Input */}
         <Card>
@@ -241,7 +357,10 @@ export default function QueryPage() {
                     </>
                   )}
                 </Button>
-                <Button variant="outline">Save Query</Button>
+                <Button variant="outline" onClick={() => setShowSaveDialog(true)}>
+                  <Save className="h-4 w-4 mr-2" />
+                  Save as Report
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -259,6 +378,13 @@ export default function QueryPage() {
         )}
       </div>
       <Toaster />
+      <SaveReportDialog
+        open={showSaveDialog}
+        onOpenChange={setShowSaveDialog}
+        onSave={saveReport}
+        defaultName={naturalQuery.slice(0, 50) + (naturalQuery.length > 50 ? "..." : "")}
+        sql={editableSql}
+      />
     </div>
   )
 }

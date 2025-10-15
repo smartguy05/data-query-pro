@@ -24,6 +24,7 @@ export default function DatabasePage() {
   const [editingConnection, setEditingConnection] = useState<DatabaseConnection | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [uploadingSchemaId, setUploadingSchemaId] = useState<string | null>(null);
 
   const savedConnections = connectionInformation.connections;
   const connectionStatus = connectionInformation.connectionStatus;
@@ -202,12 +203,10 @@ export default function DatabasePage() {
         }
 
         // Import schema data
-        // todo: fix
         if (importData.schemaData && typeof importData.schemaData === "object") {
-          Object.entries(importData.schemaData).forEach(([key, value]) => {
-            if (key.startsWith("schema_")) {
-              localStorage.setItem(key, JSON.stringify(value))
-            }
+          Object.entries(importData.schemaData).forEach(([connectionId, schema]) => {
+            // Use the context's setSchema function to properly import each schema
+            connectionInformation.setSchema(schema as Schema);
           })
         }
 
@@ -228,12 +227,15 @@ export default function DatabasePage() {
 
   // Upload schema data as a file
   const uploadSchema = async (connection: DatabaseConnection) => {
-    
+
     let schemaData = connectionInformation.getSchema(connection.id);
-    
+
     if (!schemaData) {
-      throw new Error("No schema data found! Be sure to parse database schema before trying to upload.");
+      alert("No schema data found! Be sure to introspect the database schema before trying to upload.");
+      return;
     }
+
+    setUploadingSchemaId(connection.id);
 
     try {
       const response = await fetch("/api/schema/upload-schema", {
@@ -245,19 +247,22 @@ export default function DatabasePage() {
           data: schemaData
         }),
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         connection.schemaFileId = data.fileId;
         connection.vectorStoreId = data.vectorStoreId;
         connectionInformation.updateConnection(connection);
+        alert("Schema uploaded successfully!");
       } else {
         const errorText = await response.text();
         console.error(`Failed to upload schema file`, errorText);
-        throw new Error(`File to upload schema file: ${response.status} ${response.statusText}`);
+        throw new Error(`Failed to upload schema file: ${response.status} ${response.statusText}`);
       }
     } catch (error) {
       alert(error);
+    } finally {
+      setUploadingSchemaId(null);
     }
   };
   
@@ -379,7 +384,7 @@ export default function DatabasePage() {
           </CardContent>
         </Card>
 
-        <Tabs defaultValue="connect" className="space-y-6">
+        <Tabs defaultValue={savedConnections && savedConnections.length > 0 ? "existing" : "connect"} className="space-y-6">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="connect">New Connection</TabsTrigger>
             <TabsTrigger value="existing">Existing Connections ({savedConnections?.length ?? 0})</TabsTrigger>
@@ -554,12 +559,30 @@ export default function DatabasePage() {
                             </Button>
                           )}
                           {!connection.schemaFileId && (
-                            <Button size="sm" variant="outline" onClick={() => uploadSchema(connection)}>
-                              Upload Schema File
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => uploadSchema(connection)}
+                              disabled={uploadingSchemaId === connection.id}
+                            >
+                              {uploadingSchemaId === connection.id ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Uploading...
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="h-4 w-4 mr-2" />
+                                  Upload Schema File
+                                </>
+                              )}
                             </Button>
                           )}
                           {!!connection.schemaFileId && (
-                              <span>Schema Uploaded</span>
+                            <div className="flex items-center gap-2">
+                              <CheckCircle className="h-4 w-4 text-green-600" />
+                              <span className="text-sm text-green-600">Schema Uploaded</span>
+                            </div>
                           )}
                           <Button
                             size="sm"

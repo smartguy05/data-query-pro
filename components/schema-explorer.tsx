@@ -66,7 +66,7 @@ export function SchemaExplorer() {
     if (connectionInformation.isInitialized) {
       checkConnectionAndLoadSchema();
     }
-  }, [connectionInformation.isInitialized])
+  }, [connectionInformation.isInitialized, connectionInformation.currentConnection?.id])
 
   // Check if schema has unsaved change flags on load
   useEffect(() => {
@@ -75,6 +75,18 @@ export function SchemaExplorer() {
       if (schemaHasChanges && !hasUnsavedChanges) {
         console.log('Schema has change tracking flags - marking as unsaved');
         setHasUnsavedChanges(true);
+      }
+    }
+  }, [connectionInformation.currentSchema])
+
+  // Ensure loading states are correct when schema is loaded
+  useEffect(() => {
+    if (connectionInformation.currentSchema && connectionInformation.currentSchema.tables && connectionInformation.currentSchema.tables.length > 0) {
+      // Schema exists and has tables, make sure we're not in loading state
+      if (loading || isProcessing) {
+        console.log('Schema loaded, updating loading states');
+        setLoading(false);
+        setIsProcessing(false);
       }
     }
   }, [connectionInformation.currentSchema])
@@ -95,8 +107,8 @@ export function SchemaExplorer() {
                 tables: status.result.schema.tables
               };
               connectionInformation.setSchema(schema);
-              setIsProcessing(false)
-              setLoading(false)
+              // Don't clear loading states here - let the useEffect handle it
+              // when it detects the schema is loaded to avoid race conditions
               setError(null)
               clearInterval(pollInterval)
 
@@ -906,7 +918,7 @@ export function SchemaExplorer() {
                       variant="ghost"
                       size="sm"
                       title="Edit Table description"
-                      onClick={() => startEditing(table.name, undefined, table.description)}
+                      onClick={() => startEditing(table.name, undefined, table.description || table.aiDescription)}
                     >
                       <Edit3 className="w-4 h-4" />
                     </Button>
@@ -1059,7 +1071,7 @@ export function SchemaExplorer() {
                                 variant="ghost"
                                 size="sm"
                                 title="Edit this Column's description"
-                                onClick={() => startEditing(table.name, column.name, column.description)}
+                                onClick={() => startEditing(table.name, column.name, column.description || column.aiDescription)}
                               >
                                 <Edit3 className="w-4 h-4" />
                               </Button>

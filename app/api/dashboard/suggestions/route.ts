@@ -5,7 +5,10 @@ export async function POST(request: NextRequest) {
   try {
     const { connectionId, vectorStoreId } = await request.json()
 
+    console.log("Generating suggestions for connection:", connectionId, "with vectorStoreId:", vectorStoreId);
+
     if (!connectionId || !vectorStoreId) {
+      console.error("Missing required parameters:", { connectionId, vectorStoreId });
       return NextResponse.json(
         {
           error: "Connection ID and Vector Store Id data required",
@@ -15,14 +18,24 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (!process.env.OPENAI_API_KEY) {
+      console.error("OPENAI_API_KEY is not configured");
+      return NextResponse.json(
+        { error: "OpenAI API key is not configured" },
+        { status: 500 },
+      )
+    }
+
     const prompt = `Use the uploaded database schema file information in the vector store to create your suggestions.`;
 
     const client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
     });
-    
+
+    console.log("Calling OpenAI Responses API with model:", process.env.OPENAI_MODEL);
+
     const response = await client.responses.create({
-      model: process.env.OPENAI_MODEL,
+      model: process.env.OPENAI_MODEL || "gpt-4o",
       tools: [{
         type: "file_search",
         vector_store_ids: [vectorStoreId]
@@ -34,21 +47,21 @@ export async function POST(request: NextRequest) {
             `
             # Role
             You are a business intelligence expert. Create practical suggestions and identify exactly which database tables each query would need.
-            
+
             # INSTRUCTIONS
             Based on the database schema found in the uploaded file identified as the database schema file, suggest 6 valuable business metrics, reports, or analyses. For each suggestion, identify which specific tables would be needed.
-        
+
             For each suggestion, provide:
             1. A clear title
-            2. A brief description of what insight it provides  
+            2. A brief description of what insight it provides
             3. A natural language query that could generate this metric
             4. A category (Performance, Customer, Financial, Operational, etc.)
             5. An array of relevant table names that would be needed for this query
-            
+
             Format as JSON array with objects containing: title, description, query, category, relevantTables
-            
+
             # CRITICAL INSTRUCTIONS - DO NOT DEVIATE!!!
-            1. Use only table names and columns found in the supplied schema file. 
+            1. Use only table names and columns found in the supplied schema file.
             2. NEVER guess column or table names
             `,
         },
@@ -90,8 +103,29 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ suggestions })
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error generating suggestions:", error)
-    return NextResponse.json({ error: "Failed to generate suggestions" }, { status: 500 })
+    console.error("Error details:", {
+      message: error?.message,
+      stack: error?.stack,
+      name: error?.name,
+      cause: error?.cause
+    });
+
+    // Check if this is a vector store not found error
+    const errorMessage = error?.message || "";
+    if (errorMessage.includes("Vector store") && errorMessage.includes("not found")) {
+      console.log("Vector store not found - needs re-upload");
+      return NextResponse.json({
+        error: "VECTOR_STORE_NOT_FOUND",
+        details: "The vector store for this connection no longer exists and needs to be re-uploaded.",
+        needsReupload: true
+      }, { status: 404 })
+    }
+
+    return NextResponse.json({
+      error: "Failed to generate suggestions",
+      details: error?.message || "Unknown error"
+    }, { status: 500 })
   }
 }
