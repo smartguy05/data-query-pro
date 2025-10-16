@@ -6,8 +6,10 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, ChevronLeft, ChevronRight, Loader2, Sparkles } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { ChartDisplay } from "@/components/chart-display"
+import { ChartConfig } from "@/models/chart-config.interface"
 
 interface QueryResultsProps {
   data: {
@@ -29,6 +31,10 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
   const [pageSize, setPageSize] = useState(25)
   const [viewMode, setViewMode] = useState<ViewMode>("table")
   const [selectedColumns, setSelectedColumns] = useState<number[]>([])
+  const [chartConfig, setChartConfig] = useState<ChartConfig | null>(null)
+  const [isGeneratingChart, setIsGeneratingChart] = useState(false)
+  const [chartError, setChartError] = useState<string | null>(null)
+  const [chartReasoning, setChartReasoning] = useState<string | null>(null)
 
   // Data type detection
   const columnTypes = useMemo(() => {
@@ -164,6 +170,39 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
     .map((col, index) => ({ col, index }))
     .filter(({ index }) => columnTypes[index] === "number")
 
+  const generateChart = async () => {
+    setIsGeneratingChart(true)
+    setChartError(null)
+
+    try {
+      const response = await fetch("/api/chart/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          columns: data.columns,
+          rows: data.rows,
+          rowCount: data.rowCount,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || "Failed to generate chart")
+      }
+
+      const result = await response.json()
+      setChartConfig(result.config)
+      setChartReasoning(result.reasoning)
+      setViewMode("chart")
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to generate chart"
+      setChartError(errorMessage)
+      console.error("Chart generation error:", err)
+    } finally {
+      setIsGeneratingChart(false)
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -180,25 +219,46 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
           </div>
 
           <div className="flex items-center gap-2">
-            <Select value={viewMode} onValueChange={(value: ViewMode) => setViewMode(value)}>
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="table">
-                  <div className="flex items-center gap-2">
-                    <TableIcon className="h-4 w-4" />
-                    Table
-                  </div>
-                </SelectItem>
-                <SelectItem value="chart" disabled={numericColumns.length === 0}>
-                  <div className="flex items-center gap-2">
-                    <BarChart3 className="h-4 w-4" />
-                    Chart
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            {chartConfig && (
+              <Select value={viewMode} onValueChange={(value: ViewMode) => setViewMode(value)}>
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="table">
+                    <div className="flex items-center gap-2">
+                      <TableIcon className="h-4 w-4" />
+                      Table
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="chart">
+                    <div className="flex items-center gap-2">
+                      <BarChart3 className="h-4 w-4" />
+                      Chart
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={generateChart}
+              disabled={isGeneratingChart || data.rowCount === 0}
+            >
+              {isGeneratingChart ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Generate Chart
+                </>
+              )}
+            </Button>
 
             <Button variant="outline" size="sm" onClick={exportToCSV}>
               <Download className="h-4 w-4 mr-2" />
@@ -316,13 +376,31 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
             )}
           </div>
         ) : (
-          <Alert>
-            <BarChart3 className="h-4 w-4" />
-            <AlertDescription>
-              Chart visualization would be implemented here for numeric columns:{" "}
-              {numericColumns.map(({ col }) => col).join(", ")}
-            </AlertDescription>
-          </Alert>
+          <div className="space-y-4">
+            {chartError && (
+              <Alert variant="destructive">
+                <AlertDescription>{chartError}</AlertDescription>
+              </Alert>
+            )}
+            {chartConfig ? (
+              <div className="space-y-4">
+                {chartReasoning && (
+                  <Alert>
+                    <Sparkles className="h-4 w-4" />
+                    <AlertDescription>{chartReasoning}</AlertDescription>
+                  </Alert>
+                )}
+                <ChartDisplay config={chartConfig} columns={data.columns} rows={data.rows} />
+              </div>
+            ) : (
+              <Alert>
+                <BarChart3 className="h-4 w-4" />
+                <AlertDescription>
+                  Click "Generate Chart" to create an AI-powered visualization of your query results.
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
         )}
       </CardContent>
     </Card>
