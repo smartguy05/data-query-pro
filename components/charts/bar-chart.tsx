@@ -13,9 +13,24 @@ const DEFAULT_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "
 export function BarChartComponent({ data, config }: BarChartProps) {
   const colors = config.colors || DEFAULT_COLORS
 
+  // Convert numeric columns to actual numbers
+  const processedData = data.map((row) => {
+    const newRow = { ...row }
+    config.yAxisColumns.forEach((col) => {
+      const value = row[col]
+      if (value !== null && value !== undefined && value !== "") {
+        const numValue = Number(value)
+        if (!isNaN(numValue)) {
+          newRow[col] = numValue
+        }
+      }
+    })
+    return newRow
+  })
+
   return (
     <ResponsiveContainer width="100%" height={400}>
-      <RechartsBarChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+      <RechartsBarChart data={processedData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
         <XAxis
           dataKey={config.xAxisColumn}
@@ -23,6 +38,7 @@ export function BarChartComponent({ data, config }: BarChartProps) {
           className="text-slate-600 dark:text-slate-400"
         />
         <YAxis
+          domain={["auto", "auto"]}
           label={config.yAxisLabel ? { value: config.yAxisLabel, angle: -90, position: "insideLeft" } : undefined}
           className="text-slate-600 dark:text-slate-400"
         />

@@ -89,7 +89,7 @@ Call the appropriate chart creation function with the proper configuration.`
     console.log("[Chart Generation] Calling OpenAI Chat Completions API...")
 
     const response = await client.chat.completions.create({
-      model: process.env.OPENAI_MODEL || "gpt-4o",
+      model: process.env.OPENAI_MODEL || "gpt-5-mini",
       messages: [
         {
           role: "system",
@@ -121,7 +121,20 @@ Call the appropriate chart creation function with the proper configuration.`
       return NextResponse.json({ error: "AI did not generate a chart configuration" }, { status: 500 })
     }
 
-    const toolCall = toolCalls[0]
+    const toolCall = toolCalls[0] as {
+      type: "function"
+      function: {
+        name: string
+        arguments: string
+      }
+    }
+
+    // Type assertion for OpenAI tool call structure
+    if (toolCall.type !== "function" || !toolCall.function) {
+      console.error("[Chart Generation] Invalid tool call type")
+      return NextResponse.json({ error: "Invalid tool call from AI" }, { status: 500 })
+    }
+
     console.log("[Chart Generation] Tool called:", toolCall.function.name)
     console.log("[Chart Generation] Arguments:", toolCall.function.arguments)
 

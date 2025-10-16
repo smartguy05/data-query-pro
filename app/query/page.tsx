@@ -16,6 +16,16 @@ import { SaveReportDialog } from "@/components/save-report-dialog"
 import { SavedReport, ReportParameter } from "@/models/saved-report.interface"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 interface QueryResult {
   sql: string
@@ -36,6 +46,7 @@ export default function QueryPage() {
   const [error, setError] = useState("")
   const [relevantTables, setRelevantTables] = useState<string[]>([])
   const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [showClearConfirmation, setShowClearConfirmation] = useState(false)
 
   useEffect(() => {
     const queryParam = searchParams.get("suggestion")
@@ -85,6 +96,25 @@ export default function QueryPage() {
   }, [queryResult]);
 
   const connectionInformation = useDatabaseOptions();
+
+  const handleGenerateSQLClick = () => {
+    // Check if there are existing results to clear
+    if (queryResult || executionResults) {
+      setShowClearConfirmation(true)
+    } else {
+      generateSQL()
+    }
+  }
+
+  const handleConfirmClear = () => {
+    // Clear existing results
+    setQueryResult(null)
+    setExecutionResults(null)
+    setEditableSql("")
+    setShowClearConfirmation(false)
+    // Generate new SQL
+    generateSQL()
+  }
 
   const generateSQL = async () => {
     if (!naturalQuery.trim()) return
@@ -298,7 +328,7 @@ export default function QueryPage() {
               className="min-h-[100px] resize-none"
             />
             <Button
-              onClick={generateSQL}
+              onClick={handleGenerateSQLClick}
               disabled={!naturalQuery.trim() || isGenerating}
               className="bg-blue-600 hover:bg-blue-700"
             >
@@ -394,6 +424,20 @@ export default function QueryPage() {
         defaultName={naturalQuery.slice(0, 50) + (naturalQuery.length > 50 ? "..." : "")}
         sql={editableSql}
       />
+      <AlertDialog open={showClearConfirmation} onOpenChange={setShowClearConfirmation}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear Existing Results?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the current Generated SQL Query and Query Results. Are you sure you want to continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmClear}>Continue</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

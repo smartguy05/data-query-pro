@@ -6,7 +6,14 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, ChevronLeft, ChevronRight, Loader2, Sparkles } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
+import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, ChevronLeft, ChevronRight, Loader2, Sparkles, LineChart, PieChart, AreaChart, ScatterChart } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ChartDisplay } from "@/components/chart-display"
 import { ChartConfig } from "@/models/chart-config.interface"
@@ -21,7 +28,7 @@ interface QueryResultsProps {
 }
 
 type SortDirection = "asc" | "desc" | null
-type ViewMode = "table" | "chart"
+type ViewMode = "table" | "bar" | "line" | "pie" | "area" | "scatter"
 
 export function QueryResultsDisplay({ data }: QueryResultsProps) {
   const [sortColumn, setSortColumn] = useState<number | null>(null)
@@ -31,10 +38,9 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
   const [pageSize, setPageSize] = useState(25)
   const [viewMode, setViewMode] = useState<ViewMode>("table")
   const [selectedColumns, setSelectedColumns] = useState<number[]>([])
-  const [chartConfig, setChartConfig] = useState<ChartConfig | null>(null)
+  const [generatedCharts, setGeneratedCharts] = useState<Record<string, { config: ChartConfig; reasoning: string }>>({})
   const [isGeneratingChart, setIsGeneratingChart] = useState(false)
   const [chartError, setChartError] = useState<string | null>(null)
-  const [chartReasoning, setChartReasoning] = useState<string | null>(null)
 
   // Data type detection
   const columnTypes = useMemo(() => {
@@ -170,11 +176,50 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
     .map((col, index) => ({ col, index }))
     .filter(({ index }) => columnTypes[index] === "number")
 
-  const generateChart = async () => {
-    setIsGeneratingChart(true)
+  const generateChart = async (chartType?: string) => {
     setChartError(null)
 
     try {
+      // If no chart type specified, let AI choose
+      if (!chartType) {
+        setIsGeneratingChart(true)
+        const response = await fetch("/api/chart/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            columns: data.columns,
+            rows: data.rows,
+            rowCount: data.rowCount,
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || "Failed to generate chart")
+        }
+
+        const result = await response.json()
+        const generatedType = result.config.type
+
+        // Store the generated chart
+        setGeneratedCharts((prev) => ({
+          ...prev,
+          [generatedType]: { config: result.config, reasoning: result.reasoning },
+        }))
+        setViewMode(generatedType as ViewMode)
+        setIsGeneratingChart(false)
+        return
+      }
+
+      // If chart type specified, check if it already exists
+      if (generatedCharts[chartType]) {
+        // Chart already exists, just switch to it
+        setViewMode(chartType as ViewMode)
+        return
+      }
+
+      // Generate new chart of specified type
+      setIsGeneratingChart(true)
       const response = await fetch("/api/chart/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -182,6 +227,7 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
           columns: data.columns,
           rows: data.rows,
           rowCount: data.rowCount,
+          preferredChartType: chartType,
         }),
       })
 
@@ -191,9 +237,13 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
       }
 
       const result = await response.json()
-      setChartConfig(result.config)
-      setChartReasoning(result.reasoning)
-      setViewMode("chart")
+
+      // Store the generated chart
+      setGeneratedCharts((prev) => ({
+        ...prev,
+        [chartType]: { config: result.config, reasoning: result.reasoning },
+      }))
+      setViewMode(chartType as ViewMode)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to generate chart"
       setChartError(errorMessage)
@@ -219,9 +269,9 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
           </div>
 
           <div className="flex items-center gap-2">
-            {chartConfig && (
+            {Object.keys(generatedCharts).length > 0 && (
               <Select value={viewMode} onValueChange={(value: ViewMode) => setViewMode(value)}>
-                <SelectTrigger className="w-32">
+                <SelectTrigger className="w-40">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -231,34 +281,110 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
                       Table
                     </div>
                   </SelectItem>
-                  <SelectItem value="chart">
-                    <div className="flex items-center gap-2">
-                      <BarChart3 className="h-4 w-4" />
-                      Chart
-                    </div>
-                  </SelectItem>
+                  {generatedCharts.bar && (
+                    <SelectItem value="bar">
+                      <div className="flex items-center gap-2">
+                        <BarChart3 className="h-4 w-4" />
+                        Bar Chart
+                      </div>
+                    </SelectItem>
+                  )}
+                  {generatedCharts.line && (
+                    <SelectItem value="line">
+                      <div className="flex items-center gap-2">
+                        <LineChart className="h-4 w-4" />
+                        Line Chart
+                      </div>
+                    </SelectItem>
+                  )}
+                  {generatedCharts.pie && (
+                    <SelectItem value="pie">
+                      <div className="flex items-center gap-2">
+                        <PieChart className="h-4 w-4" />
+                        Pie Chart
+                      </div>
+                    </SelectItem>
+                  )}
+                  {generatedCharts.area && (
+                    <SelectItem value="area">
+                      <div className="flex items-center gap-2">
+                        <AreaChart className="h-4 w-4" />
+                        Area Chart
+                      </div>
+                    </SelectItem>
+                  )}
+                  {generatedCharts.scatter && (
+                    <SelectItem value="scatter">
+                      <div className="flex items-center gap-2">
+                        <ScatterChart className="h-4 w-4" />
+                        Scatter Plot
+                      </div>
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             )}
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={generateChart}
-              disabled={isGeneratingChart || data.rowCount === 0}
-            >
-              {isGeneratingChart ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Generate Chart
-                </>
-              )}
-            </Button>
+            <div className="flex items-center">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => generateChart()}
+                disabled={isGeneratingChart || data.rowCount === 0}
+                className="rounded-r-none"
+              >
+                {isGeneratingChart ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Generate Chart
+                  </>
+                )}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isGeneratingChart || data.rowCount === 0}
+                    className="rounded-l-none border-l-0 px-2"
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => generateChart()}>
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Auto (AI Choose)
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => generateChart("bar")}>
+                    <BarChart3 className="h-4 w-4 mr-2" />
+                    Bar Chart
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => generateChart("line")}>
+                    <LineChart className="h-4 w-4 mr-2" />
+                    Line Chart
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => generateChart("pie")}>
+                    <PieChart className="h-4 w-4 mr-2" />
+                    Pie Chart
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => generateChart("area")}>
+                    <AreaChart className="h-4 w-4 mr-2" />
+                    Area Chart
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => generateChart("scatter")}>
+                    <ScatterChart className="h-4 w-4 mr-2" />
+                    Scatter Plot
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
 
             <Button variant="outline" size="sm" onClick={exportToCSV}>
               <Download className="h-4 w-4 mr-2" />
@@ -382,15 +508,15 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
                 <AlertDescription>{chartError}</AlertDescription>
               </Alert>
             )}
-            {chartConfig ? (
+            {generatedCharts[viewMode] ? (
               <div className="space-y-4">
-                {chartReasoning && (
+                {generatedCharts[viewMode].reasoning && (
                   <Alert>
                     <Sparkles className="h-4 w-4" />
-                    <AlertDescription>{chartReasoning}</AlertDescription>
+                    <AlertDescription>{generatedCharts[viewMode].reasoning}</AlertDescription>
                   </Alert>
                 )}
-                <ChartDisplay config={chartConfig} columns={data.columns} rows={data.rows} />
+                <ChartDisplay config={generatedCharts[viewMode].config} columns={data.columns} rows={data.rows} />
               </div>
             ) : (
               <Alert>

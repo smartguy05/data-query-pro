@@ -13,8 +13,21 @@ const DEFAULT_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "
 export function PieChartComponent({ data, config }: PieChartProps) {
   const colors = config.colors || DEFAULT_COLORS
 
+  // Convert value column to actual numbers
+  const processedData = data.map((row) => {
+    const newRow = { ...row }
+    const value = row[config.valueColumn]
+    if (value !== null && value !== undefined && value !== "") {
+      const numValue = Number(value)
+      if (!isNaN(numValue)) {
+        newRow[config.valueColumn] = numValue
+      }
+    }
+    return newRow
+  })
+
   const renderLabel = (entry: any) => {
-    const percent = ((entry.value / data.reduce((sum, item) => sum + item[config.valueColumn], 0)) * 100).toFixed(1)
+    const percent = ((entry.value / processedData.reduce((sum, item) => sum + item[config.valueColumn], 0)) * 100).toFixed(1)
     return `${entry[config.nameColumn]}: ${percent}%`
   }
 
@@ -22,7 +35,7 @@ export function PieChartComponent({ data, config }: PieChartProps) {
     <ResponsiveContainer width="100%" height={400}>
       <RechartsPieChart margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
         <Pie
-          data={data}
+          data={processedData}
           dataKey={config.valueColumn}
           nameKey={config.nameColumn}
           cx="50%"
@@ -31,7 +44,7 @@ export function PieChartComponent({ data, config }: PieChartProps) {
           label={config.showLabels !== false ? renderLabel : false}
           labelLine={config.showLabels !== false}
         >
-          {data.map((entry, index) => (
+          {processedData.map((entry, index) => (
             <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
           ))}
         </Pie>
