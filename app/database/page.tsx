@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge"
 import { Database, CheckCircle, Loader2, Plus, Trash2, Download, Upload, Edit } from "lucide-react"
 import {useDatabaseOptions} from "@/lib/database-connection-options";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { storage, StorageKeys } from "@/lib/storage"
+import { SavedReport } from "@/models/saved-report.interface"
 
 export default function DatabasePage() {
   const connectionInformation = useDatabaseOptions();
@@ -144,14 +146,17 @@ export default function DatabasePage() {
   const exportData = async () => {
     setIsExporting(true)
     try {
+      const savedReports = storage.get<SavedReport[]>(StorageKeys.SAVED_REPORTS, []);
+
       const exportData = {
         version: "1.0",
         exportDate: new Date().toISOString(),
         databaseConnections: connectionInformation.connections,
         currentDbConnection: connectionInformation.currentConnection,
         schemaData: {},
+        savedReports: savedReports,
       };
-      
+
       for (let i = 0; i < connectionInformation.connections.length; i++) {
         const schemaData = connectionInformation.getSchema(connectionInformation.connections[i].id);
         if (!!schemaData) {
@@ -217,6 +222,11 @@ export default function DatabasePage() {
         // Now safe to set because we're using functional state updates
         if (importData.currentDbConnection) {
           connectionInformation.setCurrentConnection(importData.currentDbConnection);
+        }
+
+        // Import saved reports
+        if (importData.savedReports && Array.isArray(importData.savedReports)) {
+          storage.set(StorageKeys.SAVED_REPORTS, importData.savedReports);
         }
 
         setImportStatus("success")
