@@ -11,8 +11,9 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Database, CheckCircle, Loader2, Plus, Trash2, Download, Upload } from "lucide-react"
+import { Database, CheckCircle, Loader2, Plus, Trash2, Download, Upload, Edit } from "lucide-react"
 import {useDatabaseOptions} from "@/lib/database-connection-options";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 
 export default function DatabasePage() {
   const connectionInformation = useDatabaseOptions();
@@ -20,7 +21,11 @@ export default function DatabasePage() {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importStatus, setImportStatus] = useState<"idle" | "success" | "error">("idle");
-  
+  const [editingConnection, setEditingConnection] = useState<DatabaseConnection | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [uploadingSchemaId, setUploadingSchemaId] = useState<string | null>(null);
+
   const savedConnections = connectionInformation.connections;
   const connectionStatus = connectionInformation.connectionStatus;
 
@@ -44,7 +49,28 @@ export default function DatabasePage() {
     },
   })
 
+  const {
+    register: registerEdit,
+    handleSubmit: handleSubmitEdit,
+    watch: watchEdit,
+    setValue: setValueEdit,
+    reset: resetEdit,
+    formState: { errors: errorsEdit },
+  } = useForm<ConnectionFormData>({
+    defaultValues: {
+      type: "",
+      name: "",
+      host: "",
+      port: "",
+      database: "",
+      username: "",
+      password: "",
+      description: "",
+    },
+  })
+
   const selectedType = watch("type")
+  const selectedEditType = watchEdit("type")
 
   useEffect(() => {
     const defaultPorts: Record<string, string> = {
@@ -58,6 +84,19 @@ export default function DatabasePage() {
       setValue("port", defaultPorts[selectedType])
     }
   }, [selectedType, setValue])
+
+  useEffect(() => {
+    const defaultPorts: Record<string, string> = {
+      postgresql: "5432",
+      mysql: "3306",
+      sqlserver: "1433",
+      sqlite: "",
+    }
+
+    if (selectedEditType && defaultPorts[selectedEditType]) {
+      setValueEdit("port", defaultPorts[selectedEditType])
+    }
+  }, [selectedEditType, setValueEdit])
 
   const handleConnect = async (data: ConnectionFormData) => {
     if (!data.type || !data.name || !data.host || !data.database || !data.username) {
@@ -164,12 +203,10 @@ export default function DatabasePage() {
         }
 
         // Import schema data
-        // todo: fix
         if (importData.schemaData && typeof importData.schemaData === "object") {
-          Object.entries(importData.schemaData).forEach(([key, value]) => {
-            if (key.startsWith("schema_")) {
-              localStorage.setItem(key, JSON.stringify(value))
-            }
+          Object.entries(importData.schemaData).forEach(([connectionId, schema]) => {
+            // Use the context's setSchema function to properly import each schema
+            connectionInformation.setSchema(schema as Schema);
           })
         }
 
@@ -190,12 +227,15 @@ export default function DatabasePage() {
 
   // Upload schema data as a file
   const uploadSchema = async (connection: DatabaseConnection) => {
-    
+
     let schemaData = connectionInformation.getSchema(connection.id);
-    
+
     if (!schemaData) {
-      throw new Error("No schema data found! Be sure to parse database schema before trying to upload.");
+      alert("No schema data found! Be sure to introspect the database schema before trying to upload.");
+      return;
     }
+
+    setUploadingSchemaId(connection.id);
 
     try {
       const response = await fetch("/api/schema/upload-schema", {
@@ -207,19 +247,22 @@ export default function DatabasePage() {
           data: schemaData
         }),
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         connection.schemaFileId = data.fileId;
         connection.vectorStoreId = data.vectorStoreId;
         connectionInformation.updateConnection(connection);
+        alert("Schema uploaded successfully!");
       } else {
         const errorText = await response.text();
         console.error(`Failed to upload schema file`, errorText);
-        throw new Error(`File to upload schema file: ${response.status} ${response.statusText}`);
+        throw new Error(`Failed to upload schema file: ${response.status} ${response.statusText}`);
       }
     } catch (error) {
       alert(error);
+    } finally {
+      setUploadingSchemaId(null);
     }
   };
   
@@ -230,13 +273,66 @@ export default function DatabasePage() {
   const setCurrentConnection = (connection: DatabaseConnection) => {
     connectionInformation.setCurrentConnection(connection);
   }
-  
+
+  const openEditDialog = (connection: DatabaseConnection) => {
+    setEditingConnection(connection);
+    // Populate the edit form with existing connection data
+    resetEdit({
+      type: connection.type,
+      name: connection.name,
+      host: connection.host,
+      port: connection.port,
+      database: connection.database,
+      username: connection.username,
+      password: connection.password,
+      description: connection.description || "",
+    });
+    setIsEditDialogOpen(true);
+  }
+
+  const handleUpdateConnection = async (data: ConnectionFormData) => {
+    if (!editingConnection) return;
+
+    if (!data.type || !data.name || !data.host || !data.database || !data.username) {
+      return;
+    }
+
+    setIsUpdating(true);
+
+    try {
+      // Simulate connection test
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Update the connection object
+      const updatedConnection: DatabaseConnection = {
+        ...editingConnection,
+        name: data.name,
+        type: data.type,
+        host: data.host,
+        port: data.port,
+        database: data.database,
+        username: data.username,
+        password: data.password,
+        description: data.description,
+      };
+
+      connectionInformation.updateConnection(updatedConnection);
+      setIsEditDialogOpen(false);
+      setEditingConnection(null);
+      resetEdit();
+    } catch (error) {
+      console.error("Update failed:", error);
+    } finally {
+      setIsUpdating(false);
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
+    <div className="min-h-screen bg-background p-6">
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold text-slate-900">Database Connections</h1>
-          <p className="text-slate-600">Connect to your data sources for analysis and reporting</p>
+          <h1 className="text-3xl font-bold text-foreground">Database Connections</h1>
+          <p className="text-muted-foreground">Connect to your data sources for analysis and reporting</p>
         </div>
 
         <Card>
@@ -288,7 +384,7 @@ export default function DatabasePage() {
           </CardContent>
         </Card>
 
-        <Tabs defaultValue="connect" className="space-y-6">
+        <Tabs defaultValue={savedConnections && savedConnections.length > 0 ? "existing" : "connect"} className="space-y-6">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="connect">New Connection</TabsTrigger>
             <TabsTrigger value="existing">Existing Connections ({savedConnections?.length ?? 0})</TabsTrigger>
@@ -413,9 +509,9 @@ export default function DatabasePage() {
                 <Card>
                   <CardContent className="flex items-center justify-center py-12">
                     <div className="text-center space-y-2">
-                      <Database className="h-12 w-12 text-slate-400 mx-auto" />
-                      <p className="text-slate-600">No saved connections yet</p>
-                      <p className="text-sm text-slate-500">Create your first database connection to get started</p>
+                      <Database className="h-12 w-12 text-muted-foreground mx-auto" />
+                      <p className="text-muted-foreground">No saved connections yet</p>
+                      <p className="text-sm text-muted-foreground">Create your first database connection to get started</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -438,14 +534,14 @@ export default function DatabasePage() {
                           </div>
                           <div>
                             <h3 className="font-semibold">{connection.name}</h3>
-                            <p className="text-sm text-slate-600">
+                            <p className="text-sm text-muted-foreground">
                               {connection.type.toUpperCase()} • {connection.host}:{connection.port}/
                               {connection.database}
                             </p>
                             {connection.description && (
-                              <p className="text-xs text-slate-500 mt-1 max-w-md truncate">{connection.description}</p>
+                              <p className="text-xs text-muted-foreground mt-1 max-w-md truncate">{connection.description}</p>
                             )}
-                            <p className="text-xs text-slate-500">
+                            <p className="text-xs text-muted-foreground">
                               Created: {new Date(connection.createdAt).toLocaleDateString()}
                             </p>
                           </div>
@@ -463,13 +559,39 @@ export default function DatabasePage() {
                             </Button>
                           )}
                           {!connection.schemaFileId && (
-                            <Button size="sm" variant="outline" onClick={() => uploadSchema(connection)}>
-                              Upload Schema File
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => uploadSchema(connection)}
+                              disabled={uploadingSchemaId === connection.id}
+                            >
+                              {uploadingSchemaId === connection.id ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Uploading...
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="h-4 w-4 mr-2" />
+                                  Upload Schema File
+                                </>
+                              )}
                             </Button>
                           )}
                           {!!connection.schemaFileId && (
-                              <span>Schema Uploaded</span>
+                            <div className="flex items-center gap-2">
+                              <CheckCircle className="h-4 w-4 text-green-600" />
+                              <span className="text-sm text-green-600">Schema Uploaded</span>
+                            </div>
                           )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openEditDialog(connection)}
+                            title="Edit connection"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
                           <Button size="sm" variant="ghost" onClick={() => deleteConnection(connection.id)}>
                             <Trash2 className="h-4 w-4 text-red-500" />
                           </Button>
@@ -482,6 +604,114 @@ export default function DatabasePage() {
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* Edit Connection Dialog */}
+        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit Database Connection</DialogTitle>
+              <DialogDescription>
+                Update the connection details for your database
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleSubmitEdit(handleUpdateConnection)} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-db-type">Database Type *</Label>
+                  <Select
+                    value={watchEdit("type")}
+                    onValueChange={(value) => setValueEdit("type", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select database type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="postgresql">PostgreSQL</SelectItem>
+                      <SelectItem value="mysql">MySQL</SelectItem>
+                      <SelectItem value="sqlserver">SQL Server</SelectItem>
+                      <SelectItem value="sqlite">SQLite</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {errorsEdit.type && <p className="text-sm text-red-600">Database type is required</p>}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-connection-name">Connection Name *</Label>
+                  <Input
+                    {...registerEdit("name", { required: "Connection name is required" })}
+                    placeholder="Production Database"
+                  />
+                  {errorsEdit.name && <p className="text-sm text-red-600">{errorsEdit.name.message}</p>}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-description">Database Description</Label>
+                <textarea
+                  {...registerEdit("description")}
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="Describe what data this database contains"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-host">Host *</Label>
+                  <Input {...registerEdit("host", { required: "Host is required" })} placeholder="localhost" />
+                  {errorsEdit.host && <p className="text-sm text-red-600">{errorsEdit.host.message}</p>}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-port">Port</Label>
+                  <Input {...registerEdit("port")} placeholder="5432" />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-database">Database Name *</Label>
+                <Input
+                  {...registerEdit("database", { required: "Database name is required" })}
+                  placeholder="company_db"
+                />
+                {errorsEdit.database && <p className="text-sm text-red-600">{errorsEdit.database.message}</p>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-username">Username *</Label>
+                  <Input {...registerEdit("username", { required: "Username is required" })} placeholder="admin" />
+                  {errorsEdit.username && <p className="text-sm text-red-600">{errorsEdit.username.message}</p>}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-password">Password</Label>
+                  <Input {...registerEdit("password")} type="password" placeholder="••••••••" />
+                </div>
+              </div>
+
+              <div className="flex gap-2 justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setIsEditDialogOpen(false);
+                    setEditingConnection(null);
+                    resetEdit();
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isUpdating}>
+                  {isUpdating ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Updating...
+                    </>
+                  ) : (
+                    "Update Connection"
+                  )}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )

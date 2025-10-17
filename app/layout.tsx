@@ -3,6 +3,8 @@ import type { Metadata } from "next"
 import "./globals.css"
 import { Navigation } from "@/components/navigation"
 import {DatabaseConnectionOptions} from "@/lib/database-connection-options";
+import { Toaster } from "@/components/ui/toaster";
+import { ThemeProvider } from "@/components/theme-provider";
 
 export const metadata: Metadata = {
   title: "Database Query & Reporting Platform",
@@ -16,12 +18,20 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="antialiased">
+    <html lang="en" className="antialiased" suppressHydrationWarning>
       <body className="font-sans">
-        <DatabaseConnectionOptions>
-          <Navigation />
-          <main>{children}</main>
-        </DatabaseConnectionOptions>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem={false}
+          disableTransitionOnChange
+        >
+          <DatabaseConnectionOptions>
+            <Navigation />
+            <main>{children}</main>
+            <Toaster />
+          </DatabaseConnectionOptions>
+        </ThemeProvider>
       </body>
     </html>
   )

@@ -4,7 +4,19 @@ import OpenAI from 'openai';
 export async function POST(request: NextRequest) {
     try {
         const { data, existingFileId, existingVectorStoreId } = await request.json();
-        const jsonFile = new File([JSON.stringify(data, null, 2)], 'database-schema.json', {
+
+        // Filter out hidden tables and hidden columns before uploading to OpenAI
+        const filteredData = {
+            ...data,
+            tables: data.tables
+                .filter((table: any) => !table.hidden) // Remove hidden tables
+                .map((table: any) => ({
+                    ...table,
+                    columns: table.columns.filter((column: any) => !column.hidden) // Remove hidden columns
+                }))
+        };
+
+        const jsonFile = new File([JSON.stringify(filteredData, null, 2)], 'database-schema.json', {
             type: 'application/json'
         });
 
@@ -12,12 +24,22 @@ export async function POST(request: NextRequest) {
             apiKey: process.env.OPENAI_API_KEY
         });
         
-        if (!!existingFileId) {
-            await openai.files.delete(existingFileId);
+        try {
+            if (!!existingFileId) {
+                await openai.files.delete(existingFileId);
+            }            
+        } catch (e) {
+            console.log("Unable to delete file store")
+            console.error(e);
         }
-        
-        if (!!existingVectorStoreId) {
-            await openai.files.delete(existingVectorStoreId);
+
+        try {
+            if (!!existingVectorStoreId) {
+                await openai.vectorStores.delete(existingVectorStoreId);
+            }            
+        } catch (e) {
+            console.log("Unable to delete vector store")
+            console.error(e);
         }
 
         const file = await openai.files.create({

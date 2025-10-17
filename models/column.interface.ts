@@ -6,4 +6,7 @@ interface Column {
     foreign_key?: string
     description?: string
     aiDescription?: string
+    hidden?: boolean
+    isNew?: boolean
+    isModified?: boolean
 }
