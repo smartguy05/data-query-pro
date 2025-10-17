@@ -41,7 +41,8 @@ An AI-powered database visualization and query tool that enables users to intera
 - Switch between connections seamlessly
 - Connection-specific schema and report storage
 - Database-specific SQL dialect generation
-- Secure credential management (localStorage-based)
+- Session-based credential management (sessionStorage)
+- Import/Export functionality for settings backup and transfer
 
 ### User Experience
 - Confirmation dialogs for destructive actions
@@ -175,6 +176,27 @@ Enhance query accuracy with AI-generated descriptions:
 2. Click on any suggestion to navigate to the query page with pre-filled context
 3. Regenerate suggestions to get new ideas
 
+### 7. Backup and Restore Settings
+
+Since the application uses sessionStorage, data is cleared when you close the browser tab. Use Import/Export to preserve your settings:
+
+**Export:**
+1. Navigate to the **Database** page
+2. Click "Export Data"
+3. A JSON file will be downloaded containing:
+   - All database connections (with credentials)
+   - All schemas with AI descriptions
+   - Current active connection
+
+**Import:**
+1. Navigate to the **Database** page
+2. Click "Import Data"
+3. Select a previously exported JSON file
+4. All connections and schemas will be restored
+5. AI descriptions and table metadata are preserved
+
+**Important**: Exported files contain unencrypted database credentials. Store them securely and never commit them to version control.
+
 ## Project Structure
 
 ```
@@ -207,7 +229,14 @@ components/                   # React components
 └── navigation.tsx
 
 lib/                         # Shared utilities
-└── database-connection-options.tsx  # Main state management context
+├── database-connection-options.tsx  # Main state management context
+└── storage/                 # Storage abstraction layer
+    ├── index.ts             # Main storage service export
+    ├── storage-interface.ts # Storage adapter interface
+    ├── storage-keys.ts      # Centralized storage key management
+    ├── session-storage-adapter.ts  # SessionStorage implementation
+    ├── memory-storage-adapter.ts   # In-memory fallback adapter
+    └── MIGRATION_GUIDE.md   # Guide for future database migration
 
 models/                      # TypeScript interfaces
 ├── database-connection.interface.ts
@@ -224,27 +253,119 @@ utils/                       # Utility functions
 
 ## State Management
 
-The application uses a centralized React Context pattern for database connection state:
+The application uses a centralized React Context pattern with functional state updates to prevent race conditions:
 
-- **Provider**: `DatabaseConnectionOptions` component
-- **Hook**: `useDatabaseOptions()` - use this hook in any component
-- **Persistence**: All data stored in localStorage (connections, schemas, reports)
-- **Multi-Connection**: Supports multiple database connections with easy switching
+- **Provider**: `DatabaseConnectionOptions` component in `lib/database-connection-options.tsx`
+- **Hook**: `useDatabaseOptions()` - use this hook in any component that needs database state
+- **Persistence**: Session-scoped storage via abstraction layer (sessionStorage by default)
+- **Multi-Connection**: Supports multiple database connections with seamless switching
+- **Functional Updates**: All state setters use functional updates to avoid stale closure bugs
+- **SSR Compatible**: Storage layer gracefully handles server-side rendering
+
+## Storage Architecture
+
+The application uses a flexible storage abstraction layer that makes it easy to migrate between storage backends:
+
+### Current Implementation
+- **Backend**: SessionStorage (browser session-scoped)
+- **Security**: Data cleared when browser tab closes
+- **Benefits**:
+  - More secure than localStorage (session-scoped)
+  - Not shared across tabs
+  - Reduces credential exposure risk
+  - SSR-compatible with graceful fallbacks
+
+### Architecture Components
+
+1. **Storage Interface** (`storage-interface.ts`): Defines the contract for all storage adapters
+2. **Storage Service**: Provides type-safe, JSON-based operations with automatic serialization
+3. **Storage Keys** (`storage-keys.ts`): Centralized key management to prevent typos
+4. **Adapters**:
+   - `SessionStorageAdapter`: Production adapter using browser sessionStorage
+   - `MemoryStorageAdapter`: Fallback for testing and SSR
+
+### Usage Example
+
+```typescript
+import { storage, StorageKeys } from '@/lib/storage'
+
+// Save data with automatic JSON serialization
+storage.set(StorageKeys.DATABASE_CONNECTIONS, connections)
+
+// Load data with type safety and default value
+const connections = storage.get<DatabaseConnection[]>(
+  StorageKeys.DATABASE_CONNECTIONS,
+  []
+)
+
+// Load optional data (returns null if not found)
+const connection = storage.getOptional<DatabaseConnection>(
+  StorageKeys.CURRENT_DB_CONNECTION
+)
+```
+
+### Future Migration
+
+The abstraction layer is designed for easy migration to database storage. See `lib/storage/MIGRATION_GUIDE.md` for detailed instructions on:
+- Creating a database storage adapter
+- Implementing async storage operations
+- Using a hybrid approach (session + database)
+- Rollback procedures
+
+### Import/Export
+
+The Database page includes Import/Export functionality to:
+- Backup all connections, schemas, and AI descriptions to JSON
+- Transfer settings between machines or browsers
+- Restore data after clearing browser storage
+- Share configurations with team members
+
+**Note**: Exported files may contain database credentials - handle them securely!
 
 ## Important Notes
 
 - **Multi-Database Support**: Supports PostgreSQL, MySQL, SQL Server, and SQLite
 - **Database-Specific SQL**: AI generates SQL queries using the appropriate dialect for your database type
 - **Schema Upload Required**: You must upload your schema to OpenAI before generating queries
-- **localStorage**: Connection credentials and data are stored in browser localStorage
-- **Security**: Password storage is not encrypted (not production-ready)
+- **Session Storage**: Connection credentials and data are stored in browser sessionStorage
+- **Data Persistence**: Data is cleared when the browser tab closes (use Export to backup)
+- **Security**: Password storage is not encrypted; session-scoped storage reduces exposure risk
 - **Vector Stores**: Each connection maintains its own OpenAI vector store for schema context
 - **Query Safety**: Only SELECT statements are allowed by default to prevent data modification
 - **SQLite Notes**: For SQLite databases, use the file path as the database name; host and port are not required
+- **Import/Export**: Use the Export feature to backup your settings before closing the browser tab
+
+## Recent Improvements
+
+### Storage Architecture Overhaul (v2.0)
+
+**Migration from localStorage to sessionStorage:**
+- Implemented flexible storage abstraction layer for easy backend switching
+- Migrated all storage operations from localStorage to sessionStorage for improved security
+- Added SSR-compatible storage adapters with graceful fallbacks
+- Centralized storage key management to prevent typos and track all stored data
+
+**Bug Fixes:**
+- Fixed critical stale closure bug in React state management that caused data loss during import
+- Implemented functional state updates throughout the codebase to prevent race conditions
+- Fixed issue where importing multiple database schemas would overwrite each other
+- Resolved bug where AI descriptions were lost when importing settings
+
+**Features Added:**
+- Import/Export functionality for backing up and restoring all settings
+- Support for importing multiple database connections simultaneously
+- Preserved AI descriptions and metadata during import/export operations
+- Added migration guide for future database storage implementation
+
+**Benefits:**
+- More secure: Data cleared when browser tab closes
+- No stale closure bugs: Functional updates prevent race conditions
+- Easy migration path: Abstraction layer ready for database backend
+- Better developer experience: Type-safe storage operations with centralized keys
 
 ## Upcoming Features
 
-- Export query results to CSV/Excel formats
 - Query history and favoriting
 - Advanced query builder UI
 - Real-time collaboration features
+- Optional database backend for persistent storage across sessions

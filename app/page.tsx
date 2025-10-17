@@ -30,6 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
+import { storage, StorageKeys } from "@/lib/storage"
 
 interface MetricSuggestion {
   title: string
@@ -101,10 +102,9 @@ export default function ContextualDashboard() {
 
           // Load suggestions if descriptions exist
           if (hasAnyDescriptions) {
-            const suggestionsKey = `suggestions_${connection.id}`
-            const cachedSuggestions = localStorage.getItem(suggestionsKey)
+            const cachedSuggestions = storage.getOptional<MetricSuggestion[]>(StorageKeys.suggestions(connection.id))
             if (cachedSuggestions) {
-              setSuggestions(JSON.parse(cachedSuggestions))
+              setSuggestions(cachedSuggestions)
             } else {
               generateSuggestions(connection.id)
             }
@@ -123,13 +123,13 @@ export default function ContextualDashboard() {
   }, [connectionOptions.isInitialized, connectionOptions.currentConnection?.id])
 
   useEffect(() => {
-    // Load dismissed notifications from localStorage
-    const dismissed = JSON.parse(localStorage.getItem("dismissed_notifications") || "[]") as string[]
+    // Load dismissed notifications from storage
+    const dismissed = storage.get<string[]>(StorageKeys.DISMISSED_NOTIFICATIONS, [])
     setDismissedNotifications(dismissed)
   }, [])
 
   const loadRecentReports = (connectionId: string) => {
-    const allReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
+    const allReports = storage.get<SavedReport[]>(StorageKeys.SAVED_REPORTS, [])
     const connectionReports = allReports.filter(report => report.connectionId === connectionId)
 
     setReportCount(connectionReports.length)
@@ -152,11 +152,7 @@ export default function ContextualDashboard() {
   const regenerateSuggestions = async () => {
     setIsReGenerating(true);
     try {
-      const connectionSetting = localStorage.getItem("currentDbConnection");
-      let connection;
-      if (!!connectionSetting) {
-        connection = JSON.parse(connectionSetting);
-      }
+      const connection = storage.getOptional<any>(StorageKeys.CURRENT_DB_CONNECTION);
 
       if (!connection) {
         toast({
@@ -176,11 +172,7 @@ export default function ContextualDashboard() {
         return;
       }
 
-      let cachedSuggestions = localStorage.getItem(`suggestions_${connection.id}`);
-      let storedSuggestions = [];
-      if (!!cachedSuggestions) {
-        storedSuggestions = JSON.parse(cachedSuggestions);
-      }
+      const storedSuggestions = storage.get<MetricSuggestion[]>(StorageKeys.suggestions(connection.id), []);
       await generateSuggestions(connection.id, storedSuggestions);
     } catch (error) {
       console.error("Error regenerating suggestions:", error);
@@ -197,11 +189,7 @@ export default function ContextualDashboard() {
   const generateSuggestions = async (connectionId: string, currentSuggestions?: any[], retryCount: number = 0) => {
     setLoadingSuggestions(true);
     try {
-      const currentDbConnection = localStorage.getItem("currentDbConnection");
-      let dbConnection;
-      if (!!currentDbConnection) {
-        dbConnection = JSON.parse(currentDbConnection);
-      }
+      const dbConnection = storage.getOptional<any>(StorageKeys.CURRENT_DB_CONNECTION);
 
       if (!dbConnection?.vectorStoreId) {
         console.error("No vector store ID found for connection");
@@ -222,7 +210,7 @@ export default function ContextualDashboard() {
       if (response.ok) {
         const data = await response.json()
         const allSuggestions = [...currentSuggestions ?? [], ...data.suggestions];
-        localStorage.setItem(`suggestions_${connectionId}`, JSON.stringify(allSuggestions))
+        storage.set(StorageKeys.suggestions(connectionId), allSuggestions)
         setSuggestions(allSuggestions || [])
         toast({
           title: "Success",
@@ -273,7 +261,7 @@ export default function ContextualDashboard() {
               vectorStoreId: uploadData.vectorStoreId
             };
             connectionOptions.updateConnection(updatedConnection);
-            localStorage.setItem("currentDbConnection", JSON.stringify(updatedConnection));
+            storage.set(StorageKeys.CURRENT_DB_CONNECTION, updatedConnection);
 
             toast({
               title: "Schema Re-uploaded",
@@ -312,20 +300,14 @@ export default function ContextualDashboard() {
   const removeSuggestion = (index: number) => {
     try {
       // todo: add confirmation
-      const connectionSetting = localStorage.getItem("currentDbConnection");
-      let connection;
-      if (!!connectionSetting) {
-        connection = JSON.parse(connectionSetting);
-      }
-      let cachedSuggestions = localStorage.getItem(`suggestions_${connection.id}`);
-      let storedSuggestions = [];
-      if (!!cachedSuggestions) {
-        storedSuggestions = JSON.parse(cachedSuggestions);
-        if (!!storedSuggestions.length) {
-          storedSuggestions.splice(index, 1);
-          setSuggestions(storedSuggestions);
-          localStorage.setItem(`suggestions_${connection.id}`, JSON.stringify(storedSuggestions))
-        }
+      const connection = storage.getOptional<any>(StorageKeys.CURRENT_DB_CONNECTION);
+      if (!connection) return;
+
+      const storedSuggestions = storage.get<MetricSuggestion[]>(StorageKeys.suggestions(connection.id), []);
+      if (storedSuggestions.length > 0) {
+        storedSuggestions.splice(index, 1);
+        setSuggestions(storedSuggestions);
+        storage.set(StorageKeys.suggestions(connection.id), storedSuggestions)
       }
     } catch (error) {
       console.error("Failed to remove suggestion:", error);
@@ -368,11 +350,9 @@ export default function ContextualDashboard() {
       }
 
       // Check for outdated schema (older than 30 days)
-      const schemaKey = `schema_${connection.id}`
-      const schemaStr = localStorage.getItem(schemaKey)
-      if (schemaStr) {
+      const schemaData = storage.getOptional<any>(StorageKeys.schema(connection.id))
+      if (schemaData) {
         try {
-          const schemaData = JSON.parse(schemaStr)
           if (schemaData.lastUpdated) {
             const daysSinceUpdate = Math.floor(
               (Date.now() - new Date(schemaData.lastUpdated).getTime()) / (1000 * 60 * 60 * 24)
@@ -395,7 +375,7 @@ export default function ContextualDashboard() {
     }
 
     // Check for reports that haven't been run in a while (favorites only)
-    const allReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
+    const allReports = storage.get<SavedReport[]>(StorageKeys.SAVED_REPORTS, [])
     const staleReports = allReports.filter(report => {
       if (!report.isFavorite || report.connectionId !== connection.id) return false
       if (!report.lastRun) return false
@@ -421,7 +401,7 @@ export default function ContextualDashboard() {
   const dismissNotification = (notificationId: string) => {
     const updated = [...dismissedNotifications, notificationId]
     setDismissedNotifications(updated)
-    localStorage.setItem("dismissed_notifications", JSON.stringify(updated))
+    storage.set(StorageKeys.DISMISSED_NOTIFICATIONS, updated)
   }
 
   // Render connection selector

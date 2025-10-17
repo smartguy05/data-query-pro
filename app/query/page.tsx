@@ -26,6 +26,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { storage, StorageKeys } from "@/lib/storage"
 
 interface QueryResult {
   sql: string
@@ -255,9 +256,9 @@ export default function QueryPage() {
     }
 
     // Get existing reports
-    const existingReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
+    const existingReports = storage.get<SavedReport[]>(StorageKeys.SAVED_REPORTS, [])
     existingReports.push(report)
-    localStorage.setItem("saved_reports", JSON.stringify(existingReports))
+    storage.set(StorageKeys.SAVED_REPORTS, existingReports)
 
     toast({
       title: "Report Saved",

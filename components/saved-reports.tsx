@@ -29,6 +29,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ParameterInputDialog } from "./parameter-input-dialog"
 import { EditReportDialog } from "./edit-report-dialog"
+import { storage, StorageKeys } from "@/lib/storage"
 
 interface SavedReportsProps {
   searchTerm: string
@@ -75,7 +76,7 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
   }, [showEditDialog, showCloneDialog])
 
   const loadReports = () => {
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
+    const savedReports = storage.get<SavedReport[]>(StorageKeys.SAVED_REPORTS, [])
 
     // Filter by current connection if one is active
     const activeConnection = connectionInfo.getConnection()
@@ -94,9 +95,9 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
   )
 
   const deleteReport = (reportId: string) => {
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
+    const savedReports = storage.get<SavedReport[]>(StorageKeys.SAVED_REPORTS, [])
     const updatedReports = savedReports.filter(r => r.id !== reportId)
-    localStorage.setItem("saved_reports", JSON.stringify(updatedReports))
+    storage.set(StorageKeys.SAVED_REPORTS, updatedReports)
     loadReports()
 
     toast({
@@ -106,11 +107,11 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
   }
 
   const toggleFavorite = (reportId: string) => {
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
+    const savedReports = storage.get<SavedReport[]>(StorageKeys.SAVED_REPORTS, [])
     const updatedReports = savedReports.map(r =>
       r.id === reportId ? { ...r, isFavorite: !r.isFavorite } : r
     )
-    localStorage.setItem("saved_reports", JSON.stringify(updatedReports))
+    storage.set(StorageKeys.SAVED_REPORTS, updatedReports)
     loadReports()
 
     const report = updatedReports.find(r => r.id === reportId)
@@ -165,10 +166,10 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
       lastRun: undefined, // Reset last run time
     }
 
-    // Save to localStorage
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
+    // Save to storage
+    const savedReports = storage.get<SavedReport[]>(StorageKeys.SAVED_REPORTS, [])
     savedReports.push(clonedReport)
-    localStorage.setItem("saved_reports", JSON.stringify(savedReports))
+    storage.set(StorageKeys.SAVED_REPORTS, savedReports)
     loadReports()
 
     // Close clone dialog properly
@@ -197,9 +198,9 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
   }
 
   const saveEditedReport = (updatedReport: SavedReport) => {
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
+    const savedReports = storage.get<SavedReport[]>(StorageKeys.SAVED_REPORTS, [])
     const updatedReports = savedReports.map(r => r.id === updatedReport.id ? updatedReport : r)
-    localStorage.setItem("saved_reports", JSON.stringify(updatedReports))
+    storage.set(StorageKeys.SAVED_REPORTS, updatedReports)
     loadReports()
 
     toast({
@@ -255,13 +256,13 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     }
 
     // Update last run time
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
+    const savedReports = storage.get<SavedReport[]>(StorageKeys.SAVED_REPORTS, [])
     const updatedReports = savedReports.map(r =>
       r.id === report.id
         ? { ...r, lastRun: new Date().toISOString() }
         : r
     )
-    localStorage.setItem("saved_reports", JSON.stringify(updatedReports))
+    storage.set(StorageKeys.SAVED_REPORTS, updatedReports)
     loadReports()
 
     // Navigate to query page with the parameterized query

@@ -192,22 +192,31 @@ export default function DatabasePage() {
           throw new Error("Invalid export file format")
         }
 
-        // Import database connections
+        // Import database connections FIRST
         if (importData.databaseConnections && Array.isArray(importData.databaseConnections)) {
           connectionInformation.importConnections(importData.databaseConnections);
         }
 
-        // Import current connection
-        if (importData.currentDbConnection) {
-          connectionInformation.setCurrentConnection(importData.currentDbConnection);
+        // Import schema data BEFORE setting current connection
+        // This ensures schemas exist when the current connection looks for them
+        if (importData.schemaData && typeof importData.schemaData === "object") {
+          Object.entries(importData.schemaData).forEach(([connectionId, schemaData]) => {
+            // The schemaData from export is already a complete Schema object
+            // Just ensure it has the connectionId field (in case the export format changes)
+            const schema = {
+              ...(schemaData as Schema),
+              connectionId: connectionId,
+            } as Schema;
+
+            // Use the context's setSchema function to properly import each schema
+            connectionInformation.setSchema(schema);
+          })
         }
 
-        // Import schema data
-        if (importData.schemaData && typeof importData.schemaData === "object") {
-          Object.entries(importData.schemaData).forEach(([connectionId, schema]) => {
-            // Use the context's setSchema function to properly import each schema
-            connectionInformation.setSchema(schema as Schema);
-          })
+        // Import current connection LAST
+        // Now safe to set because we're using functional state updates
+        if (importData.currentDbConnection) {
+          connectionInformation.setCurrentConnection(importData.currentDbConnection);
         }
 
         setImportStatus("success")
