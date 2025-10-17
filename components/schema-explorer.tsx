@@ -31,6 +31,7 @@ import {
 import {useDatabaseOptions} from "@/lib/database-connection-options";
 import { useToast } from "@/hooks/use-toast";
 import { compareSchemas, hasSchemaChanges, getChangeSummary } from "@/utils/compare-schemas";
+import { AIOperationBanner } from "@/components/ai-operation-banner";
 
 export function SchemaExplorer() {
   const connectionInformation = useDatabaseOptions();
@@ -767,6 +768,16 @@ export function SchemaExplorer() {
 
   return (
     <div className="space-y-6">
+      {/* AI Operation Banners */}
+      <AIOperationBanner
+        isVisible={generatingDescriptions}
+        message={`Generating AI descriptions for schema (${batchProgress.currentBatch}/${batchProgress.totalBatches} batches, ${batchProgress.current}/${batchProgress.total} tables). This may take several minutes...`}
+      />
+      <AIOperationBanner
+        isVisible={isSaving}
+        message="Uploading schema to OpenAI. This may take a moment..."
+      />
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Database className="w-5 h-5 text-accent" />

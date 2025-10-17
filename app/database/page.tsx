@@ -16,6 +16,7 @@ import {useDatabaseOptions} from "@/lib/database-connection-options";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { storage, StorageKeys } from "@/lib/storage"
 import { SavedReport } from "@/models/saved-report.interface"
+import { AIOperationBanner } from "@/components/ai-operation-banner"
 
 export default function DatabasePage() {
   const connectionInformation = useDatabaseOptions();
@@ -353,6 +354,12 @@ export default function DatabasePage() {
           <h1 className="text-3xl font-bold text-foreground">Database Connections</h1>
           <p className="text-muted-foreground">Connect to your data sources for analysis and reporting</p>
         </div>
+
+        {/* AI Operation Banner */}
+        <AIOperationBanner
+          isVisible={uploadingSchemaId !== null}
+          message="Uploading schema to OpenAI. This may take a moment..."
+        />
 
         <Card>
           <CardHeader>

@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
 import {useDatabaseOptions} from "@/lib/database-connection-options"
 import { SaveReportDialog } from "@/components/save-report-dialog"
+import { AIOperationBanner } from "@/components/ai-operation-banner"
 import { SavedReport, ReportParameter } from "@/models/saved-report.interface"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
@@ -274,6 +275,12 @@ export default function QueryPage() {
           <h1 className="text-3xl font-bold text-foreground">Natural Language Query</h1>
           <p className="text-muted-foreground">Ask questions about your data in plain English</p>
         </div>
+
+        {/* AI Operation Banner */}
+        <AIOperationBanner
+          isVisible={isGenerating}
+          message="Generating SQL query using AI. This may take a moment..."
+        />
 
         {/* Connection Selector */}
         {connectionInformation.connections.length > 1 && (

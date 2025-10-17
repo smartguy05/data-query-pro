@@ -17,6 +17,7 @@ import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, Chevron
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ChartDisplay } from "@/components/chart-display"
 import { ChartConfig } from "@/models/chart-config.interface"
+import { AIOperationBanner } from "@/components/ai-operation-banner"
 
 interface QueryResultsProps {
   data: {
@@ -399,6 +400,12 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {/* AI Operation Banner */}
+        <AIOperationBanner
+          isVisible={isGeneratingChart}
+          message="Generating chart visualization using AI. This may take a moment..."
+        />
+
         {/* Search and Filters */}
         <div className="flex items-center gap-4">
           <div className="relative flex-1 max-w-sm">

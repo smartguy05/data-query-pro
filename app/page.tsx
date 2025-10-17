@@ -31,6 +31,7 @@ import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
 import { storage, StorageKeys } from "@/lib/storage"
+import { AIOperationBanner } from "@/components/ai-operation-banner"
 
 interface MetricSuggestion {
   title: string
@@ -789,6 +790,12 @@ export default function ContextualDashboard() {
       <div className="max-w-7xl mx-auto p-6 space-y-6">
         {/* Connection Selector */}
         {renderConnectionSelector()}
+
+        {/* AI Operation Banners */}
+        <AIOperationBanner
+          isVisible={loadingSuggestions || isReGenerating}
+          message="Generating AI-powered metric suggestions. This may take a moment..."
+        />
 
         {/* Notifications */}
         {notifications.length > 0 && (
