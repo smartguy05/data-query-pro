@@ -1,7 +1,7 @@
 interface DatabaseConnection {
     id: string
     name: string
-    type: string
+    type: "postgresql" | "mysql" | "sqlserver" | "sqlite"
     host: string
     port: string
     database: string
