@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import OpenAI from "openai"
 import { generateTableDescription, generateColumnDescription } from "@/utils/generate-descriptions"
 
 export async function POST(request: NextRequest) {
@@ -33,39 +34,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, schema: enhancedSchema })
     }
 
+    const client = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    })
+
     const enhancedSchema = { ...schema }
 
-    async function callOpenAIWithRetry(prompt: string, maxTokens: number, retries = 3): Promise<string | null> {
+    async function callOpenAIWithRetry(prompt: string, retries = 3): Promise<string | null> {
       for (let attempt = 1; attempt <= retries; attempt++) {
         try {
           console.log(`OpenAI API call attempt ${attempt}/${retries}`)
 
-          const response = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: process.env.OPENAI_MODEL,
-              messages: [{ role: "user", content: prompt }],
-              temperature: 0.2,
-              max_tokens: maxTokens,
-            }),
-            signal: AbortSignal.timeout(30000), // 30 second timeout
+          const response = await client.responses.create({
+            model: process.env.OPENAI_MODEL || "gpt-5",
+            input: [
+              {
+                role: "user",
+                content: prompt
+              }
+            ]
           })
 
-          if (response.ok) {
-            const data = await response.json()
-            return data.choices[0]?.message?.content?.trim() || null
-          } else if (response.status === 429) {
+          if (response.status === "completed") {
+            return response.output_text?.trim() || null
+          } else if (response.status === "failed" && response.error?.code === "rate_limit_exceeded") {
             // Rate limited - wait longer before retry
             const waitTime = Math.pow(2, attempt) * 2000 // 4s, 8s, 16s
             console.log(`Rate limited, waiting ${waitTime}ms before retry`)
             await new Promise((resolve) => setTimeout(resolve, waitTime))
             continue
           } else {
-            console.error(`OpenAI API error:`, response.status, response.statusText)
+            console.error(`OpenAI API error:`, response.status, response.error?.message)
             return null
           }
         } catch (error: any) {
@@ -106,7 +105,7 @@ TASK: Write a clear, business-focused description (1-2 sentences) explaining:
 
 Focus on business value and purpose, not technical implementation. Use professional, clear language that business stakeholders would understand.`
 
-        const aiDescription = await callOpenAIWithRetry(tablePrompt, 200)
+        const aiDescription = await callOpenAIWithRetry(tablePrompt)
         table.aiDescription = aiDescription || generateTableDescription(table.name, table.columns, databaseDescription)
 
         if (i < enhancedSchema.tables.length - 1) {
@@ -138,7 +137,7 @@ ${!column.nullable ? "- Required field (NOT NULL)" : "- Optional field"}
 
 TASK: Write a concise, business-focused description (1 sentence) explaining what this column stores and its business purpose. Focus on the business meaning, not technical details.`
 
-          const aiDescription = await callOpenAIWithRetry(columnPrompt, 100)
+          const aiDescription = await callOpenAIWithRetry(columnPrompt)
           column.aiDescription =
             aiDescription ||
             generateColumnDescription(
