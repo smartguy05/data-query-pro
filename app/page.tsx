@@ -95,7 +95,8 @@ export default function ContextualDashboard() {
 
           // Check if AI descriptions exist
           const hasAnyDescriptions = schema.tables.some(table =>
-            table.description || table.columns.some(col => col.description)
+            table.description || table.aiDescription ||
+            table.columns.some(col => col.description || col.aiDescription)
           )
           setHasDescriptions(hasAnyDescriptions)
 
@@ -354,7 +355,8 @@ export default function ContextualDashboard() {
 
       // Check for missing AI descriptions
       const hasDescriptions = schema.tables.some(table =>
-        table.description || table.columns.some(col => col.description)
+        table.description || table.aiDescription ||
+        table.columns.some(col => col.description || col.aiDescription)
       )
       if (!hasDescriptions) {
         detectedNotifications.push({
