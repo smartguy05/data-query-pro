@@ -42,6 +42,15 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
   const [isGeneratingChart, setIsGeneratingChart] = useState(false)
   const [chartError, setChartError] = useState<string | null>(null)
 
+  // Strict date validation - only matches full ISO dates (YYYY-MM-DD)
+  const isValidFullDate = (val: any): boolean => {
+    if (val === null || val === undefined || val === "") return true
+    const str = val.toString()
+    // Match ISO date format: YYYY-MM-DD (with optional time component)
+    const isoDateRegex = /^\d{4}-\d{2}-\d{2}(T|\s|$)/
+    return isoDateRegex.test(str) && !isNaN(Date.parse(str))
+  }
+
   // Data type detection
   const columnTypes = useMemo(() => {
     return data.columns.map((_, colIndex) => {
@@ -55,7 +64,7 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
         return "number"
       }
 
-      if (sampleValues.every((val) => !isNaN(Date.parse(val)))) {
+      if (sampleValues.every((val) => isValidFullDate(val))) {
         return "date"
       }
 
@@ -129,7 +138,8 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
 
     if (type === "date") {
       try {
-        return new Date(value).toLocaleDateString()
+        // Use UTC timezone to prevent local timezone conversion shifting the date
+        return new Date(value).toLocaleDateString(undefined, { timeZone: "UTC" })
       } catch {
         return value
       }
