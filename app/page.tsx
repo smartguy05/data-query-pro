@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle} from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -64,6 +64,7 @@ export default function ContextualDashboard() {
   const [reportCount, setReportCount] = useState(0)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([])
+  const isLoadingSuggestionsRef = useRef(false)
 
   useEffect(() => {
     // Wait for context to initialize before checking status
@@ -106,7 +107,7 @@ export default function ContextualDashboard() {
             const cachedSuggestions = localStorage.getItem(suggestionsKey)
             if (cachedSuggestions) {
               setSuggestions(JSON.parse(cachedSuggestions))
-            } else {
+            } else if (!isLoadingSuggestionsRef.current) {
               generateSuggestions(connection.id)
             }
           }
@@ -196,6 +197,8 @@ export default function ContextualDashboard() {
   }
 
   const generateSuggestions = async (connectionId: string, currentSuggestions?: any[], retryCount: number = 0) => {
+    if (isLoadingSuggestionsRef.current) return;
+    isLoadingSuggestionsRef.current = true;
     setLoadingSuggestions(true);
     try {
       const currentDbConnection = localStorage.getItem("currentDbConnection");
@@ -306,6 +309,7 @@ export default function ContextualDashboard() {
         variant: "destructive"
       });
     } finally {
+      isLoadingSuggestionsRef.current = false;
       setLoadingSuggestions(false)
     }
   }
