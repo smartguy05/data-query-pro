@@ -144,14 +144,18 @@ export default function DatabasePage() {
   const exportData = async () => {
     setIsExporting(true)
     try {
+      // Get saved reports from localStorage
+      const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]")
+
       const exportData = {
-        version: "1.0",
+        version: "1.1",
         exportDate: new Date().toISOString(),
         databaseConnections: connectionInformation.connections,
         currentDbConnection: connectionInformation.currentConnection,
         schemaData: {},
+        savedReports: savedReports,
       };
-      
+
       for (let i = 0; i < connectionInformation.connections.length; i++) {
         const schemaData = connectionInformation.getSchema(connectionInformation.connections[i].id);
         if (!!schemaData) {
@@ -208,6 +212,23 @@ export default function DatabasePage() {
             // Use the context's setSchema function to properly import each schema
             connectionInformation.setSchema(schema as Schema);
           })
+        }
+
+        // Import saved reports
+        if (importData.savedReports && Array.isArray(importData.savedReports)) {
+          const existingReports = JSON.parse(localStorage.getItem("saved_reports") || "[]")
+          const existingIds = new Set(existingReports.map((r: any) => r.id))
+
+          // Get valid connection IDs from imported connections
+          const validConnectionIds = new Set(importData.databaseConnections.map((c: any) => c.id))
+
+          // Filter and merge reports - only import reports for valid connections, skip duplicates
+          const newReports = importData.savedReports.filter((report: any) =>
+            !existingIds.has(report.id) && validConnectionIds.has(report.connectionId)
+          )
+
+          const mergedReports = [...existingReports, ...newReports]
+          localStorage.setItem("saved_reports", JSON.stringify(mergedReports))
         }
 
         setImportStatus("success")
