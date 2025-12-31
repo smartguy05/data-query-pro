@@ -27,6 +27,10 @@ export interface SavedReport {
   lastModified: string;
   lastRun?: string;
 
+  // Sharing (multi-user mode)
+  createdBy?: string;       // User ID of report creator
+  isShared?: boolean;       // Whether report is visible to other users
+
   // Future: visualization settings
   isFavorite?: boolean;
 }

@@ -1,7 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
+import { withAuth } from "@/lib/auth/api-auth"
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, { user }) => {
   try {
     const { connectionId, vectorStoreId } = await request.json()
 
@@ -128,4 +129,13 @@ export async function POST(request: NextRequest) {
       details: error?.message || "Unknown error"
     }, { status: 500 })
   }
-}
+}, {
+  requireConnectionAccess: async (req) => {
+    try {
+      const body = await req.clone().json()
+      return body.connectionId || null
+    } catch {
+      return null
+    }
+  },
+})

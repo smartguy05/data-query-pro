@@ -1,9 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import postgres from "postgres"
+import { withAuth, getConnectionIdFromBody } from "@/lib/auth/api-auth"
 
-export async function POST(request: NextRequest) {
-  try {
-    const { sql, connection } = await request.json()
+export const POST = withAuth(
+  async (request, { user }) => {
+    try {
+      const { sql, connection } = await request.json()
 
     if (!sql) {
       return NextResponse.json({ error: "SQL query is required" }, { status: 400 })
@@ -82,5 +84,16 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ error: errorMessage }, { status: 500 })
+    }
+  },
+  {
+    requireConnectionAccess: async (req) => {
+      try {
+        const body = await req.clone().json()
+        return body.connection?.id || null
+      } catch {
+        return null
+      }
+    },
   }
-}
+)

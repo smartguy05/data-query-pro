@@ -24,6 +24,7 @@ This documentation provides comprehensive developer guidance for the DataQuery P
 
 ### Developer Guides
 - [Getting Started](./guides/getting-started.md) - Setup and configuration
+- [Multi-User Setup](./guides/multi-user-setup.md) - Azure SSO and PostgreSQL backend
 - [Adding Database Support](./guides/adding-database-support.md) - Extending for new databases
 - [OpenAI Integration](./guides/openai-integration.md) - AI features and vector stores
 - [Common Tasks](./guides/common-tasks.md) - Frequent development workflows
@@ -43,10 +44,11 @@ Natural language → OpenAI API → SQL → PostgreSQL → Results
 |-------|-----------|
 | Framework | Next.js 15 (App Router) |
 | UI | React 19, shadcn/ui, Tailwind CSS |
-| State | React Context + localStorage |
+| State | React Context + localStorage/PostgreSQL |
 | Database | PostgreSQL (postgres library) |
 | AI | OpenAI API (Responses API) |
 | Charts | Recharts |
+| Auth | NextAuth.js + Azure AD (optional) |
 
 ### Important Files
 | File | Purpose |
@@ -59,15 +61,38 @@ Natural language → OpenAI API → SQL → PostgreSQL → Results
 
 ## Known Limitations
 
-1. **PostgreSQL Only** - Despite UI options, only PostgreSQL is implemented
-2. **localStorage Storage** - All data stored client-side (not production-ready)
-3. **No Authentication** - No user auth or row-level security
-4. **Plain Text Passwords** - Credentials stored unencrypted
-5. **Schema Upload Required** - Must upload schema to OpenAI before queries work
+1. **PostgreSQL Only** - Despite UI options, only PostgreSQL is implemented for user databases
+2. **Schema Upload Required** - Must upload schema to OpenAI before natural language queries work
+3. **Single-User Mode Limitations**:
+   - localStorage storage (client-side only)
+   - Plain text passwords in localStorage
+   - No authentication
+
+> **Note**: Multi-user mode addresses limitations 3 by providing Azure AD SSO, PostgreSQL storage, and encrypted passwords. See [Multi-User Setup](./guides/multi-user-setup.md).
 
 ## Environment Variables
 
+### Required
 ```bash
 OPENAI_API_KEY=sk-...    # Required for AI features
-OPENAI_MODEL=gpt-5      # Model for query generation
+OPENAI_MODEL=gpt-4       # Model for query generation
+```
+
+### Multi-User Mode
+See [Multi-User Setup Guide](./guides/multi-user-setup.md) for full configuration.
+
+```bash
+MULTI_USER_ENABLED=true
+NEXT_PUBLIC_MULTI_USER_ENABLED=true
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DATABASE=dataquery_pro
+POSTGRES_USERNAME=postgres
+POSTGRES_PASSWORD=your_password
+ENCRYPTION_KEY=your_32_byte_hex_key
+AZURE_AD_CLIENT_ID=your_client_id
+AZURE_AD_CLIENT_SECRET=your_secret
+AZURE_AD_TENANT_ID=your_tenant_id
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=your_random_secret
 ```

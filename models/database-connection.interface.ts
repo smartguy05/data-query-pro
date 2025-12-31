@@ -1,4 +1,4 @@
-interface DatabaseConnection {
+export interface DatabaseConnection {
     id: string
     name: string
     type: string

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import {Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle} from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -30,14 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
-
-interface MetricSuggestion {
-  title: string
-  description: string
-  query: string
-  category: string
-  relevantTables?: string[]
-}
+import { getStorageService, MetricSuggestion } from "@/lib/services/storage"
 
 interface Notification {
   id: string
@@ -66,73 +59,9 @@ export default function ContextualDashboard() {
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([])
   const isLoadingSuggestionsRef = useRef(false)
 
-  useEffect(() => {
-    // Wait for context to initialize before checking status
-    if (!connectionOptions.isInitialized) {
-      return
-    }
-
-    const checkStatus = () => {
-      const connection = connectionOptions.getConnection()
-      if (connection) {
-        setHasConnection(true)
-        setConnectionName(connection.name || connection.database || "Database")
-
-        // Reset flags before checking
-        setHasSchemaFile(false)
-        setHasSchema(false)
-        setHasDescriptions(false)
-        setSuggestions([])
-
-        // Check if schema file has been uploaded to OpenAI
-        if (connection.schemaFileId && connection.vectorStoreId) {
-          setHasSchemaFile(true)
-        }
-
-        // Check if schema is cached locally
-        const schema = connectionOptions.getSchema()
-        if (schema && schema.tables && schema.tables.length > 0) {
-          setHasSchema(true)
-
-          // Check if AI descriptions exist
-          const hasAnyDescriptions = schema.tables.some(table =>
-            table.description || table.aiDescription ||
-            table.columns.some(col => col.description || col.aiDescription)
-          )
-          setHasDescriptions(hasAnyDescriptions)
-
-          // Load suggestions if descriptions exist
-          if (hasAnyDescriptions) {
-            const suggestionsKey = `suggestions_${connection.id}`
-            const cachedSuggestions = localStorage.getItem(suggestionsKey)
-            if (cachedSuggestions) {
-              setSuggestions(JSON.parse(cachedSuggestions))
-            } else if (!isLoadingSuggestionsRef.current) {
-              generateSuggestions(connection.id)
-            }
-          }
-        }
-
-        // Load recent reports for this connection
-        loadRecentReports(connection.id)
-      } else {
-        setHasConnection(false)
-      }
-    }
-
-    checkStatus()
-    detectNotifications()
-  }, [connectionOptions.isInitialized, connectionOptions.currentConnection?.id])
-
-  useEffect(() => {
-    // Load dismissed notifications from localStorage
-    const dismissed = JSON.parse(localStorage.getItem("dismissed_notifications") || "[]") as string[]
-    setDismissedNotifications(dismissed)
-  }, [])
-
-  const loadRecentReports = (connectionId: string) => {
-    const allReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-    const connectionReports = allReports.filter(report => report.connectionId === connectionId)
+  const loadRecentReports = useCallback(async (connectionId: string) => {
+    const storage = getStorageService()
+    const connectionReports = await storage.reports.getReports(undefined, connectionId)
 
     setReportCount(connectionReports.length)
 
@@ -149,110 +78,64 @@ export default function ContextualDashboard() {
 
     // Get top 3 most recent
     setRecentReports(sorted.slice(0, 3))
-  }
-  
-  const regenerateSuggestions = async () => {
-    setIsReGenerating(true);
+  }, [])
+
+  const generateSuggestions = useCallback(async (connectionId: string, currentSuggestions?: MetricSuggestion[], retryCount: number = 0) => {
+    if (isLoadingSuggestionsRef.current) return
+    isLoadingSuggestionsRef.current = true
+    setLoadingSuggestions(true)
+
+    const storage = getStorageService()
+
     try {
-      const connectionSetting = localStorage.getItem("currentDbConnection");
-      let connection;
-      if (!!connectionSetting) {
-        connection = JSON.parse(connectionSetting);
-      }
+      const connection = connectionOptions.getConnection(connectionId)
 
-      if (!connection) {
-        toast({
-          title: "No Connection",
-          description: "No database connection found. Please select a connection first.",
-          variant: "destructive"
-        });
-        return;
-      }
-
-      if (!connection.vectorStoreId) {
+      if (!connection?.vectorStoreId) {
+        console.error("No vector store ID found for connection")
         toast({
           title: "Schema Not Uploaded",
           description: "Please upload your schema to OpenAI first from the Database page.",
           variant: "destructive"
-        });
-        return;
-      }
-
-      let cachedSuggestions = localStorage.getItem(`suggestions_${connection.id}`);
-      let storedSuggestions = [];
-      if (!!cachedSuggestions) {
-        storedSuggestions = JSON.parse(cachedSuggestions);
-      }
-      await generateSuggestions(connection.id, storedSuggestions);
-    } catch (error) {
-      console.error("Error regenerating suggestions:", error);
-      toast({
-        title: "Error",
-        description: "Failed to generate suggestions. Please try again.",
-        variant: "destructive"
-      });
-    } finally {
-      setIsReGenerating(false);
-    }
-  }
-
-  const generateSuggestions = async (connectionId: string, currentSuggestions?: any[], retryCount: number = 0) => {
-    if (isLoadingSuggestionsRef.current) return;
-    isLoadingSuggestionsRef.current = true;
-    setLoadingSuggestions(true);
-    try {
-      const currentDbConnection = localStorage.getItem("currentDbConnection");
-      let dbConnection;
-      if (!!currentDbConnection) {
-        dbConnection = JSON.parse(currentDbConnection);
-      }
-
-      if (!dbConnection?.vectorStoreId) {
-        console.error("No vector store ID found for connection");
-        toast({
-          title: "Schema Not Uploaded",
-          description: "Please upload your schema to OpenAI first from the Database page.",
-          variant: "destructive"
-        });
-        return;
+        })
+        return
       }
 
       const response = await fetch("/api/dashboard/suggestions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connectionId, vectorStoreId: dbConnection.vectorStoreId }),
-      });
+        body: JSON.stringify({ connectionId, vectorStoreId: connection.vectorStoreId }),
+      })
 
       if (response.ok) {
         const data = await response.json()
-        const allSuggestions = [...currentSuggestions ?? [], ...data.suggestions];
-        localStorage.setItem(`suggestions_${connectionId}`, JSON.stringify(allSuggestions))
+        const allSuggestions = [...(currentSuggestions ?? []), ...data.suggestions]
+        await storage.suggestions.setSuggestions(connectionId, allSuggestions)
         setSuggestions(allSuggestions || [])
         toast({
           title: "Success",
           description: `Generated ${data.suggestions?.length || 0} new suggestions`,
-        });
+        })
       } else {
-        const errorData = await response.json();
-        console.error("API error:", errorData);
+        const errorData = await response.json()
+        console.error("API error:", errorData)
 
         // Check if vector store not found and retry once
         if (errorData.needsReupload && retryCount === 0) {
-          console.log("Vector store not found, attempting to re-upload schema...");
+          console.log("Vector store not found, attempting to re-upload schema...")
           toast({
             title: "Re-uploading Schema",
             description: "Vector store not found. Re-uploading schema to OpenAI...",
-          });
+          })
 
-          // Get the schema from localStorage
-          const schema = connectionOptions.getSchema(connectionId);
+          // Get the schema from context
+          const schema = connectionOptions.getSchema(connectionId)
           if (!schema) {
             toast({
               title: "Schema Not Found",
               description: "Cannot re-upload schema. Please introspect your schema first.",
               variant: "destructive"
-            });
-            return;
+            })
+            return
           }
 
           // Upload schema to OpenAI
@@ -261,44 +144,43 @@ export default function ContextualDashboard() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               data: schema,
-              existingFileId: dbConnection.schemaFileId,
-              existingVectorStoreId: dbConnection.vectorStoreId
+              existingFileId: connection.schemaFileId,
+              existingVectorStoreId: connection.vectorStoreId
             }),
-          });
+          })
 
           if (uploadResponse.ok) {
-            const uploadData = await uploadResponse.json();
-            console.log("Schema re-uploaded successfully:", uploadData);
+            const uploadData = await uploadResponse.json()
+            console.log("Schema re-uploaded successfully:", uploadData)
 
             // Update connection with new IDs
             const updatedConnection = {
-              ...dbConnection,
+              ...connection,
               schemaFileId: uploadData.fileId,
               vectorStoreId: uploadData.vectorStoreId
-            };
-            connectionOptions.updateConnection(updatedConnection);
-            localStorage.setItem("currentDbConnection", JSON.stringify(updatedConnection));
+            }
+            connectionOptions.updateConnection(updatedConnection)
 
             toast({
               title: "Schema Re-uploaded",
               description: "Retrying suggestions generation...",
-            });
+            })
 
             // Retry suggestions generation with new vector store ID
-            await generateSuggestions(connectionId, currentSuggestions, retryCount + 1);
+            await generateSuggestions(connectionId, currentSuggestions, retryCount + 1)
           } else {
             toast({
               title: "Re-upload Failed",
               description: "Failed to re-upload schema. Please try manually from the Database page.",
               variant: "destructive"
-            });
+            })
           }
         } else {
           toast({
             title: "Error",
             description: errorData.details || errorData.error || "Failed to generate suggestions",
             variant: "destructive"
-          });
+          })
         }
       }
     } catch (error) {
@@ -307,41 +189,20 @@ export default function ContextualDashboard() {
         title: "Error",
         description: "Failed to generate suggestions. Please check the console for details.",
         variant: "destructive"
-      });
+      })
     } finally {
-      isLoadingSuggestionsRef.current = false;
+      isLoadingSuggestionsRef.current = false
       setLoadingSuggestions(false)
     }
-  }
+  }, [connectionOptions, toast])
 
-  const removeSuggestion = (index: number) => {
-    try {
-      // todo: add confirmation
-      const connectionSetting = localStorage.getItem("currentDbConnection");
-      let connection;
-      if (!!connectionSetting) {
-        connection = JSON.parse(connectionSetting);
-      }
-      let cachedSuggestions = localStorage.getItem(`suggestions_${connection.id}`);
-      let storedSuggestions = [];
-      if (!!cachedSuggestions) {
-        storedSuggestions = JSON.parse(cachedSuggestions);
-        if (!!storedSuggestions.length) {
-          storedSuggestions.splice(index, 1);
-          setSuggestions(storedSuggestions);
-          localStorage.setItem(`suggestions_${connection.id}`, JSON.stringify(storedSuggestions))
-        }
-      }
-    } catch (error) {
-      console.error("Failed to remove suggestion:", error);
-    }
-  }
-
-  const detectNotifications = () => {
+  const detectNotifications = useCallback(async () => {
     const detectedNotifications: Notification[] = []
     const connection = connectionOptions.getConnection()
 
     if (!connection) return
+
+    const storage = getStorageService()
 
     // Check for schema not uploaded after introspection
     const schema = connectionOptions.getSchema()
@@ -372,38 +233,12 @@ export default function ContextualDashboard() {
           actionLink: "/schema"
         })
       }
-
-      // Check for outdated schema (older than 30 days)
-      const schemaKey = `schema_${connection.id}`
-      const schemaStr = localStorage.getItem(schemaKey)
-      if (schemaStr) {
-        try {
-          const schemaData = JSON.parse(schemaStr)
-          if (schemaData.lastUpdated) {
-            const daysSinceUpdate = Math.floor(
-              (Date.now() - new Date(schemaData.lastUpdated).getTime()) / (1000 * 60 * 60 * 24)
-            )
-            if (daysSinceUpdate > 30) {
-              detectedNotifications.push({
-                id: "outdated-schema",
-                type: "warning",
-                title: "Schema May Be Outdated",
-                message: `Your schema was last updated ${daysSinceUpdate} days ago. Consider re-introspecting to ensure it's up to date.`,
-                actionText: "Update Schema",
-                actionLink: "/database"
-              })
-            }
-          }
-        } catch (e) {
-          // Ignore parsing errors
-        }
-      }
     }
 
     // Check for reports that haven't been run in a while (favorites only)
-    const allReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
+    const allReports = await storage.reports.getReports(undefined, connection.id)
     const staleReports = allReports.filter(report => {
-      if (!report.isFavorite || report.connectionId !== connection.id) return false
+      if (!report.isFavorite) return false
       if (!report.lastRun) return false
       const daysSinceRun = Math.floor(
         (Date.now() - new Date(report.lastRun).getTime()) / (1000 * 60 * 60 * 24)
@@ -422,12 +257,135 @@ export default function ContextualDashboard() {
     }
 
     setNotifications(detectedNotifications)
+  }, [connectionOptions])
+
+  useEffect(() => {
+    // Wait for context to initialize before checking status
+    if (!connectionOptions.isInitialized) {
+      return
+    }
+
+    const checkStatus = async () => {
+      const connection = connectionOptions.getConnection()
+      if (connection) {
+        setHasConnection(true)
+        setConnectionName(connection.name || connection.database || "Database")
+
+        // Reset flags before checking
+        setHasSchemaFile(false)
+        setHasSchema(false)
+        setHasDescriptions(false)
+        setSuggestions([])
+
+        // Check if schema file has been uploaded to OpenAI
+        if (connection.schemaFileId && connection.vectorStoreId) {
+          setHasSchemaFile(true)
+        }
+
+        // Check if schema is cached locally
+        const schema = connectionOptions.getSchema()
+        if (schema && schema.tables && schema.tables.length > 0) {
+          setHasSchema(true)
+
+          // Check if AI descriptions exist
+          const hasAnyDescriptions = schema.tables.some(table =>
+            table.description || table.aiDescription ||
+            table.columns.some(col => col.description || col.aiDescription)
+          )
+          setHasDescriptions(hasAnyDescriptions)
+
+          // Load suggestions if descriptions exist
+          if (hasAnyDescriptions) {
+            const storage = getStorageService()
+            const cachedSuggestions = await storage.suggestions.getSuggestions(connection.id)
+            if (cachedSuggestions && cachedSuggestions.length > 0) {
+              setSuggestions(cachedSuggestions)
+            } else if (!isLoadingSuggestionsRef.current) {
+              generateSuggestions(connection.id)
+            }
+          }
+        }
+
+        // Load recent reports for this connection
+        loadRecentReports(connection.id)
+      } else {
+        setHasConnection(false)
+      }
+    }
+
+    checkStatus()
+    detectNotifications()
+  }, [connectionOptions.isInitialized, connectionOptions.currentConnection?.id, generateSuggestions, loadRecentReports, detectNotifications])
+
+  useEffect(() => {
+    // Load dismissed notifications from storage
+    const loadDismissedNotifications = async () => {
+      const storage = getStorageService()
+      const dismissed = await storage.notifications.getDismissedNotifications()
+      setDismissedNotifications(dismissed)
+    }
+    loadDismissedNotifications()
+  }, [])
+
+  const regenerateSuggestions = async () => {
+    setIsReGenerating(true)
+    try {
+      const connection = connectionOptions.getConnection()
+
+      if (!connection) {
+        toast({
+          title: "No Connection",
+          description: "No database connection found. Please select a connection first.",
+          variant: "destructive"
+        })
+        return
+      }
+
+      if (!connection.vectorStoreId) {
+        toast({
+          title: "Schema Not Uploaded",
+          description: "Please upload your schema to OpenAI first from the Database page.",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const storage = getStorageService()
+      const storedSuggestions = await storage.suggestions.getSuggestions(connection.id)
+      await generateSuggestions(connection.id, storedSuggestions)
+    } catch (error) {
+      console.error("Error regenerating suggestions:", error)
+      toast({
+        title: "Error",
+        description: "Failed to generate suggestions. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setIsReGenerating(false)
+    }
   }
 
-  const dismissNotification = (notificationId: string) => {
-    const updated = [...dismissedNotifications, notificationId]
-    setDismissedNotifications(updated)
-    localStorage.setItem("dismissed_notifications", JSON.stringify(updated))
+  const removeSuggestion = async (index: number) => {
+    try {
+      const connection = connectionOptions.getConnection()
+      if (!connection) return
+
+      const storage = getStorageService()
+      await storage.suggestions.removeSuggestion(connection.id, index)
+
+      // Update local state
+      const updatedSuggestions = [...suggestions]
+      updatedSuggestions.splice(index, 1)
+      setSuggestions(updatedSuggestions)
+    } catch (error) {
+      console.error("Failed to remove suggestion:", error)
+    }
+  }
+
+  const dismissNotification = async (notificationId: string) => {
+    const storage = getStorageService()
+    await storage.notifications.dismissNotification(notificationId)
+    setDismissedNotifications(prev => [...prev, notificationId])
   }
 
   // Render connection selector

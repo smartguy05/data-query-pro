@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { withAuth } from "@/lib/auth/api-auth"
 
 // Access the same in-memory storage
 declare global {
@@ -15,7 +16,7 @@ declare global {
   >
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request) => {
   try {
     const { searchParams } = new URL(request.url)
     const processId = searchParams.get("processId")
@@ -42,4 +43,4 @@ export async function GET(request: NextRequest) {
     console.error("Error checking process status:", error)
     return NextResponse.json({ error: "Failed to check process status" }, { status: 500 })
   }
-}
+})

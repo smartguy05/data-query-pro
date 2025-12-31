@@ -1,4 +1,4 @@
-interface DatabaseTable {
+export interface DatabaseTable {
     name: string
     columns: Column[]
     description?: string

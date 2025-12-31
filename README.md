@@ -10,6 +10,9 @@ AI-powered database visualization and query tool that lets you query your Postgr
 - **Query Results Visualization** - View data as tables or charts
 - **Saved Reports** - Save and parameterize queries for reuse
 - **AI Suggestions** - Get smart metric and report recommendations
+- **Multi-User Support** - Optional Azure SSO authentication with role-based access
+- **Admin Dashboard** - Manage users, connections, and permissions
+- **Report Sharing** - Share reports with team members
 
 ## Quick Start
 
@@ -54,10 +57,11 @@ Comprehensive developer documentation is available in the [docs](./docs) folder:
 |-------|-----------|
 | Framework | Next.js 15 (App Router) |
 | UI | React 19, shadcn/ui, Tailwind CSS |
-| State | React Context + localStorage |
+| State | React Context + localStorage/PostgreSQL |
 | Database | PostgreSQL |
 | AI | OpenAI API (Responses API) |
 | Charts | Recharts |
+| Auth | NextAuth.js + Azure AD (optional) |
 
 ## Commands
 
@@ -70,9 +74,32 @@ npm run lint     # Run linter
 
 ## Environment Variables
 
+### Required
 ```bash
 OPENAI_API_KEY=sk-...    # Required for AI features
 OPENAI_MODEL=gpt-5      # Model for query generation (optional)
+```
+
+### Multi-User Mode (Optional)
+```bash
+# Enable multi-user mode
+MULTI_USER_ENABLED=true
+NEXT_PUBLIC_MULTI_USER_ENABLED=true
+
+# PostgreSQL (for storing users, connections, permissions)
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DATABASE=dataquery_pro
+POSTGRES_USERNAME=postgres
+POSTGRES_PASSWORD=your_password
+ENCRYPTION_KEY=your_32_byte_hex_key  # For password encryption
+
+# Azure AD SSO
+AZURE_AD_CLIENT_ID=your_client_id
+AZURE_AD_CLIENT_SECRET=your_client_secret
+AZURE_AD_TENANT_ID=your_tenant_id
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=your_random_secret
 ```
 
 ## Roadmap
@@ -80,7 +107,7 @@ OPENAI_MODEL=gpt-5      # Model for query generation (optional)
 - [ ] Support additional database types (MySQL, SQLite, MSSQL)
 - [ ] Enhanced chart creation and customization
 - [ ] Report scheduling
-- [ ] Team collaboration features
+- [x] Team collaboration features (multi-user support)
 
 ## License
 

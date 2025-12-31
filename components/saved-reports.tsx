@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { FileText, Calendar, Trash2, MoreHorizontal, Eye, AlertTriangle, Play, Edit, Copy, Star, Database } from "lucide-react"
+import { FileText, Calendar, Trash2, MoreHorizontal, Eye, AlertTriangle, Play, Edit, Copy, Star, Database, Share2, Users } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +29,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ParameterInputDialog } from "./parameter-input-dialog"
 import { EditReportDialog } from "./edit-report-dialog"
+import { getStorageService } from "@/lib/services/storage"
 
 interface SavedReportsProps {
   searchTerm: string
@@ -49,9 +50,22 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
   const [reportToClone, setReportToClone] = useState<SavedReport | null>(null)
   const [cloneName, setCloneName] = useState("")
 
+  const loadReports = useCallback(async () => {
+    const storage = getStorageService()
+    const activeConnection = connectionInfo.getConnection()
+
+    // Get reports for the current connection if one is active
+    const savedReports = await storage.reports.getReports(
+      undefined,
+      activeConnection?.id
+    )
+
+    setReports(savedReports)
+  }, [connectionInfo])
+
   useEffect(() => {
     loadReports()
-  }, [])
+  }, [loadReports])
 
   // Cleanup aria-hidden when dialogs close to prevent UI freeze
   useEffect(() => {
@@ -74,18 +88,6 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     }
   }, [showEditDialog, showCloneDialog])
 
-  const loadReports = () => {
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-
-    // Filter by current connection if one is active
-    const activeConnection = connectionInfo.getConnection()
-    if (activeConnection) {
-      setReports(savedReports.filter(r => r.connectionId === activeConnection.id))
-    } else {
-      setReports(savedReports)
-    }
-  }
-
   const filteredReports = reports.filter(
     (report) =>
       report.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -93,11 +95,10 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
       report.naturalLanguageQuery.toLowerCase().includes(searchTerm.toLowerCase()),
   )
 
-  const deleteReport = (reportId: string) => {
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-    const updatedReports = savedReports.filter(r => r.id !== reportId)
-    localStorage.setItem("saved_reports", JSON.stringify(updatedReports))
-    loadReports()
+  const deleteReport = async (reportId: string) => {
+    const storage = getStorageService()
+    await storage.reports.deleteReport(reportId)
+    await loadReports()
 
     toast({
       title: "Report Deleted",
@@ -105,19 +106,55 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     })
   }
 
-  const toggleFavorite = (reportId: string) => {
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-    const updatedReports = savedReports.map(r =>
-      r.id === reportId ? { ...r, isFavorite: !r.isFavorite } : r
-    )
-    localStorage.setItem("saved_reports", JSON.stringify(updatedReports))
-    loadReports()
+  const toggleFavorite = async (reportId: string) => {
+    const storage = getStorageService()
+    const updatedReport = await storage.reports.toggleFavorite(reportId)
+    await loadReports()
 
-    const report = updatedReports.find(r => r.id === reportId)
     toast({
-      title: report?.isFavorite ? "Added to Favorites" : "Removed from Favorites",
-      description: report?.isFavorite ? "This report is now a favorite" : "This report is no longer a favorite",
+      title: updatedReport.isFavorite ? "Added to Favorites" : "Removed from Favorites",
+      description: updatedReport.isFavorite ? "This report is now a favorite" : "This report is no longer a favorite",
     })
+  }
+
+  const toggleShare = async (report: SavedReport) => {
+    try {
+      const newShareStatus = !report.isShared
+
+      // In multi-user mode, use the API endpoint
+      const response = await fetch(`/api/reports/${report.id}/share`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isShared: newShareStatus }),
+      })
+
+      if (!response.ok) {
+        // Fall back to local storage update for single-user mode
+        const storage = getStorageService()
+        await storage.reports.shareReport(report.id, newShareStatus)
+      }
+
+      await loadReports()
+
+      toast({
+        title: newShareStatus ? "Report Shared" : "Report Unshared",
+        description: newShareStatus
+          ? "Other users can now see this report"
+          : "This report is now private",
+      })
+    } catch (error) {
+      // Fall back to local storage update
+      const storage = getStorageService()
+      await storage.reports.shareReport(report.id, !report.isShared)
+      await loadReports()
+
+      toast({
+        title: !report.isShared ? "Report Shared" : "Report Unshared",
+        description: !report.isShared
+          ? "Other users can now see this report"
+          : "This report is now private",
+      })
+    }
   }
 
   const viewReport = (report: SavedReport) => {
@@ -153,23 +190,30 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     }
   }
 
-  const confirmClone = () => {
+  const confirmClone = async () => {
     if (!reportToClone || !cloneName.trim()) return
 
-    const clonedReport: SavedReport = {
-      ...reportToClone,
-      id: `report_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    const storage = getStorageService()
+
+    // Create the cloned report
+    const clonedReportData: Omit<SavedReport, 'id'> = {
+      connectionId: reportToClone.connectionId,
       name: cloneName.trim(),
+      description: reportToClone.description,
+      naturalLanguageQuery: reportToClone.naturalLanguageQuery,
+      sql: reportToClone.sql,
+      explanation: reportToClone.explanation,
+      warnings: reportToClone.warnings,
+      confidence: reportToClone.confidence,
+      parameters: reportToClone.parameters,
       createdAt: new Date().toISOString(),
       lastModified: new Date().toISOString(),
       lastRun: undefined, // Reset last run time
+      isFavorite: false,
     }
 
-    // Save to localStorage
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-    savedReports.push(clonedReport)
-    localStorage.setItem("saved_reports", JSON.stringify(savedReports))
-    loadReports()
+    const clonedReport = await storage.reports.createReport(clonedReportData)
+    await loadReports()
 
     // Close clone dialog properly
     handleCloneDialogClose(false)
@@ -196,11 +240,10 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     }
   }
 
-  const saveEditedReport = (updatedReport: SavedReport) => {
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-    const updatedReports = savedReports.map(r => r.id === updatedReport.id ? updatedReport : r)
-    localStorage.setItem("saved_reports", JSON.stringify(updatedReports))
-    loadReports()
+  const saveEditedReport = async (updatedReport: SavedReport) => {
+    const storage = getStorageService()
+    await storage.reports.updateReport(updatedReport.id, updatedReport)
+    await loadReports()
 
     toast({
       title: "Report Updated",
@@ -218,7 +261,7 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     }
   }
 
-  const executeReport = (report: SavedReport, paramValues: Record<string, any>) => {
+  const executeReport = async (report: SavedReport, paramValues: Record<string, string | number | boolean>) => {
     // Switch to the report's saved connection before executing
     const reportConnection = connectionInfo.connections.find(c => c.id === report.connectionId)
     if (!reportConnection) {
@@ -246,7 +289,7 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
         const value = paramValues[param.name] || param.defaultValue || ''
         // Replace {{parameter_name}} with the actual value
         // Add quotes around text values, but not for numbers or booleans
-        let formattedValue = value
+        let formattedValue = String(value)
         if (param.type === 'text' || param.type === 'date' || param.type === 'datetime') {
           formattedValue = `'${value}'`
         }
@@ -254,15 +297,10 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
       })
     }
 
-    // Update last run time
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-    const updatedReports = savedReports.map(r =>
-      r.id === report.id
-        ? { ...r, lastRun: new Date().toISOString() }
-        : r
-    )
-    localStorage.setItem("saved_reports", JSON.stringify(updatedReports))
-    loadReports()
+    // Update last run time using storage service
+    const storage = getStorageService()
+    await storage.reports.updateLastRun(report.id)
+    await loadReports()
 
     // Navigate to query page with the parameterized query
     // We'll pass the SQL directly since it's already been parameterized
@@ -352,6 +390,10 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
                             <Copy className="h-4 w-4 mr-2" />
                             Clone Report
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => toggleShare(report)}>
+                            <Share2 className="h-4 w-4 mr-2" />
+                            {report.isShared ? "Make Private" : "Share Report"}
+                          </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="text-red-600"
@@ -373,6 +415,12 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
                     {report.warnings.length > 0 && (
                       <Badge variant="destructive">
                         {report.warnings.length} Warning{report.warnings.length !== 1 ? 's' : ''}
+                      </Badge>
+                    )}
+                    {report.isShared && (
+                      <Badge variant="outline" className="gap-1 text-blue-600 border-blue-600">
+                        <Users className="h-3 w-3" />
+                        Shared
                       </Badge>
                     )}
                     <Badge variant="outline" className="gap-1">

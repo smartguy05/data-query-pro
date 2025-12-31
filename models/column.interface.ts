@@ -1,4 +1,4 @@
-interface Column {
+export interface Column {
     name: string
     type: string
     nullable: boolean

@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai";
+import { withAuth } from "@/lib/auth/api-auth";
 
 // Helper function to upload schema and get new IDs
 async function uploadSchemaToOpenAI(schemaData: any, client: OpenAI, existingFileId?: string, existingVectorStoreId?: string) {
@@ -54,7 +55,7 @@ async function uploadSchemaToOpenAI(schemaData: any, client: OpenAI, existingFil
   }
 }
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, { user }) => {
   try {
     console.log("Starting query generation...");
     const { query, databaseType, vectorStoreId, schemaData, existingFileId } = await request.json();
@@ -303,5 +304,4 @@ LIMIT 50`,
 
     return NextResponse.json(mockResponse)
   }
-}
-
+})

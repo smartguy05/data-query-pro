@@ -1,55 +1,83 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { withAuth } from "@/lib/auth/api-auth"
 
-export async function POST(request: NextRequest) {
+/**
+ * Update description for a table or column in the schema.
+ *
+ * This endpoint accepts the schema data in the request body and returns
+ * the updated schema. The client is responsible for persisting the changes.
+ *
+ * Request body:
+ * - connectionId: string (required)
+ * - tableName: string (required)
+ * - columnName?: string (optional - if not provided, updates table description)
+ * - description: string (required)
+ * - schema: Schema object (required - the current schema to update)
+ *
+ * Response:
+ * - success: boolean
+ * - schema: Updated schema object
+ * - message: string
+ */
+export const POST = withAuth(async (request, { user }) => {
   try {
-    const { tableName, columnName, description } = await request.json()
-    
-    const activeConnection = localStorage.getItem("currentDbConnection")
-    let connection;
+    const { connectionId, tableName, columnName, description, schema } = await request.json()
 
-    if (!!activeConnection) {
-      try {
-        connection = JSON.parse(activeConnection);
-      } catch (error) {
-        console.error("Failed to parse connection or schema data:", error);
-      }
-    } else {
-      throw new Error("No active connection!");
+    // Validate required fields
+    if (!connectionId) {
+      return NextResponse.json({ error: "connectionId is required" }, { status: 400 })
     }
-    connection.vectorStoreId = undefined;
-    connection.schemaFileId = undefined;
-    localStorage.setItem("currentDbConnection", JSON.stringify(connection));
-
-    const cacheKey = `schema_${connection.id}`
-    const cachedSchema = localStorage.getItem(cacheKey)
-    let schemaData;
-    if (cachedSchema) {
-      schemaData = JSON.parse(cachedSchema)
+    if (!tableName) {
+      return NextResponse.json({ error: "tableName is required" }, { status: 400 })
+    }
+    if (description === undefined) {
+      return NextResponse.json({ error: "description is required" }, { status: 400 })
+    }
+    if (!schema) {
+      return NextResponse.json({ error: "schema is required" }, { status: 400 })
     }
 
-    if (!schemaData) {
-      throw new Error("No schema data found! Be sure to parse database schema before trying to upload.");
+    // Validate schema belongs to this connection
+    if (schema.connectionId !== connectionId) {
+      return NextResponse.json({
+        error: "Schema connectionId does not match the provided connectionId"
+      }, { status: 400 })
     }
-    
-    const table = schemaData.tables.find((table) => table.name === tableName);
+
+    // Find the table
+    const table = schema.tables?.find((t: { name: string }) => t.name === tableName)
     if (!table) {
-      throw new Error("No table found for schema data!");
+      return NextResponse.json({ error: `Table '${tableName}' not found in schema` }, { status: 404 })
     }
-    const column = table.columns.find((column) => column.name === columnName);
-    if (!column) {
-      throw new Error("No column found for schema data!");
+
+    if (columnName) {
+      // Update column description
+      const column = table.columns?.find((c: { name: string }) => c.name === columnName)
+      if (!column) {
+        return NextResponse.json({
+          error: `Column '${columnName}' not found in table '${tableName}'`
+        }, { status: 404 })
+      }
+      column.aiDescription = description
+      console.log("Updated column description:", { tableName, columnName, description })
+    } else {
+      // Update table description
+      table.aiDescription = description
+      console.log("Updated table description:", { tableName, description })
     }
-    
-    column.aiDescription = description;
-    console.log("Updating description:", { tableName, columnName, description })
-    localStorage.setItem(cacheKey, JSON.stringify(schemaData));
-    
+
     return NextResponse.json({
       success: true,
-      message: "Description updated successfully",
+      schema,
+      message: columnName
+        ? `Description for column '${columnName}' in table '${tableName}' updated successfully`
+        : `Description for table '${tableName}' updated successfully`,
     })
   } catch (error) {
     console.error("Description update error:", error)
-    return NextResponse.json({ error: "Failed to update description" }, { status: 500 })
+    return NextResponse.json({
+      error: "Failed to update description",
+      details: error instanceof Error ? error.message : "Unknown error"
+    }, { status: 500 })
   }
-}
+}, { requireAdmin: true })

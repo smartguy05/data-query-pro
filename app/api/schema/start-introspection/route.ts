@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import postgres from "postgres"
+import { withAuth } from "@/lib/auth/api-auth"
 
 declare global {
   var processStatus: Map<
@@ -20,7 +21,7 @@ if (!global.processStatus) {
   global.processStatus = new Map()
 }
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, { user }) => {
   try {
     const { connection } = await request.json()
 
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
     console.error("Error starting schema introspection:", error)
     return NextResponse.json({ error: "Failed to start schema introspection" }, { status: 500 })
   }
-}
+}, { requireAdmin: true })
 
 async function processSchemaInBackground(processId: string, connection: any) {
   try {

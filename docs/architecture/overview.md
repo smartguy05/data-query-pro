@@ -2,8 +2,20 @@
 
 DataQuery Pro is a Next.js 15 application using the App Router pattern with React 19. It enables natural language querying of PostgreSQL databases via OpenAI integration.
 
+## Deployment Modes
+
+DataQuery Pro supports two deployment modes:
+
+| Mode | Storage | Auth | Use Case |
+|------|---------|------|----------|
+| **Single-User** | localStorage | None | Personal use, development |
+| **Multi-User** | PostgreSQL | Azure AD SSO | Team deployment |
+
+Set `MULTI_USER_ENABLED=true` to enable multi-user mode.
+
 ## System Architecture
 
+### Single-User Mode
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Client (Browser)                         │
@@ -36,6 +48,46 @@ DataQuery Pro is a Next.js 15 application using the App Router pattern with Reac
     └──────────┘    └──────────┘         └──────────┘
 ```
 
+### Multi-User Mode
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Client (Browser)                         │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │   Pages      │  │  Components  │  │  SessionProvider     │  │
+│  │  (App Router)│  │  (shadcn/ui) │  │  (NextAuth.js)       │  │
+│  └──────┬───────┘  └──────┬───────┘  └──────────┬───────────┘  │
+│         │                 │                      │              │
+│         └─────────────────┴──────────────────────┘              │
+└─────────────────────────────────────────────────────────────────┘
+                            │ HTTP
+┌─────────────────────────────────────────────────────────────────┐
+│                      Next.js Middleware                         │
+│                   (Route Protection + Auth)                      │
+└─────────────────────────────────────────────────────────────────┘
+                            │
+┌─────────────────────────────────────────────────────────────────┐
+│                      Next.js API Routes                         │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────┐    │
+│  │  Query   │ │  Schema  │ │ Dashboard│ │  Admin Routes  │    │
+│  │ Endpoints│ │ Endpoints│ │ Endpoints│ │(Users/Perms)   │    │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └───────┬────────┘    │
+│       │            │            │               │              │
+│       └────────────┴────────────┴───────────────┘              │
+│                           │                                     │
+│                    ┌──────┴──────┐                             │
+│                    │Storage Layer│ (PostgreSQL adapter)        │
+│                    └─────────────┘                             │
+└─────────────────────────────────────────────────────────────────┘
+          │               │                     │
+          ▼               ▼                     ▼
+    ┌──────────┐    ┌──────────┐         ┌──────────┐
+    │PostgreSQL│    │PostgreSQL│         │ Azure AD │
+    │(App Data)│    │(User DBs)│         │   SSO    │
+    └──────────┘    └──────────┘         └──────────┘
+```
+
 ## Directory Structure
 
 ```
@@ -46,20 +98,42 @@ app/                          # Next.js App Router
 ├── query/page.tsx           # Query interface (/query)
 ├── schema/page.tsx          # Schema explorer (/schema)
 ├── reports/page.tsx         # Saved reports (/reports)
+├── login/                   # Login page (multi-user)
+├── admin/                   # Admin pages (multi-user)
+│   ├── layout.tsx          # Admin layout with sidebar
+│   ├── page.tsx            # Admin dashboard
+│   ├── users/page.tsx      # User management
+│   ├── connections/page.tsx # Connection management
+│   └── permissions/page.tsx # Permissions matrix
 └── api/                     # API routes
+    ├── auth/[...nextauth]/ # NextAuth.js handler
     ├── query/               # Query generation/execution
     ├── schema/              # Schema introspection
-    └── dashboard/           # Suggestions generation
+    ├── dashboard/           # Suggestions generation
+    ├── reports/             # Report sharing
+    └── admin/               # Admin endpoints (multi-user)
 
 components/                   # React components
 ├── ui/                      # shadcn/ui (DO NOT modify)
+├── auth/                    # Auth components (multi-user)
 ├── navigation.tsx           # Top navigation
 ├── schema-explorer.tsx      # Schema browser
 ├── query-results-display.tsx# Results with charts
 └── [feature components]     # Reports, charts, etc.
 
 lib/                         # Core utilities
-└── database-connection-options.tsx  # State context
+├── database-connection-options.tsx  # State context
+├── auth/                    # Auth helpers (multi-user)
+│   ├── auth.config.ts      # NextAuth configuration
+│   └── api-auth.ts         # withAuth API wrapper
+├── db/                      # Database utilities (multi-user)
+│   ├── connection.ts       # PostgreSQL connection pool
+│   └── encryption.ts       # Password encryption
+└── services/storage/        # Storage abstraction
+    ├── storage.interface.ts # Storage interfaces
+    ├── local-storage.adapter.ts # localStorage implementation
+    ├── postgres.adapter.ts  # PostgreSQL implementation
+    └── index.ts             # Storage factory
 
 models/                      # TypeScript interfaces
 ├── database-connection.interface.ts
@@ -75,6 +149,11 @@ utils/                       # Utility functions
 hooks/                       # Custom React hooks
 ├── use-mobile.tsx          # Responsive detection
 └── use-toast.ts            # Toast notifications
+
+middleware.ts                # Route protection (multi-user)
+
+types/                       # TypeScript declarations
+└── next-auth.d.ts          # NextAuth type extensions
 ```
 
 ## Page Responsibilities
@@ -86,20 +165,46 @@ hooks/                       # Custom React hooks
 | `/schema` | `app/schema/page.tsx` | Browse and edit schema metadata |
 | `/query` | `app/query/page.tsx` | Natural language query interface |
 | `/reports` | `app/reports/page.tsx` | Saved reports management |
+| `/login` | `app/login/page.tsx` | Azure SSO login (multi-user) |
+| `/admin` | `app/admin/page.tsx` | Admin dashboard (multi-user) |
+| `/admin/users` | `app/admin/users/page.tsx` | User management (multi-user) |
+| `/admin/connections` | `app/admin/connections/page.tsx` | Connection management (multi-user) |
+| `/admin/permissions` | `app/admin/permissions/page.tsx` | Permission matrix (multi-user) |
 
 ## Core Patterns
 
-### 1. Client-Side State
-All state is managed client-side via React Context + localStorage. See [State Management](./state-management.md).
+### 1. Storage Abstraction
+Data persistence uses the Storage Service pattern with pluggable adapters:
 
-### 2. API Route Pattern
+```typescript
+interface IStorageService {
+  connections: IConnectionStorageService;
+  schemas: ISchemaStorageService;
+  reports: IReportStorageService;
+  suggestions: ISuggestionStorageService;
+  users: IUserStorageService;
+  permissions: IPermissionStorageService;
+  notifications: INotificationStorageService;
+  isMultiUserEnabled(): boolean;
+}
+```
+
+| Adapter | Storage | When Used |
+|---------|---------|-----------|
+| `LocalStorageAdapter` | Browser localStorage | `MULTI_USER_ENABLED=false` |
+| `PostgresAdapter` | PostgreSQL database | `MULTI_USER_ENABLED=true` |
+
+### 2. Client-Side State
+All state is managed client-side via React Context. In single-user mode, data is persisted to localStorage. In multi-user mode, data is fetched from PostgreSQL. See [State Management](./state-management.md).
+
+### 3. API Route Pattern
 API routes follow RESTful conventions:
 - `POST /api/query/generate` - Generate SQL from natural language
 - `POST /api/query/execute` - Execute SQL queries
 - `POST /api/schema/introspect` - Get database schema
 - `POST /api/schema/upload-schema` - Upload to OpenAI
 
-### 3. OpenAI Integration Pattern
+### 4. OpenAI Integration Pattern
 Uses OpenAI Responses API (not Chat Completions):
 1. Schema uploaded as file to OpenAI
 2. File added to vector store

@@ -1,8 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
 import { generateTableDescription, generateColumnDescription } from "@/utils/generate-descriptions"
+import { withAuth } from "@/lib/auth/api-auth"
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, { user }) => {
   try {
     const { schema, databaseDescription, batchInfo } = await request.json()
 
@@ -157,4 +158,4 @@ TASK: Write a concise, business-focused description (1 sentence) explaining what
     console.error("Error processing AI descriptions:", error)
     return NextResponse.json({ success: false, error: "Failed to generate descriptions" }, { status: 500 })
   }
-}
+}, { requireAdmin: true })

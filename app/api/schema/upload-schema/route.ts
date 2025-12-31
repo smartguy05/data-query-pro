@@ -1,7 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from 'openai';
+import { withAuth } from "@/lib/auth/api-auth";
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, { user }) => {
     try {
         const { data, existingFileId, existingVectorStoreId } = await request.json();
 
@@ -56,4 +57,4 @@ export async function POST(request: NextRequest) {
         console.error("An error ocurrred while attempting to update database schema file:", error);
         return NextResponse.json({ error: "Failed to upload schema file" }, { status: 500 });
     }
-}
+}, { requireAdmin: true })

@@ -6,8 +6,9 @@ import {
   ChartConfig,
   CHART_TOOLS,
 } from "@/models/chart-config.interface"
+import { withAuth } from "@/lib/auth/api-auth"
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(async (request, { user }) => {
   try {
     const { columns, rows, rowCount, preferredChartType }: ChartGenerationRequest = await request.json()
 
@@ -176,7 +177,7 @@ Call the appropriate chart creation function with the proper configuration.`
     console.error("[Chart Generation] Error:", error)
     return NextResponse.json({ error: error.message || "Failed to generate chart configuration" }, { status: 500 })
   }
-}
+})
 
 function generateReasoning(
   chartType: string,

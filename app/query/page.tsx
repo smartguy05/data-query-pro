@@ -12,6 +12,7 @@ import { QueryResultsDisplay } from "@/components/query-results-display"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
 import {useDatabaseOptions} from "@/lib/database-connection-options"
+import { getStorageService } from "@/lib/services/storage"
 import { SaveReportDialog } from "@/components/save-report-dialog"
 import { SavedReport, ReportParameter } from "@/models/saved-report.interface"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -226,7 +227,7 @@ export default function QueryPage() {
     }
   }
 
-  const saveReport = (name: string, description: string, parameters: ReportParameter[]) => {
+  const saveReport = async (name: string, description: string, parameters: ReportParameter[]) => {
     if (!queryResult || !naturalQuery) return
 
     const activeConnection = connectionInformation.getConnection()
@@ -239,30 +240,34 @@ export default function QueryPage() {
       return
     }
 
-    const report: SavedReport = {
-      id: `report_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      connectionId: activeConnection.id,
-      name,
-      description,
-      naturalLanguageQuery: naturalQuery,
-      sql: editableSql,
-      explanation: queryResult.explanation,
-      warnings: queryResult.warnings,
-      confidence: queryResult.confidence,
-      parameters: parameters.length > 0 ? parameters : undefined,
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
+    try {
+      const storage = getStorageService()
+      await storage.reports.createReport({
+        connectionId: activeConnection.id,
+        name,
+        description,
+        naturalLanguageQuery: naturalQuery,
+        sql: editableSql,
+        explanation: queryResult.explanation,
+        warnings: queryResult.warnings,
+        confidence: queryResult.confidence,
+        parameters: parameters.length > 0 ? parameters : undefined,
+        createdAt: new Date().toISOString(),
+        lastModified: new Date().toISOString(),
+      })
+
+      toast({
+        title: "Report Saved",
+        description: `"${name}" has been saved successfully`,
+      })
+    } catch (error) {
+      console.error("Failed to save report:", error)
+      toast({
+        title: "Error",
+        description: "Failed to save report",
+        variant: "destructive",
+      })
     }
-
-    // Get existing reports
-    const existingReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-    existingReports.push(report)
-    localStorage.setItem("saved_reports", JSON.stringify(existingReports))
-
-    toast({
-      title: "Report Saved",
-      description: `"${name}" has been saved successfully`,
-    })
   }
 
   return (

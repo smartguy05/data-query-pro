@@ -3,9 +3,17 @@
 import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useSession, signOut } from "next-auth/react"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { BarChart3, Database, FileText, Search, Menu, X } from "lucide-react"
+import { BarChart3, Database, FileText, Search, Menu, X, Shield, User, LogOut } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
 
 const navigation = [
@@ -19,6 +27,16 @@ const navigation = [
 export function Navigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const pathname = usePathname()
+
+  // useSession may return undefined during static generation
+  const sessionResult = useSession()
+  const session = sessionResult?.data
+  const sessionStatus = sessionResult?.status
+
+  const multiUserEnabled = process.env.NEXT_PUBLIC_MULTI_USER_ENABLED === "true"
+  const isAdmin = session?.user?.role === "admin"
+  const showAdminLink = multiUserEnabled && isAdmin
+  const showUserMenu = multiUserEnabled && sessionStatus === "authenticated" && session
 
   return (
     <nav className="bg-background border-b border-border sticky top-0 z-50">
@@ -56,8 +74,47 @@ export function Navigation() {
                 </Link>
               )
             })}
-            <div className="ml-4 pl-4 border-l border-slate-200 dark:border-slate-700">
+            {showAdminLink && (
+              <Link href="/admin">
+                <Button
+                  variant={pathname.startsWith("/admin") ? "default" : "ghost"}
+                  size="sm"
+                  className={cn(
+                    "flex items-center gap-2",
+                    pathname.startsWith("/admin")
+                      ? "bg-blue-600 text-white dark:bg-blue-700"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <Shield className="h-4 w-4" />
+                  Admin
+                </Button>
+              </Link>
+            )}
+            <div className="ml-4 pl-4 border-l border-slate-200 dark:border-slate-700 flex items-center gap-2">
               <ThemeToggle />
+              {multiUserEnabled && session && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="gap-2">
+                      <User className="h-4 w-4" />
+                      <span className="max-w-[100px] truncate">
+                        {session.user?.name || session.user?.email}
+                      </span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+                      {session.user?.email}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })}>
+                      <LogOut className="h-4 w-4 mr-2" />
+                      Sign Out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           </div>
 
@@ -94,6 +151,40 @@ export function Navigation() {
                   </Link>
                 )
               })}
+              {showAdminLink && (
+                <Link href="/admin">
+                  <Button
+                    variant={pathname.startsWith("/admin") ? "default" : "ghost"}
+                    size="sm"
+                    className={cn(
+                      "w-full justify-start gap-2",
+                      pathname.startsWith("/admin")
+                        ? "bg-blue-600 text-white dark:bg-blue-700"
+                        : "text-muted-foreground",
+                    )}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <Shield className="h-4 w-4" />
+                    Admin
+                  </Button>
+                </Link>
+              )}
+              {multiUserEnabled && session && (
+                <div className="pt-2 mt-2 border-t border-border">
+                  <div className="px-3 py-2 text-xs text-muted-foreground">
+                    {session.user?.email}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start gap-2 text-muted-foreground"
+                    onClick={() => signOut({ callbackUrl: "/login" })}
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Sign Out
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         )}

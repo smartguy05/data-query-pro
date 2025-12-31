@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import postgres from "postgres"
+import { withAuth } from "@/lib/auth/api-auth"
 
-export async function GET() {
+export const GET = withAuth(async () => {
   try {
     // Simulate schema introspection delay
     await new Promise((resolve) => setTimeout(resolve, 1000))
@@ -20,9 +21,9 @@ export async function GET() {
     console.error("Schema introspection error:", error)
     return NextResponse.json({ error: "Failed to introspect schema" }, { status: 500 })
   }
-}
+}, { requireAdmin: true })
 
-export async function POST(request: Request) {
+export const POST = withAuth(async (request, { user }) => {
   try {
     const { connection } = await request.json()
     console.log("[v0] Connecting to database:", { host: connection.host, database: connection.database })
@@ -112,9 +113,9 @@ export async function POST(request: Request) {
     console.error("[v0] Schema introspection error:", error)
     return NextResponse.json(
       {
-        error: `Failed to introspect schema: ${error.message}`,
+        error: `Failed to introspect schema: ${(error as Error).message}`,
       },
       { status: 500 },
     )
   }
-}
+}, { requireAdmin: true })

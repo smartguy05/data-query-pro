@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Database, CheckCircle, Loader2, Plus, Trash2, Download, Upload, Edit } from "lucide-react"
 import {useDatabaseOptions} from "@/lib/database-connection-options";
+import { getStorageService } from "@/lib/services/storage";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 
 export default function DatabasePage() {
@@ -144,10 +145,11 @@ export default function DatabasePage() {
   const exportData = async () => {
     setIsExporting(true)
     try {
-      // Get saved reports from localStorage
-      const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]")
+      // Get saved reports from storage service
+      const storage = getStorageService()
+      const savedReports = await storage.reports.getReports()
 
-      const exportData = {
+      const exportDataObj = {
         version: "1.1",
         exportDate: new Date().toISOString(),
         databaseConnections: connectionInformation.connections,
@@ -159,11 +161,11 @@ export default function DatabasePage() {
       for (let i = 0; i < connectionInformation.connections.length; i++) {
         const schemaData = connectionInformation.getSchema(connectionInformation.connections[i].id);
         if (!!schemaData) {
-          (exportData.schemaData as any)[connectionInformation.connections[i].id] = schemaData;
+          (exportDataObj.schemaData as any)[connectionInformation.connections[i].id] = schemaData;
         }
       }
 
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" })
+      const blob = new Blob([JSON.stringify(exportDataObj, null, 2)], { type: "application/json" })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
@@ -187,7 +189,7 @@ export default function DatabasePage() {
     setImportStatus("idle")
 
     const reader = new FileReader()
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const importData = JSON.parse(e.target?.result as string)
 
@@ -216,19 +218,22 @@ export default function DatabasePage() {
 
         // Import saved reports
         if (importData.savedReports && Array.isArray(importData.savedReports)) {
-          const existingReports = JSON.parse(localStorage.getItem("saved_reports") || "[]")
-          const existingIds = new Set(existingReports.map((r: any) => r.id))
+          const storage = getStorageService()
+          const existingReports = await storage.reports.getReports()
+          const existingIds = new Set(existingReports.map((r) => r.id))
 
           // Get valid connection IDs from imported connections
           const validConnectionIds = new Set(importData.databaseConnections.map((c: any) => c.id))
 
-          // Filter and merge reports - only import reports for valid connections, skip duplicates
+          // Filter reports - only import reports for valid connections, skip duplicates
           const newReports = importData.savedReports.filter((report: any) =>
             !existingIds.has(report.id) && validConnectionIds.has(report.connectionId)
           )
 
-          const mergedReports = [...existingReports, ...newReports]
-          localStorage.setItem("saved_reports", JSON.stringify(mergedReports))
+          // Import the filtered reports
+          if (newReports.length > 0) {
+            await storage.reports.importReports(newReports)
+          }
         }
 
         setImportStatus("success")
