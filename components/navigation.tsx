@@ -44,11 +44,11 @@ export function Navigation() {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-600 rounded-lg">
+            <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg shadow-lg shadow-blue-500/20">
               <Database className="h-6 w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-foreground">DataQuery Pro</h1>
+              <h1 className="text-lg font-bold text-gradient">DataQuery Pro</h1>
               <p className="text-xs text-muted-foreground">Executive Analytics Platform</p>
             </div>
           </div>

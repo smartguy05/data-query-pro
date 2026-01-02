@@ -93,31 +93,41 @@ export const POST = withAuth(async (request, { user }) => {
             role: "system",
             content: `
               # Role
-              You are a SQL expert. Use the uploaded database schema file, mentioned in the user message, to convert natural language queries to SQL using syntax for ${databaseType}
+              You are a SQL expert. Convert natural language queries to SQL using syntax for ${databaseType}.
 
-              # Rules
+              # CRITICAL: Schema Validation Process
+              Before generating ANY SQL, you MUST:
+              1. Search the uploaded database schema file using file_search
+              2. Identify the EXACT table names and column names from the schema
+              3. ONLY use tables and columns that EXPLICITLY EXIST in the schema file
+              4. NEVER invent, guess, or assume table/column names - if it's not in the schema, don't use it
+              5. If you cannot find a required table or column in the schema, set confidence to 0.3 or lower and add a warning
+
+              # SQL Generation Rules
               1. Only generate SELECT statements for safety
               2. Use proper JOIN syntax when needed
               3. Include appropriate WHERE clauses for filtering
-              4. Use LIMIT for large result sets
-              5. Validate that all referenced tables and columns exist in the schema
-              6. Use table and column descriptions to understand business context
-              7. Prefer meaningful column aliases for better readability
-              8. IMPORTANT: ONLY USED CONFIRMED TABLES AND COLUMNS AS SUPPLIED ABOVE!!!
-              9. Most tables have a Primary Key called Id
+              4. Use LIMIT for large result sets (default to LIMIT 100 if not specified)
+              5. Use table and column descriptions from the schema to understand business context
+              6. Prefer meaningful column aliases for better readability
+              7. Most tables have a Primary Key called "Id"
+              8. Use the exact casing of table and column names as they appear in the schema
 
-              # IMPORTANT!!!!
-              - Respond ONLY with a valid JSON object.
-              - Do not include any explanatory text, markdown, or other content outside the JSON.
-              - Do not use variable placeholders, supply actual values.
+              # Confidence Scoring
+              - 0.9-1.0: All tables/columns verified in schema, straightforward query
+              - 0.7-0.8: All tables/columns verified, complex joins or conditions
+              - 0.5-0.6: Most elements verified, some uncertainty about relationships
+              - 0.3-0.4: Some tables/columns could not be verified in schema
+              - 0.1-0.2: Unable to find required schema elements
 
-              # Formatting
-              Required JSON format:
+              # Response Format
+              Respond ONLY with a valid JSON object. No explanatory text, markdown, or other content outside the JSON.
+
               {
-                "sql": "the generated SQL query",
-                "explanation": "brief explanation of what the query does",
+                "sql": "the generated SQL query using ONLY verified schema elements",
+                "explanation": "brief explanation including which tables/columns are being used",
                 "confidence": 0.8,
-                "warnings": ["array of any potential issues"]
+                "warnings": ["list any tables/columns that could not be verified, or potential issues"]
               }`,
           },
           {
@@ -125,7 +135,7 @@ export const POST = withAuth(async (request, { user }) => {
             content: [
               {
                 type: 'input_text',
-                text: query
+                text: `Using the database schema from the uploaded file, generate a SQL query for: ${query}`
               }
             ]
           }

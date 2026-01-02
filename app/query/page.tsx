@@ -5,14 +5,11 @@ import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { Badge } from "@/components/ui/badge"
-import { Loader2, Play, Database, AlertTriangle, Save } from "lucide-react"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { QueryResultsDisplay } from "@/components/query-results-display"
+import { Loader2, Database, Sparkles } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
-import {useDatabaseOptions} from "@/lib/database-connection-options"
 import { getStorageService } from "@/lib/services/storage"
+import { useDatabaseOptions } from "@/lib/database-connection-options"
 import { SaveReportDialog } from "@/components/save-report-dialog"
 import { SavedReport, ReportParameter } from "@/models/saved-report.interface"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -27,34 +24,48 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-
-interface QueryResult {
-  sql: string
-  explanation: string
-  confidence: number
-  warnings: string[]
-}
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { QueryTab, QueryResult, RowLimitOption, FollowUpResponse } from "@/models/query-tab.interface"
+import { QueryTabContent } from "@/components/query-tab-content"
+import { FollowUpDialog } from "@/components/followup-dialog"
 
 export default function QueryPage() {
   const searchParams = useSearchParams()
   const { toast } = useToast()
+
+  // Original query input
   const [naturalQuery, setNaturalQuery] = useState("")
-  const [queryResult, setQueryResult] = useState<QueryResult | null>(null)
-  const [editableSql, setEditableSql] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [isExecuting, setIsExecuting] = useState(false)
-  const [executionResults, setExecutionResults] = useState<any>(null)
-  const [error, setError] = useState("")
-  const [relevantTables, setRelevantTables] = useState<string[]>([])
+  const [isGeneratingOriginal, setIsGeneratingOriginal] = useState(false)
+  const [isEnhancingQuery, setIsEnhancingQuery] = useState(false)
+
+  // Tab management
+  const [tabs, setTabs] = useState<QueryTab[]>([])
+  const [activeTabId, setActiveTabId] = useState<string | null>(null)
+
+  // Follow-up dialog
+  const [showFollowUpDialog, setShowFollowUpDialog] = useState(false)
+  const [followUpParentTabId, setFollowUpParentTabId] = useState<string | null>(null)
+  const [isProcessingFollowUp, setIsProcessingFollowUp] = useState(false)
+  const [rowLimit, setRowLimit] = useState<RowLimitOption>('none')
+
+  // Revise query state
+  const [revisingTabId, setRevisingTabId] = useState<string | null>(null)
+
+  // Save report dialog
   const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [saveTabId, setSaveTabId] = useState<string | null>(null)
+
+  // Clear confirmation dialog
   const [showClearConfirmation, setShowClearConfirmation] = useState(false)
 
+  const connectionInformation = useDatabaseOptions()
+
+  // Handle URL parameters
   useEffect(() => {
     const queryParam = searchParams.get("suggestion")
     const descriptionParam = searchParams.get("description")
 
     if (queryParam) {
-      // If both description and query are provided, combine them for better context
       if (descriptionParam) {
         const description = decodeURIComponent(descriptionParam)
         const query = decodeURIComponent(queryParam)
@@ -64,74 +75,108 @@ export default function QueryPage() {
       }
     }
 
-    const tablesParam = searchParams.get("tables")
-    if (tablesParam) {
-      try {
-        const tables = JSON.parse(decodeURIComponent(tablesParam))
-        setRelevantTables(Array.isArray(tables) ? tables : [])
-      } catch (error) {
-        console.error("Failed to parse tables parameter:", error)
-        setRelevantTables([])
-      }
-    }
-
     // Handle pre-filled SQL from parameterized reports
     const sqlParam = searchParams.get("sql")
     if (sqlParam) {
       const sql = decodeURIComponent(sqlParam)
-      setEditableSql(sql)
-      // Create a fake query result so the UI shows the SQL editor and execute button
-      setQueryResult({
+      const queryResult: QueryResult = {
         sql: sql,
         explanation: "Query loaded from saved report with parameter values applied",
         confidence: 1.0,
         warnings: []
-      })
+      }
+      const tab = createOriginalTab("Saved Report Query", queryResult)
+      setTabs([tab])
+      setActiveTabId(tab.id)
     }
-  }, [searchParams]);
+  }, [searchParams])
 
+  // Clear tabs when connection changes
   useEffect(() => {
-    if (queryResult?.sql) {
-      setEditableSql(queryResult.sql)
+    const currentConnId = connectionInformation.currentConnection?.id
+    if (currentConnId && tabs.length > 0) {
+      // Check if we have tabs from a different connection
+      // We don't store connectionId on tabs, so we'll reset on any connection change
+      // This is handled by the user selecting a different connection
     }
-  }, [queryResult]);
+  }, [connectionInformation.currentConnection?.id])
 
-  const connectionInformation = useDatabaseOptions();
+  // Helper: Create original tab
+  const createOriginalTab = (question: string, result: QueryResult): QueryTab => ({
+    id: `tab_${Date.now()}`,
+    type: 'original',
+    question,
+    parentTabId: null,
+    isGenerating: false,
+    isExecuting: false,
+    queryResult: result,
+    editableSql: result.sql,
+    responseType: 'query',
+    createdAt: new Date().toISOString(),
+  })
 
+  // Helper: Create follow-up tab (in loading state)
+  const createFollowUpTab = (question: string, parentTabId: string): QueryTab => ({
+    id: `tab_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    type: 'followup',
+    question,
+    parentTabId,
+    isGenerating: true,
+    isExecuting: false,
+    createdAt: new Date().toISOString(),
+  })
+
+  // Helper: Update a specific tab
+  const updateTab = (tabId: string, updates: Partial<QueryTab>) => {
+    setTabs(prev => prev.map(tab =>
+      tab.id === tabId ? { ...tab, ...updates } : tab
+    ))
+  }
+
+  // Helper: Get rows limited by user preference
+  const getLimitedRows = (rows: any[][], limit: RowLimitOption): any[][] => {
+    if (limit === 'none') return []
+    if (limit === 'all') return rows
+    return rows.slice(0, limit)
+  }
+
+  // Helper: Get follow-up tab number
+  const getTabLabel = (tab: QueryTab, index: number): string => {
+    if (tab.type === 'original') return 'Original Query'
+    return `Follow-up ${index}`
+  }
+
+  // Handle generate SQL click
   const handleGenerateSQLClick = () => {
-    // Check if there are existing results to clear
-    if (queryResult || executionResults) {
+    if (tabs.length > 0) {
       setShowClearConfirmation(true)
     } else {
-      generateSQL()
+      generateOriginalSQL()
     }
   }
 
+  // Confirm clearing existing results
   const handleConfirmClear = () => {
-    // Clear existing results
-    setQueryResult(null)
-    setExecutionResults(null)
-    setEditableSql("")
+    setTabs([])
+    setActiveTabId(null)
     setShowClearConfirmation(false)
-    // Generate new SQL
-    generateSQL()
+    generateOriginalSQL()
   }
 
-  const generateSQL = async () => {
+  // Generate SQL for original query
+  const generateOriginalSQL = async () => {
     if (!naturalQuery.trim()) return
 
-    setIsGenerating(true)
-    setError("")
+    setIsGeneratingOriginal(true)
 
     try {
-      let connection = connectionInformation.getConnection();
+      const connection = connectionInformation.getConnection()
 
       if (!connection?.schemaFileId) {
-        throw new Error("You must upload schema information file before creating queries!");
+        throw new Error("You must upload schema information file before creating queries!")
       }
 
-      // Get the schema data for potential re-upload
-      const schema = connectionInformation.getSchema();
+      const schema = connectionInformation.getSchema()
 
       const response = await fetch("/api/query/generate", {
         method: "POST",
@@ -152,53 +197,108 @@ export default function QueryPage() {
 
       const result = await response.json()
 
-      // Check if schema was re-uploaded and update connection with new IDs
+      // Check if schema was re-uploaded
       if (result.schemaReuploaded && result.newFileId && result.newVectorStoreId) {
-        console.log("Schema was re-uploaded. Updating connection with new IDs...");
         const updatedConnection = {
           ...connection,
           schemaFileId: result.newFileId,
           vectorStoreId: result.newVectorStoreId
-        };
-        connectionInformation.updateConnection(updatedConnection);
+        }
+        connectionInformation.updateConnection(updatedConnection)
         toast({
           title: "Schema Re-uploaded",
           description: "Vector store was invalid and has been automatically re-created",
-        });
+        })
       }
 
-      setQueryResult(result)
+      // Create the original tab
+      const tab = createOriginalTab(naturalQuery, result)
+      setTabs([tab])
+      setActiveTabId(tab.id)
+
       toast({
         title: "SQL Generated Successfully",
         description: `Query generated with ${Math.round(result.confidence * 100)}% confidence`,
       })
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to generate SQL"
-      setError(errorMessage)
       toast({
         title: "SQL Generation Failed",
         description: errorMessage,
         variant: "destructive",
       })
     } finally {
-      setIsGenerating(false)
+      setIsGeneratingOriginal(false)
     }
   }
 
-  const executeSQL = async () => {
-    if (!editableSql) return // Use editableSql instead of queryResult.sql
+  // Enhance the natural language query with AI
+  const enhanceQuery = async () => {
+    if (!naturalQuery.trim()) return
 
-    setIsExecuting(true)
-    setError("")
+    setIsEnhancingQuery(true)
 
     try {
-      const activeConnection = connectionInformation.getConnection();
+      const connection = connectionInformation.getConnection()
+
+      if (!connection?.vectorStoreId) {
+        throw new Error("You must upload schema information file before enhancing queries!")
+      }
+
+      const response = await fetch("/api/query/enhance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: naturalQuery,
+          vectorStoreId: connection.vectorStoreId,
+          databaseType: connection.type,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || "Failed to enhance query")
+      }
+
+      const result = await response.json()
+
+      // Update the query with the enhanced version
+      setNaturalQuery(result.enhancedQuery)
+
+      toast({
+        title: "Query Enhanced",
+        description: result.improvements?.length > 0
+          ? `Improvements: ${result.improvements.join(", ")}`
+          : "Your query has been improved with schema-specific details",
+        duration: 10000,
+      })
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to enhance query"
+      toast({
+        title: "Query Enhancement Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setIsEnhancingQuery(false)
+    }
+  }
+
+  // Execute SQL for a specific tab
+  const executeTabQuery = async (tabId: string) => {
+    const tab = tabs.find(t => t.id === tabId)
+    if (!tab?.editableSql) return
+
+    updateTab(tabId, { isExecuting: true, executionError: undefined })
+
+    try {
+      const activeConnection = connectionInformation.getConnection()
 
       const response = await fetch("/api/query/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sql: editableSql, // Use editableSql instead of queryResult.sql
+          sql: tab.editableSql,
           connection: activeConnection,
         }),
       })
@@ -209,26 +309,195 @@ export default function QueryPage() {
       }
 
       const result = await response.json()
-      setExecutionResults(result)
+      updateTab(tabId, {
+        isExecuting: false,
+        executionResults: result,
+        executionError: undefined
+      })
+
       toast({
         title: "Query Executed Successfully",
         description: `Returned ${result.rowCount} rows in ${result.executionTime}ms`,
       })
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to execute query"
-      setError(errorMessage)
+      updateTab(tabId, {
+        isExecuting: false,
+        executionError: errorMessage
+      })
       toast({
         title: "Query Execution Failed",
         description: errorMessage,
         variant: "destructive",
       })
-    } finally {
-      setIsExecuting(false)
     }
   }
 
+  // Revise SQL for a specific tab after execution error
+  const reviseTabQuery = async (tabId: string) => {
+    const tab = tabs.find(t => t.id === tabId)
+    if (!tab?.editableSql || !tab?.executionError) return
+
+    setRevisingTabId(tabId)
+
+    try {
+      const connection = connectionInformation.getConnection()
+
+      const response = await fetch("/api/query/revise", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          originalQuestion: tab.question,
+          generatedSql: tab.editableSql,
+          errorMessage: tab.executionError,
+          databaseType: connection?.type || 'postgresql',
+          vectorStoreId: connection?.vectorStoreId,
+          schemaData: connectionInformation.getSchema(),
+          existingFileId: connection?.schemaFileId
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || "Failed to revise query")
+      }
+
+      const result = await response.json()
+
+      // Update the tab with the revised SQL and clear the error
+      updateTab(tabId, {
+        editableSql: result.sql,
+        executionError: undefined,
+        queryResult: tab.queryResult ? {
+          ...tab.queryResult,
+          sql: result.sql,
+          explanation: result.explanation || tab.queryResult.explanation,
+          confidence: result.confidence || tab.queryResult.confidence,
+          warnings: result.warnings || []
+        } : undefined
+      })
+
+      toast({
+        title: "Query Revised",
+        description: result.explanation || "SQL has been corrected. Try executing again.",
+        duration: 120000, // 2 minutes
+      })
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to revise query"
+      toast({
+        title: "Query Revision Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setRevisingTabId(null)
+    }
+  }
+
+  // Handle follow-up question submission
+  const handleFollowUp = async (question: string, limit: RowLimitOption) => {
+    const parentTab = tabs.find(t => t.id === followUpParentTabId)
+    if (!parentTab?.executionResults) return
+
+    setIsProcessingFollowUp(true)
+
+    // Create new tab in loading state
+    const newTab = createFollowUpTab(question, parentTab.id)
+    setTabs(prev => [...prev, newTab])
+    setActiveTabId(newTab.id)
+    setShowFollowUpDialog(false)
+
+    try {
+      const connection = connectionInformation.getConnection()
+      if (!connection?.vectorStoreId) {
+        throw new Error("No vector store available")
+      }
+
+      const response = await fetch('/api/query/followup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          followUpQuestion: question,
+          originalQuestion: parentTab.question,
+          generatedSql: parentTab.queryResult?.sql || parentTab.editableSql,
+          resultColumns: parentTab.executionResults.columns,
+          resultRows: getLimitedRows(parentTab.executionResults.rows, limit),
+          totalRowCount: parentTab.executionResults.rowCount,
+          vectorStoreId: connection.vectorStoreId,
+          databaseType: connection.type,
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || "Failed to process follow-up")
+      }
+
+      const result: FollowUpResponse = await response.json()
+
+      // Update the tab based on response type
+      if (result.responseType === 'query') {
+        updateTab(newTab.id, {
+          isGenerating: false,
+          responseType: 'query',
+          queryResult: {
+            sql: result.sql || '',
+            explanation: result.explanation || '',
+            confidence: result.confidence || 0.8,
+            warnings: result.warnings || []
+          },
+          editableSql: result.sql || ''
+        })
+        toast({
+          title: "Follow-up Query Generated",
+          description: `Query generated with ${Math.round((result.confidence || 0.8) * 100)}% confidence`,
+        })
+      } else {
+        updateTab(newTab.id, {
+          isGenerating: false,
+          responseType: 'explanation',
+          explanationResponse: {
+            text: result.explanationText || '',
+            confidence: result.confidence || 0.8
+          }
+        })
+        toast({
+          title: "Analysis Complete",
+          description: "AI has analyzed your question",
+        })
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to process follow-up"
+      updateTab(newTab.id, {
+        isGenerating: false,
+        generationError: errorMessage
+      })
+      toast({
+        title: "Follow-up Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setIsProcessingFollowUp(false)
+    }
+  }
+
+  // Open follow-up dialog for a specific tab
+  const openFollowUpDialog = (tabId: string) => {
+    setFollowUpParentTabId(tabId)
+    setShowFollowUpDialog(true)
+  }
+
+  // Open save dialog for a specific tab
+  const openSaveDialog = (tabId: string) => {
+    setSaveTabId(tabId)
+    setShowSaveDialog(true)
+  }
+
+  // Save report for a tab
   const saveReport = async (name: string, description: string, parameters: ReportParameter[]) => {
-    if (!queryResult || !naturalQuery) return
+    const tab = tabs.find(t => t.id === saveTabId)
+    if (!tab?.queryResult) return
 
     const activeConnection = connectionInformation.getConnection()
     if (!activeConnection) {
@@ -239,21 +508,21 @@ export default function QueryPage() {
       })
       return
     }
-
     try {
       const storage = getStorageService()
       await storage.reports.createReport({
-        connectionId: activeConnection.id,
-        name,
-        description,
-        naturalLanguageQuery: naturalQuery,
-        sql: editableSql,
-        explanation: queryResult.explanation,
-        warnings: queryResult.warnings,
-        confidence: queryResult.confidence,
-        parameters: parameters.length > 0 ? parameters : undefined,
-        createdAt: new Date().toISOString(),
-        lastModified: new Date().toISOString(),
+          id: `report_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          connectionId: activeConnection.id,
+          name,
+          description,
+          naturalLanguageQuery: tab.question,
+          sql: tab.editableSql || tab.queryResult.sql,
+          explanation: tab.queryResult.explanation,
+          warnings: tab.queryResult.warnings,
+          confidence: tab.queryResult.confidence,
+          parameters: parameters.length > 0 ? parameters : undefined,
+          createdAt: new Date().toISOString(),
+          lastModified: new Date().toISOString(),
       })
 
       toast({
@@ -269,6 +538,10 @@ export default function QueryPage() {
       })
     }
   }
+
+  // Get current tab for save dialog
+  const currentSaveTab = tabs.find(t => t.id === saveTabId)
+  const currentFollowUpTab = tabs.find(t => t.id === followUpParentTabId)
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -293,6 +566,9 @@ export default function QueryPage() {
                     const connection = connectionInformation.connections.find(c => c.id === connectionId)
                     if (connection) {
                       connectionInformation.setCurrentConnection(connection)
+                      // Reset tabs when switching connections
+                      setTabs([])
+                      setActiveTabId(null)
                       toast({
                         title: "Connection Changed",
                         description: `Switched to ${connection.name || connection.database}`,
@@ -332,109 +608,118 @@ export default function QueryPage() {
               onChange={(e) => setNaturalQuery(e.target.value)}
               className="min-h-[100px] resize-none"
             />
-            <Button
-              onClick={handleGenerateSQLClick}
-              disabled={!naturalQuery.trim() || isGenerating}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Generating SQL...
-                </>
-              ) : (
-                "Generate SQL Query"
-              )}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleGenerateSQLClick}
+                disabled={!naturalQuery.trim() || isGeneratingOriginal || isEnhancingQuery}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {isGeneratingOriginal ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Generating SQL...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Generate SQL Query
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={enhanceQuery}
+                disabled={!naturalQuery.trim() || isGeneratingOriginal || isEnhancingQuery}
+                variant="outline"
+                className="border-purple-600 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950"
+              >
+                {isEnhancingQuery ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Enhancing...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Enhance Query with AI
+                  </>
+                )}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
-        {/* Generated SQL */}
-        {queryResult && (
+        {/* Tabs for Query Results */}
+        {tabs.length > 0 && (
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Generated SQL Query</span>
-                <Badge variant={queryResult.confidence > 0.8 ? "default" : "secondary"}>
-                  {Math.round(queryResult.confidence * 100)}% Confidence
-                </Badge>
-              </CardTitle>
-              <CardDescription>{queryResult.explanation}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Warnings */}
-              {queryResult.warnings.length > 0 && (
-                <Alert>
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>
-                    <strong>Warnings:</strong>
-                    <ul className="mt-1 list-disc list-inside">
-                      {queryResult.warnings.map((warning, i) => (
-                        <li key={i}>{warning}</li>
-                      ))}
-                    </ul>
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {/* SQL Code */}
-              <div className="bg-slate-900 dark:bg-slate-950 text-slate-100 p-4 rounded-lg font-mono text-sm overflow-x-auto">
-                <textarea
-                    value={editableSql}
-                    onChange={(e) => setEditableSql(e.target.value)}
-                    className="w-full h-32 bg-transparent border-none resize-none outline-none text-slate-100 font-mono text-sm"
-                />
-
-              </div>
-
-              <div className="flex gap-2">
-                <Button onClick={executeSQL} disabled={isExecuting} className="bg-green-600 hover:bg-green-700">
-                  {isExecuting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Executing...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="h-4 w-4 mr-2" />
-                      Execute Query
-                    </>
-                  )}
-                </Button>
-                <Button variant="outline" onClick={() => setShowSaveDialog(true)}>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save as Report
-                </Button>
-              </div>
-            </CardContent>
+            <Tabs value={activeTabId || tabs[0]?.id} onValueChange={setActiveTabId}>
+              <CardHeader className="pb-0">
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                  <TabsList className="flex-wrap h-auto gap-1">
+                    {tabs.map((tab, index) => (
+                      <TabsTrigger
+                        key={tab.id}
+                        value={tab.id}
+                        className="relative data-[state=active]:bg-background"
+                      >
+                        {getTabLabel(tab, index)}
+                        {tab.isGenerating && (
+                          <Loader2 className="h-3 w-3 ml-1 animate-spin" />
+                        )}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-6">
+                {tabs.map(tab => (
+                  <TabsContent key={tab.id} value={tab.id} className="mt-0">
+                    <QueryTabContent
+                      tab={tab}
+                      onEditSql={(sql) => updateTab(tab.id, { editableSql: sql })}
+                      onExecute={() => executeTabQuery(tab.id)}
+                      onAskFollowUp={() => openFollowUpDialog(tab.id)}
+                      onSaveReport={() => openSaveDialog(tab.id)}
+                      onReviseQuery={() => reviseTabQuery(tab.id)}
+                      isExecuting={tab.isExecuting}
+                      isRevising={revisingTabId === tab.id}
+                    />
+                  </TabsContent>
+                ))}
+              </CardContent>
+            </Tabs>
           </Card>
         )}
-
-        {/* Query Results */}
-        {executionResults && <QueryResultsDisplay data={executionResults} />}
-
-        {/* Error Display */}
-        {error && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
       </div>
+
       <Toaster />
+
+      {/* Follow-up Dialog */}
+      <FollowUpDialog
+        open={showFollowUpDialog}
+        onOpenChange={setShowFollowUpDialog}
+        onSubmit={handleFollowUp}
+        isLoading={isProcessingFollowUp}
+        currentRowCount={currentFollowUpTab?.executionResults?.rowCount || 0}
+        rowLimit={rowLimit}
+        onRowLimitChange={setRowLimit}
+      />
+
+      {/* Save Report Dialog */}
       <SaveReportDialog
         open={showSaveDialog}
         onOpenChange={setShowSaveDialog}
         onSave={saveReport}
-        defaultName={naturalQuery.slice(0, 50) + (naturalQuery.length > 50 ? "..." : "")}
-        sql={editableSql}
+        defaultName={currentSaveTab?.question.slice(0, 50) + ((currentSaveTab?.question.length || 0) > 50 ? "..." : "")}
+        sql={currentSaveTab?.editableSql || currentSaveTab?.queryResult?.sql}
       />
+
+      {/* Clear Confirmation Dialog */}
       <AlertDialog open={showClearConfirmation} onOpenChange={setShowClearConfirmation}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Clear Existing Results?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove the current Generated SQL Query and Query Results. Are you sure you want to continue?
+              This will remove all current query results and follow-up tabs. Are you sure you want to continue?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
