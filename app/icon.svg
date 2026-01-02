@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Database cylinder -->
+  <ellipse cx="16" cy="8" rx="10" ry="4" fill="#3b82f6"/>
+  <path d="M6 8v16c0 2.2 4.5 4 10 4s10-1.8 10-4V8" stroke="#3b82f6" stroke-width="2" fill="#1e40af"/>
+  <ellipse cx="16" cy="8" rx="10" ry="4" fill="#3b82f6"/>
+  <ellipse cx="16" cy="14" rx="10" ry="4" fill="none" stroke="#60a5fa" stroke-width="1.5" opacity="0.6"/>
+  <ellipse cx="16" cy="20" rx="10" ry="4" fill="none" stroke="#60a5fa" stroke-width="1.5" opacity="0.6"/>
+
+  <!-- AI Sparkle -->
+  <g transform="translate(20, 2)">
+    <path d="M6 0L7.2 4.8L12 6L7.2 7.2L6 12L4.8 7.2L0 6L4.8 4.8L6 0Z" fill="#fbbf24"/>
+  </g>
+</svg>
