@@ -20,7 +20,19 @@
       "mcp__playwright__browser_handle_dialog",
       "mcp__playwright__browser_type",
       "mcp__playwright__browser_press_key",
-      "mcp__playwright__browser_close"
+      "mcp__playwright__browser_close",
+      "Bash(find:*)",
+      "Bash(npm install:*)",
+      "Bash(podman logs:*)",
+      "Bash(podman stop:*)",
+      "Bash(podman rm:*)",
+      "Bash(where:*)",
+      "Bash(npm run dev:*)",
+      "mcp__playwright__browser_run_code",
+      "mcp__playwright__browser_console_messages",
+      "mcp__playwright__browser_select_option",
+      "Bash(curl:*)",
+      "Bash(podman inspect:*)"
     ]
   }
 }

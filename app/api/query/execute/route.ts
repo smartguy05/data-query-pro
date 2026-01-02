@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import postgres from "postgres"
+import { DatabaseAdapterFactory, type AdapterConnectionConfig, type DatabaseType } from "@/lib/database"
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,44 +28,48 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Database connection information is required" }, { status: 400 })
     }
 
-    const startTime = Date.now()
+    // Validate database type
+    const dbType = connection.type as string
+    if (!DatabaseAdapterFactory.isSupported(dbType)) {
+      return NextResponse.json(
+        { error: `Unsupported database type: ${dbType}` },
+        { status: 400 }
+      )
+    }
 
-    const pgClient = postgres({
+    // Create adapter for the connection type
+    const adapter = DatabaseAdapterFactory.create(dbType as DatabaseType)
+
+    const config: AdapterConnectionConfig = {
       host: connection.host,
-      port: Number.parseInt(connection.port),
+      port: parseInt(connection.port, 10),
       database: connection.database,
       username: connection.username,
       password: connection.password,
-      ssl: connection.host.includes("azure") ? { rejectUnauthorized: false } : false,
-    })
+      filepath: connection.filepath, // For SQLite
+      ssl: connection.host?.includes("azure"),
+    }
 
     try {
-      console.log("[v0] Executing SQL query:", sql)
-      const result = await pgClient.unsafe(sql)
+      await adapter.connect(config)
+      console.log(`[v0] Executing SQL query on ${adapter.displayName}:`, sql)
 
-      const executionTime = Date.now() - startTime
+      const result = await adapter.executeQuery(sql)
+      console.log(`[v0] Query executed successfully, returned ${result.rowCount} rows`)
 
-      const columns = result.length > 0 ? Object.keys(result[0]) : []
-      const rows = result.map((row) =>
-        columns.map((col) => {
-          const value = row[col]
-          if (value === null) return "NULL"
-          if (value instanceof Date) return value.toISOString().split("T")[0]
-          if (typeof value === "number") return value.toString()
-          return String(value)
-        }),
+      // Format rows to match existing API contract (convert nulls to "NULL" string)
+      const formattedRows = result.rows.map((row) =>
+        row.map((value) => (value === null ? "NULL" : String(value)))
       )
 
-      console.log("[v0] Query executed successfully, returned", result.length, "rows")
-
       return NextResponse.json({
-        columns,
-        rows,
-        rowCount: result.length,
-        executionTime,
+        columns: result.columns,
+        rows: formattedRows,
+        rowCount: result.rowCount,
+        executionTime: result.executionTime,
       })
     } finally {
-      await pgClient.end()
+      await adapter.disconnect()
     }
   } catch (error) {
     console.error("[v0] Error executing SQL:", error)
