@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Play, Save, MessageSquarePlus, AlertTriangle, Sparkles } from "lucide-react"
+import { Loader2, Play, Save, AlertTriangle, Sparkles } from "lucide-react"
 import { QueryResultsDisplay } from "@/components/query-results-display"
 
 interface QueryTabContentProps {
@@ -14,7 +14,9 @@ interface QueryTabContentProps {
   onExecute: () => void
   onAskFollowUp: () => void
   onSaveReport: () => void
+  onReviseQuery?: () => void
   isExecuting: boolean
+  isRevising?: boolean
 }
 
 export function QueryTabContent({
@@ -23,7 +25,9 @@ export function QueryTabContent({
   onExecute,
   onAskFollowUp,
   onSaveReport,
-  isExecuting
+  onReviseQuery,
+  isExecuting,
+  isRevising = false
 }: QueryTabContentProps) {
   // Loading state - AI is processing the question
   if (tab.isGenerating) {
@@ -49,7 +53,7 @@ export function QueryTabContent({
         </Alert>
         <div className="flex justify-center">
           <Button variant="outline" onClick={onAskFollowUp}>
-            <MessageSquarePlus className="h-4 w-4 mr-2" />
+            <Sparkles className="h-4 w-4 mr-2" />
             Try Another Question
           </Button>
         </div>
@@ -88,7 +92,7 @@ export function QueryTabContent({
             onClick={onAskFollowUp}
             className="border-blue-600 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950"
           >
-            <MessageSquarePlus className="h-4 w-4 mr-2" />
+            <Sparkles className="h-4 w-4 mr-2" />
             Ask Another Question
           </Button>
         </div>
@@ -167,7 +171,30 @@ export function QueryTabContent({
         {tab.executionError && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{tab.executionError}</AlertDescription>
+            <AlertDescription className="flex items-start justify-between gap-4">
+              <span>{tab.executionError}</span>
+              {onReviseQuery && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onReviseQuery}
+                  disabled={isRevising}
+                  className="shrink-0 bg-background hover:bg-muted"
+                >
+                  {isRevising ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Revising...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Revise Query
+                    </>
+                  )}
+                </Button>
+              )}
+            </AlertDescription>
           </Alert>
         )}
 
@@ -181,7 +208,7 @@ export function QueryTabContent({
                 variant="outline"
                 className="border-blue-600 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950"
               >
-                <MessageSquarePlus className="h-4 w-4 mr-2" />
+                <Sparkles className="h-4 w-4 mr-2" />
                 Ask a Question About These Results
               </Button>
             </div>

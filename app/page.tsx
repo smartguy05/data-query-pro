@@ -21,7 +21,8 @@ import {
   AlertCircle,
   Info,
   AlertTriangle,
-  X
+  X,
+  Sparkles
 } from "lucide-react"
 import Link from "next/link"
 import { SavedReport } from "@/models/saved-report.interface"
@@ -1092,7 +1093,10 @@ export default function ContextualDashboard() {
                         Generating...
                       </>
                     ) : (
-                      "Generate More"
+                      <>
+                        <Sparkles className="h-4 w-4 mr-2" />
+                        Generate More
+                      </>
                     )}
                   </Button>
                 </div>

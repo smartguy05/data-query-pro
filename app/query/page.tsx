@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { Loader2, Database } from "lucide-react"
+import { Loader2, Database, Sparkles } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
 import { useDatabaseOptions } from "@/lib/database-connection-options"
@@ -35,6 +35,7 @@ export default function QueryPage() {
   // Original query input
   const [naturalQuery, setNaturalQuery] = useState("")
   const [isGeneratingOriginal, setIsGeneratingOriginal] = useState(false)
+  const [isEnhancingQuery, setIsEnhancingQuery] = useState(false)
 
   // Tab management
   const [tabs, setTabs] = useState<QueryTab[]>([])
@@ -45,6 +46,9 @@ export default function QueryPage() {
   const [followUpParentTabId, setFollowUpParentTabId] = useState<string | null>(null)
   const [isProcessingFollowUp, setIsProcessingFollowUp] = useState(false)
   const [rowLimit, setRowLimit] = useState<RowLimitOption>('none')
+
+  // Revise query state
+  const [revisingTabId, setRevisingTabId] = useState<string | null>(null)
 
   // Save report dialog
   const [showSaveDialog, setShowSaveDialog] = useState(false)
@@ -227,6 +231,58 @@ export default function QueryPage() {
     }
   }
 
+  // Enhance the natural language query with AI
+  const enhanceQuery = async () => {
+    if (!naturalQuery.trim()) return
+
+    setIsEnhancingQuery(true)
+
+    try {
+      const connection = connectionInformation.getConnection()
+
+      if (!connection?.vectorStoreId) {
+        throw new Error("You must upload schema information file before enhancing queries!")
+      }
+
+      const response = await fetch("/api/query/enhance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: naturalQuery,
+          vectorStoreId: connection.vectorStoreId,
+          databaseType: connection.type,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || "Failed to enhance query")
+      }
+
+      const result = await response.json()
+
+      // Update the query with the enhanced version
+      setNaturalQuery(result.enhancedQuery)
+
+      toast({
+        title: "Query Enhanced",
+        description: result.improvements?.length > 0
+          ? `Improvements: ${result.improvements.join(", ")}`
+          : "Your query has been improved with schema-specific details",
+        duration: 10000,
+      })
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to enhance query"
+      toast({
+        title: "Query Enhancement Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setIsEnhancingQuery(false)
+    }
+  }
+
   // Execute SQL for a specific tab
   const executeTabQuery = async (tabId: string) => {
     const tab = tabs.find(t => t.id === tabId)
@@ -273,6 +329,67 @@ export default function QueryPage() {
         description: errorMessage,
         variant: "destructive",
       })
+    }
+  }
+
+  // Revise SQL for a specific tab after execution error
+  const reviseTabQuery = async (tabId: string) => {
+    const tab = tabs.find(t => t.id === tabId)
+    if (!tab?.editableSql || !tab?.executionError) return
+
+    setRevisingTabId(tabId)
+
+    try {
+      const connection = connectionInformation.getConnection()
+
+      const response = await fetch("/api/query/revise", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          originalQuestion: tab.question,
+          generatedSql: tab.editableSql,
+          errorMessage: tab.executionError,
+          databaseType: connection?.type || 'postgresql',
+          vectorStoreId: connection?.vectorStoreId,
+          schemaData: connectionInformation.getSchema(),
+          existingFileId: connection?.schemaFileId
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || "Failed to revise query")
+      }
+
+      const result = await response.json()
+
+      // Update the tab with the revised SQL and clear the error
+      updateTab(tabId, {
+        editableSql: result.sql,
+        executionError: undefined,
+        queryResult: tab.queryResult ? {
+          ...tab.queryResult,
+          sql: result.sql,
+          explanation: result.explanation || tab.queryResult.explanation,
+          confidence: result.confidence || tab.queryResult.confidence,
+          warnings: result.warnings || []
+        } : undefined
+      })
+
+      toast({
+        title: "Query Revised",
+        description: result.explanation || "SQL has been corrected. Try executing again.",
+        duration: 120000, // 2 minutes
+      })
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to revise query"
+      toast({
+        title: "Query Revision Failed",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setRevisingTabId(null)
     }
   }
 
@@ -485,20 +602,43 @@ export default function QueryPage() {
               onChange={(e) => setNaturalQuery(e.target.value)}
               className="min-h-[100px] resize-none"
             />
-            <Button
-              onClick={handleGenerateSQLClick}
-              disabled={!naturalQuery.trim() || isGeneratingOriginal}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              {isGeneratingOriginal ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Generating SQL...
-                </>
-              ) : (
-                "Generate SQL Query"
-              )}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleGenerateSQLClick}
+                disabled={!naturalQuery.trim() || isGeneratingOriginal || isEnhancingQuery}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {isGeneratingOriginal ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Generating SQL...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Generate SQL Query
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={enhanceQuery}
+                disabled={!naturalQuery.trim() || isGeneratingOriginal || isEnhancingQuery}
+                variant="outline"
+                className="border-purple-600 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950"
+              >
+                {isEnhancingQuery ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Enhancing...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Enhance Query with AI
+                  </>
+                )}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -533,7 +673,9 @@ export default function QueryPage() {
                       onExecute={() => executeTabQuery(tab.id)}
                       onAskFollowUp={() => openFollowUpDialog(tab.id)}
                       onSaveReport={() => openSaveDialog(tab.id)}
+                      onReviseQuery={() => reviseTabQuery(tab.id)}
                       isExecuting={tab.isExecuting}
+                      isRevising={revisingTabId === tab.id}
                     />
                   </TabsContent>
                 ))}
