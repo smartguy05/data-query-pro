@@ -11,19 +11,34 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Database, CheckCircle, Loader2, Plus, Trash2, Download, Upload, Edit } from "lucide-react"
+import { Database, CheckCircle, Loader2, Plus, Trash2, Download, Upload, Edit, AlertCircle } from "lucide-react"
 import {useDatabaseOptions} from "@/lib/database-connection-options";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import type { DatabaseType } from "@/lib/database"
+
+interface ConnectionFormData {
+  type: string
+  name: string
+  host: string
+  port: string
+  database: string
+  username: string
+  password: string
+  filepath: string
+  description: string
+}
 
 export default function DatabasePage() {
   const connectionInformation = useDatabaseOptions();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importStatus, setImportStatus] = useState<"idle" | "success" | "error">("idle");
   const [editingConnection, setEditingConnection] = useState<DatabaseConnection | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [uploadingSchemaId, setUploadingSchemaId] = useState<string | null>(null);
 
   const savedConnections = connectionInformation.connections;
@@ -45,6 +60,7 @@ export default function DatabasePage() {
       database: "",
       username: "",
       password: "",
+      filepath: "",
       description: "",
     },
   })
@@ -65,12 +81,17 @@ export default function DatabasePage() {
       database: "",
       username: "",
       password: "",
+      filepath: "",
       description: "",
     },
   })
 
   const selectedType = watch("type")
   const selectedEditType = watchEdit("type")
+
+  // Check if the selected type is SQLite (file-based)
+  const isSQLite = selectedType === "sqlite"
+  const isEditSQLite = selectedEditType === "sqlite"
 
   useEffect(() => {
     const defaultPorts: Record<string, string> = {
@@ -99,43 +120,79 @@ export default function DatabasePage() {
   }, [selectedEditType, setValueEdit])
 
   const handleConnect = async (data: ConnectionFormData) => {
-    if (!data.type || !data.name || !data.host || !data.database || !data.username) {
+    // Validate based on database type
+    if (!data.type || !data.name) {
       connectionInformation.setConnectionStatus("error")
+      setConnectionError("Database type and name are required")
       return
     }
 
+    if (data.type === "sqlite") {
+      if (!data.filepath) {
+        connectionInformation.setConnectionStatus("error")
+        setConnectionError("File path is required for SQLite")
+        return
+      }
+    } else {
+      if (!data.host || !data.database || !data.username) {
+        connectionInformation.setConnectionStatus("error")
+        setConnectionError("Host, database, and username are required")
+        return
+      }
+    }
+
     setIsConnecting(true)
+    setConnectionError(null)
     connectionInformation.setConnectionStatus("idle")
 
     try {
-      // Simulate connection test
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      // Test the connection using the new API
+      const testResponse = await fetch("/api/connection/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connection: {
+            type: data.type,
+            host: data.host,
+            port: data.port,
+            database: data.database,
+            username: data.username,
+            password: data.password,
+            filepath: data.filepath,
+          },
+        }),
+      })
+
+      const testResult = await testResponse.json()
+
+      if (!testResult.success) {
+        throw new Error(testResult.error || "Connection test failed")
+      }
 
       // Create new connection object
       const newConnection: DatabaseConnection = {
         id: Date.now().toString(),
         name: data.name,
-        type: data.type,
+        type: data.type as DatabaseType,
         host: data.host,
         port: data.port,
         database: data.database,
         username: data.username,
-        password: data.password, // In production, don't store passwords in localStorage
+        password: data.password,
+        filepath: data.filepath || undefined,
         description: data.description,
         status: "connected",
         createdAt: new Date().toISOString(),
       };
 
       connectionInformation.addConnection(newConnection);
-
-      // Also save current connection for schema introspection
       connectionInformation.setCurrentConnection(newConnection);
-
       connectionInformation.setConnectionStatus("success")
-      reset() // Clear form after successful connection
+      reset()
     } catch (error) {
       console.error("Connection failed:", error)
       connectionInformation.setConnectionStatus("error")
+      setConnectionError(error instanceof Error ? error.message : "Connection failed")
     } finally {
       setIsConnecting(false)
     }
@@ -144,7 +201,6 @@ export default function DatabasePage() {
   const exportData = async () => {
     setIsExporting(true)
     try {
-      // Get saved reports from localStorage
       const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]")
 
       const exportData = {
@@ -152,14 +208,14 @@ export default function DatabasePage() {
         exportDate: new Date().toISOString(),
         databaseConnections: connectionInformation.connections,
         currentDbConnection: connectionInformation.currentConnection,
-        schemaData: {},
+        schemaData: {} as Record<string, Schema>,
         savedReports: savedReports,
       };
 
       for (let i = 0; i < connectionInformation.connections.length; i++) {
         const schemaData = connectionInformation.getSchema(connectionInformation.connections[i].id);
         if (!!schemaData) {
-          (exportData.schemaData as any)[connectionInformation.connections[i].id] = schemaData;
+          exportData.schemaData[connectionInformation.connections[i].id] = schemaData;
         }
       }
 
@@ -178,7 +234,7 @@ export default function DatabasePage() {
       setIsExporting(false)
     }
   }
-  
+
   const importData = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -191,39 +247,30 @@ export default function DatabasePage() {
       try {
         const importData = JSON.parse(e.target?.result as string)
 
-        // Validate import data structure
         if (!importData.version || !importData.databaseConnections) {
           throw new Error("Invalid export file format")
         }
 
-        // Import database connections
         if (importData.databaseConnections && Array.isArray(importData.databaseConnections)) {
           connectionInformation.importConnections(importData.databaseConnections);
         }
 
-        // Import current connection
         if (importData.currentDbConnection) {
           connectionInformation.setCurrentConnection(importData.currentDbConnection);
         }
 
-        // Import schema data
         if (importData.schemaData && typeof importData.schemaData === "object") {
           Object.entries(importData.schemaData).forEach(([connectionId, schema]) => {
-            // Use the context's setSchema function to properly import each schema
             connectionInformation.setSchema(schema as Schema);
           })
         }
 
-        // Import saved reports
         if (importData.savedReports && Array.isArray(importData.savedReports)) {
           const existingReports = JSON.parse(localStorage.getItem("saved_reports") || "[]")
-          const existingIds = new Set(existingReports.map((r: any) => r.id))
+          const existingIds = new Set(existingReports.map((r: { id: string }) => r.id))
+          const validConnectionIds = new Set(importData.databaseConnections.map((c: { id: string }) => c.id))
 
-          // Get valid connection IDs from imported connections
-          const validConnectionIds = new Set(importData.databaseConnections.map((c: any) => c.id))
-
-          // Filter and merge reports - only import reports for valid connections, skip duplicates
-          const newReports = importData.savedReports.filter((report: any) =>
+          const newReports = importData.savedReports.filter((report: { id: string; connectionId: string }) =>
             !existingIds.has(report.id) && validConnectionIds.has(report.connectionId)
           )
 
@@ -243,12 +290,10 @@ export default function DatabasePage() {
     }
 
     reader.readAsText(file)
-    event.target.value = "" // Reset file input
+    event.target.value = ""
   }
 
-  // Upload schema data as a file
   const uploadSchema = async (connection: DatabaseConnection) => {
-
     let schemaData = connectionInformation.getSchema(connection.id);
 
     if (!schemaData) {
@@ -286,18 +331,18 @@ export default function DatabasePage() {
       setUploadingSchemaId(null);
     }
   };
-  
+
   const deleteConnection = (id: string) => {
     connectionInformation.deleteConnection(id);
   }
-  
+
   const setCurrentConnection = (connection: DatabaseConnection) => {
     connectionInformation.setCurrentConnection(connection);
   }
 
   const openEditDialog = (connection: DatabaseConnection) => {
     setEditingConnection(connection);
-    // Populate the edit form with existing connection data
+    setUpdateError(null);
     resetEdit({
       type: connection.type,
       name: connection.name,
@@ -306,6 +351,7 @@ export default function DatabasePage() {
       database: connection.database,
       username: connection.username,
       password: connection.password,
+      filepath: connection.filepath || "",
       description: connection.description || "",
     });
     setIsEditDialogOpen(true);
@@ -314,26 +360,61 @@ export default function DatabasePage() {
   const handleUpdateConnection = async (data: ConnectionFormData) => {
     if (!editingConnection) return;
 
-    if (!data.type || !data.name || !data.host || !data.database || !data.username) {
-      return;
+    // Validate based on database type
+    if (!data.type || !data.name) {
+      setUpdateError("Database type and name are required")
+      return
+    }
+
+    if (data.type === "sqlite") {
+      if (!data.filepath) {
+        setUpdateError("File path is required for SQLite")
+        return
+      }
+    } else {
+      if (!data.host || !data.database || !data.username) {
+        setUpdateError("Host, database, and username are required")
+        return
+      }
     }
 
     setIsUpdating(true);
+    setUpdateError(null);
 
     try {
-      // Simulate connection test
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Test the connection
+      const testResponse = await fetch("/api/connection/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connection: {
+            type: data.type,
+            host: data.host,
+            port: data.port,
+            database: data.database,
+            username: data.username,
+            password: data.password,
+            filepath: data.filepath,
+          },
+        }),
+      })
 
-      // Update the connection object
+      const testResult = await testResponse.json()
+
+      if (!testResult.success) {
+        throw new Error(testResult.error || "Connection test failed")
+      }
+
       const updatedConnection: DatabaseConnection = {
         ...editingConnection,
         name: data.name,
-        type: data.type,
+        type: data.type as DatabaseType,
         host: data.host,
         port: data.port,
         database: data.database,
         username: data.username,
         password: data.password,
+        filepath: data.filepath || undefined,
         description: data.description,
       };
 
@@ -343,9 +424,17 @@ export default function DatabasePage() {
       resetEdit();
     } catch (error) {
       console.error("Update failed:", error);
+      setUpdateError(error instanceof Error ? error.message : "Update failed")
     } finally {
       setIsUpdating(false);
     }
+  }
+
+  const getConnectionDisplayInfo = (connection: DatabaseConnection) => {
+    if (connection.type === "sqlite") {
+      return `SQLite • ${connection.filepath || "No file path"}`
+    }
+    return `${connection.type.toUpperCase()} • ${connection.host}:${connection.port}/${connection.database}`
   }
 
   return (
@@ -460,44 +549,71 @@ export default function DatabasePage() {
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* SQLite-specific field */}
+                  {isSQLite && (
                     <div className="space-y-2">
-                      <Label htmlFor="host">Host *</Label>
-                      <Input {...register("host", { required: "Host is required" })} placeholder="localhost" />
-                      {errors.host && <p className="text-sm text-red-600">{errors.host.message}</p>}
+                      <Label htmlFor="filepath">Database File Path *</Label>
+                      <Input
+                        {...register("filepath", { required: isSQLite ? "File path is required for SQLite" : false })}
+                        placeholder="/path/to/database.sqlite"
+                      />
+                      <p className="text-xs text-slate-500">
+                        Enter the absolute path to the SQLite database file on the server
+                      </p>
+                      {errors.filepath && <p className="text-sm text-red-600">{errors.filepath.message}</p>}
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="port">Port</Label>
-                      <Input {...register("port")} placeholder="5432" />
-                    </div>
-                  </div>
+                  )}
 
-                  <div className="space-y-2">
-                    <Label htmlFor="database">Database Name *</Label>
-                    <Input
-                      {...register("database", { required: "Database name is required" })}
-                      placeholder="company_db"
-                    />
-                    {errors.database && <p className="text-sm text-red-600">{errors.database.message}</p>}
-                  </div>
+                  {/* Server-based database fields */}
+                  {!isSQLite && selectedType && (
+                    <>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="host">Host *</Label>
+                          <Input {...register("host", { required: !isSQLite ? "Host is required" : false })} placeholder="localhost" />
+                          {errors.host && <p className="text-sm text-red-600">{errors.host.message}</p>}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="port">Port</Label>
+                          <Input {...register("port")} placeholder="5432" />
+                        </div>
+                      </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="username">Username *</Label>
-                      <Input {...register("username", { required: "Username is required" })} placeholder="admin" />
-                      {errors.username && <p className="text-sm text-red-600">{errors.username.message}</p>}
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="password">Password</Label>
-                      <Input {...register("password")} type="password" placeholder="••••••••" />
-                    </div>
-                  </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="database">Database Name *</Label>
+                        <Input
+                          {...register("database", { required: !isSQLite ? "Database name is required" : false })}
+                          placeholder="company_db"
+                        />
+                        {errors.database && <p className="text-sm text-red-600">{errors.database.message}</p>}
+                      </div>
 
-                  <Button type="submit" disabled={isConnecting} className="w-full">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="username">Username *</Label>
+                          <Input {...register("username", { required: !isSQLite ? "Username is required" : false })} placeholder="admin" />
+                          {errors.username && <p className="text-sm text-red-600">{errors.username.message}</p>}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="password">Password</Label>
+                          <Input {...register("password")} type="password" placeholder="••••••••" />
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Prompt to select database type */}
+                  {!selectedType && (
+                    <div className="text-center py-4 text-muted-foreground">
+                      Select a database type to see connection options
+                    </div>
+                  )}
+
+                  <Button type="submit" disabled={isConnecting || !selectedType} className="w-full">
                     {isConnecting ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Connecting...
+                        Testing Connection...
                       </>
                     ) : (
                       <>
@@ -516,7 +632,8 @@ export default function DatabasePage() {
 
                   {connectionStatus === "error" && (
                     <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg">
-                      <span>Failed to connect. Please check your connection details.</span>
+                      <AlertCircle className="h-5 w-5" />
+                      <span>{connectionError || "Failed to connect. Please check your connection details."}</span>
                     </div>
                   )}
                 </form>
@@ -556,8 +673,7 @@ export default function DatabasePage() {
                           <div>
                             <h3 className="font-semibold">{connection.name}</h3>
                             <p className="text-sm text-muted-foreground">
-                              {connection.type.toUpperCase()} • {connection.host}:{connection.port}/
-                              {connection.database}
+                              {getConnectionDisplayInfo(connection)}
                             </p>
                             {connection.description && (
                               <p className="text-xs text-muted-foreground mt-1 max-w-md truncate">{connection.description}</p>
@@ -674,38 +790,65 @@ export default function DatabasePage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              {/* SQLite-specific field */}
+              {isEditSQLite && (
                 <div className="space-y-2">
-                  <Label htmlFor="edit-host">Host *</Label>
-                  <Input {...registerEdit("host", { required: "Host is required" })} placeholder="localhost" />
-                  {errorsEdit.host && <p className="text-sm text-red-600">{errorsEdit.host.message}</p>}
+                  <Label htmlFor="edit-filepath">Database File Path *</Label>
+                  <Input
+                    {...registerEdit("filepath", { required: isEditSQLite ? "File path is required for SQLite" : false })}
+                    placeholder="/path/to/database.sqlite"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Enter the absolute path to the SQLite database file on the server
+                  </p>
+                  {errorsEdit.filepath && <p className="text-sm text-red-600">{errorsEdit.filepath.message}</p>}
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-port">Port</Label>
-                  <Input {...registerEdit("port")} placeholder="5432" />
-                </div>
-              </div>
+              )}
 
-              <div className="space-y-2">
-                <Label htmlFor="edit-database">Database Name *</Label>
-                <Input
-                  {...registerEdit("database", { required: "Database name is required" })}
-                  placeholder="company_db"
-                />
-                {errorsEdit.database && <p className="text-sm text-red-600">{errorsEdit.database.message}</p>}
-              </div>
+              {/* Server-based database fields */}
+              {!isEditSQLite && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-host">Host *</Label>
+                      <Input {...registerEdit("host", { required: !isEditSQLite ? "Host is required" : false })} placeholder="localhost" />
+                      {errorsEdit.host && <p className="text-sm text-red-600">{errorsEdit.host.message}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-port">Port</Label>
+                      <Input {...registerEdit("port")} placeholder="5432" />
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-username">Username *</Label>
-                  <Input {...registerEdit("username", { required: "Username is required" })} placeholder="admin" />
-                  {errorsEdit.username && <p className="text-sm text-red-600">{errorsEdit.username.message}</p>}
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-database">Database Name *</Label>
+                    <Input
+                      {...registerEdit("database", { required: !isEditSQLite ? "Database name is required" : false })}
+                      placeholder="company_db"
+                    />
+                    {errorsEdit.database && <p className="text-sm text-red-600">{errorsEdit.database.message}</p>}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-username">Username *</Label>
+                      <Input {...registerEdit("username", { required: !isEditSQLite ? "Username is required" : false })} placeholder="admin" />
+                      {errorsEdit.username && <p className="text-sm text-red-600">{errorsEdit.username.message}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-password">Password</Label>
+                      <Input {...registerEdit("password")} type="password" placeholder="••••••••" />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {updateError && (
+                <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg">
+                  <AlertCircle className="h-5 w-5" />
+                  <span>{updateError}</span>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-password">Password</Label>
-                  <Input {...registerEdit("password")} type="password" placeholder="••••••••" />
-                </div>
-              </div>
+              )}
 
               <div className="flex gap-2 justify-end">
                 <Button
@@ -714,6 +857,7 @@ export default function DatabasePage() {
                   onClick={() => {
                     setIsEditDialogOpen(false);
                     setEditingConnection(null);
+                    setUpdateError(null);
                     resetEdit();
                   }}
                 >
@@ -723,7 +867,7 @@ export default function DatabasePage() {
                   {isUpdating ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Updating...
+                      Testing & Updating...
                     </>
                   ) : (
                     "Update Connection"

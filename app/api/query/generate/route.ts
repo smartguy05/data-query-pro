@@ -54,11 +54,46 @@ async function uploadSchemaToOpenAI(schemaData: any, client: OpenAI, existingFil
   }
 }
 
+// SQL dialect-specific hints for different database types
+const dialectHints: Record<string, string> = {
+  postgresql: `
+    - Use ILIKE for case-insensitive pattern matching
+    - Use LIMIT/OFFSET for pagination
+    - Use :: for type casting (e.g., column::text)
+    - Use NOW() for current timestamp
+    - String concatenation uses || operator
+    - Use COALESCE for null handling`,
+  mysql: `
+    - Use LOWER() with LIKE for case-insensitive matching
+    - Use LIMIT/OFFSET for pagination
+    - Use backticks for identifier quoting if needed
+    - Use NOW() for current timestamp
+    - String concatenation uses CONCAT() function
+    - Use IFNULL or COALESCE for null handling`,
+  sqlserver: `
+    - Use TOP N instead of LIMIT (placed after SELECT, e.g., SELECT TOP 100)
+    - Use OFFSET/FETCH for pagination (ORDER BY required)
+    - Use square brackets [] for identifier quoting if needed
+    - Use GETDATE() for current timestamp
+    - String concatenation uses + operator
+    - Use ISNULL or COALESCE for null handling
+    - Date functions: DATEADD, DATEDIFF, CONVERT`,
+  sqlite: `
+    - LIKE is case-insensitive for ASCII characters by default
+    - Use LIMIT/OFFSET for pagination
+    - Use double quotes for identifier quoting if needed
+    - Use datetime('now') for current timestamp
+    - String concatenation uses || operator
+    - Use IFNULL or COALESCE for null handling
+    - Limited date functions: date(), time(), datetime(), strftime()`,
+};
+
 export async function POST(request: NextRequest) {
   try {
     console.log("Starting query generation...");
     const { query, databaseType, vectorStoreId, schemaData, existingFileId } = await request.json();
     console.log("Received query:", query);
+    console.log("Received database type:", databaseType);
     console.log("Received VectorStore Id:", vectorStoreId);
 
     if (!query) {
@@ -92,7 +127,7 @@ export async function POST(request: NextRequest) {
             role: "system",
             content: `
               # Role
-              You are a SQL expert. Convert natural language queries to SQL using syntax for ${databaseType}.
+              You are a SQL expert. Convert natural language queries to SQL using syntax for ${databaseType || 'postgresql'}.
 
               # CRITICAL: Schema Validation Process
               Before generating ANY SQL, you MUST:
@@ -111,6 +146,9 @@ export async function POST(request: NextRequest) {
               6. Prefer meaningful column aliases for better readability
               7. Most tables have a Primary Key called "Id"
               8. Use the exact casing of table and column names as they appear in the schema
+
+              # Database-Specific Syntax (${databaseType || 'postgresql'})
+              ${dialectHints[databaseType] || dialectHints['postgresql']}
 
               # Confidence Scoring
               - 0.9-1.0: All tables/columns verified in schema, straightforward query
