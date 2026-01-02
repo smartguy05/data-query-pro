@@ -18,14 +18,14 @@ DataQuery Pro uses OpenAI for:
 # Required
 OPENAI_API_KEY=sk-...
 
-# Optional (defaults to gpt-4o)
-OPENAI_MODEL=gpt-4o
+# Optional (defaults to gpt-5.1)
+OPENAI_MODEL=gpt-5.1
 ```
 
 ### Supported Models
-- `gpt-4o` - Recommended for best quality
-- `gpt-4-turbo` - Faster, slightly lower quality
-- `gpt-3.5-turbo` - Fastest, lowest cost
+- `gpt-5.1` - Recommended for best quality
+- `gpt-5` - Faster, slightly lower quality
+- `gpt-5-mini` - Fastest, lowest cost
 
 ## Responses API
 
@@ -346,8 +346,8 @@ try {
 - Cache suggestions in localStorage
 
 ### Model Selection
-- Use `gpt-4o` for complex queries
-- Use `gpt-3.5-turbo` for simple descriptions
+- Use `gpt-5.1` for complex queries
+- Use `gpt-5.1` for simple descriptions
 - Consider model per endpoint
 
 ---

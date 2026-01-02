@@ -21,7 +21,8 @@ import {
   AlertCircle,
   Info,
   AlertTriangle,
-  X
+  X,
+  Sparkles
 } from "lucide-react"
 import Link from "next/link"
 import { SavedReport } from "@/models/saved-report.interface"
@@ -879,38 +880,44 @@ export default function ContextualDashboard() {
 
         {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card>
+          <Card className="border-l-4 border-l-blue-500 hover:shadow-lg hover:shadow-blue-500/10 transition-shadow">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Saved Reports</p>
-                  <p className="text-2xl font-bold">{reportCount}</p>
+                  <p className="text-2xl font-bold text-blue-500">{reportCount}</p>
                 </div>
-                <FileText className="h-8 w-8 text-blue-600 opacity-50" />
+                <div className="p-2 bg-blue-500/10 rounded-lg">
+                  <FileText className="h-6 w-6 text-blue-500" />
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="border-l-4 border-l-amber-500 hover:shadow-lg hover:shadow-amber-500/10 transition-shadow">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">AI Suggestions</p>
-                  <p className="text-2xl font-bold">{suggestions.length}</p>
+                  <p className="text-2xl font-bold text-amber-500">{suggestions.length}</p>
                 </div>
-                <Lightbulb className="h-8 w-8 text-amber-600 opacity-50" />
+                <div className="p-2 bg-amber-500/10 rounded-lg">
+                  <Lightbulb className="h-6 w-6 text-amber-500" />
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="border-l-4 border-l-emerald-500 hover:shadow-lg hover:shadow-emerald-500/10 transition-shadow">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-muted-foreground">Database</p>
-                  <p className="text-lg font-semibold truncate">{connectionName}</p>
+                  <p className="text-lg font-semibold truncate text-emerald-500">{connectionName}</p>
                 </div>
-                <Database className="h-8 w-8 text-green-600 opacity-50" />
+                <div className="p-2 bg-emerald-500/10 rounded-lg">
+                  <Database className="h-6 w-6 text-emerald-500" />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1029,41 +1036,47 @@ export default function ContextualDashboard() {
 
         {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="hover:shadow-md transition-shadow">
+          <Card className="hover:shadow-lg hover:shadow-blue-500/10 transition-all hover:-translate-y-1 border-t-4 border-t-blue-500">
             <CardContent className="p-6 text-center">
-              <MessageSquare className="h-10 w-10 text-blue-600 mx-auto mb-3" />
+              <div className="p-3 bg-blue-500/10 rounded-xl w-fit mx-auto mb-3">
+                <MessageSquare className="h-8 w-8 text-blue-500" />
+              </div>
               <h3 className="font-semibold mb-2">Create New Query</h3>
               <p className="text-sm text-muted-foreground mb-4">Ask questions in natural language</p>
               <Link href="/query">
-                <Button className="w-full bg-blue-600 hover:bg-blue-700">
+                <Button className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-lg shadow-blue-500/25">
                   Start Querying
                 </Button>
               </Link>
             </CardContent>
           </Card>
 
-          <Card className="hover:shadow-md transition-shadow">
+          <Card className="hover:shadow-lg hover:shadow-purple-500/10 transition-all hover:-translate-y-1 border-t-4 border-t-purple-500">
             <CardContent className="p-6 text-center">
-              <FileText className="h-10 w-10 text-purple-600 mx-auto mb-3" />
+              <div className="p-3 bg-purple-500/10 rounded-xl w-fit mx-auto mb-3">
+                <FileText className="h-8 w-8 text-purple-500" />
+              </div>
               <h3 className="font-semibold mb-2">Manage Reports</h3>
               <p className="text-sm text-muted-foreground mb-4">
                 {reportCount > 0 ? `View and run ${reportCount} saved reports` : "No saved reports yet"}
               </p>
               <Link href="/reports">
-                <Button variant="outline" className="w-full">
+                <Button variant="outline" className="w-full border-purple-500/50 text-purple-500 hover:bg-purple-500/10">
                   {reportCount > 0 ? "View Reports" : "Go to Reports"}
                 </Button>
               </Link>
             </CardContent>
           </Card>
 
-          <Card className="hover:shadow-md transition-shadow">
+          <Card className="hover:shadow-lg hover:shadow-emerald-500/10 transition-all hover:-translate-y-1 border-t-4 border-t-emerald-500">
             <CardContent className="p-6 text-center">
-              <Database className="h-10 w-10 text-green-600 mx-auto mb-3" />
+              <div className="p-3 bg-emerald-500/10 rounded-xl w-fit mx-auto mb-3">
+                <Database className="h-8 w-8 text-emerald-500" />
+              </div>
               <h3 className="font-semibold mb-2">Explore Schema</h3>
               <p className="text-sm text-muted-foreground mb-4">View tables, columns, and relationships</p>
               <Link href="/schema">
-                <Button variant="outline" className="w-full">
+                <Button variant="outline" className="w-full border-emerald-500/50 text-emerald-500 hover:bg-emerald-500/10">
                   View Schema
                 </Button>
               </Link>
@@ -1092,7 +1105,10 @@ export default function ContextualDashboard() {
                         Generating...
                       </>
                     ) : (
-                      "Generate More"
+                      <>
+                        <Sparkles className="h-4 w-4 mr-2" />
+                        Generate More
+                      </>
                     )}
                   </Button>
                 </div>

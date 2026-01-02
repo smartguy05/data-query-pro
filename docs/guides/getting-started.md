@@ -31,7 +31,7 @@ cp .env.example .env.local
 ```bash
 # .env.local
 OPENAI_API_KEY=sk-...    # Your OpenAI API key
-OPENAI_MODEL=gpt-4o      # Model to use (gpt-4o, gpt-4-turbo, etc.)
+OPENAI_MODEL=gpt-5.1      # Model to use (gpt-5.1, gpt-5, etc.)
 ```
 
 5. **Start development server:**
@@ -140,10 +140,10 @@ hooks/               # Custom React hooks
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `OPENAI_API_KEY` | Yes | OpenAI API key for AI features |
-| `OPENAI_MODEL` | No | Model name (defaults to gpt-4o) |
+| Variable | Required | Description                      |
+|----------|----------|----------------------------------|
+| `OPENAI_API_KEY` | Yes | OpenAI API key for AI features   |
+| `OPENAI_MODEL` | No | Model name (defaults to gpt-5.1) |
 
 ## Common Issues
 
