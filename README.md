@@ -4,10 +4,11 @@
 
 > AI-powered database visualization and query tool - ask questions about your data in plain English
 
-DataQuery Pro lets you connect to PostgreSQL databases, explore schemas with AI-generated descriptions, and query your data using natural language that automatically converts to SQL.
+DataQuery Pro lets you connect to **PostgreSQL, MySQL, SQL Server, and SQLite** databases, explore schemas with AI-generated descriptions, and query your data using natural language that automatically converts to SQL with dialect-specific syntax.
 
 ## Features
 
+- **Multi-Database Support** - Connect to PostgreSQL, MySQL, SQL Server, or SQLite databases
 - **Natural Language Queries** - Convert plain English questions to SQL using OpenAI
 - **Query Enhancement** - Let AI improve your vague queries with specific details from your schema
 - **Self-Correcting Queries** - When queries fail, AI automatically revises them to fix errors
@@ -44,7 +45,7 @@ The dashboard provides an overview of your connected database, saved reports, an
 
 ### Database Connection
 
-Add your PostgreSQL database credentials to get started. The connection card shows status, table count, and schema upload state.
+Add your database credentials to get started. DataQuery Pro supports PostgreSQL, MySQL, SQL Server, and SQLite. The connection card shows status, table count, and schema upload state.
 
 ![Database Form](screenshots/02-database-form.png)
 *Enter your database connection details*
@@ -186,7 +187,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Setup Flow
 
-1. **Create Connection** - Add your PostgreSQL database credentials on the Database page
+1. **Create Connection** - Add your database credentials on the Database page (PostgreSQL, MySQL, SQL Server, or SQLite)
 2. **Introspect Schema** - Click "Introspect" to discover tables and columns
 3. **Generate Descriptions** - Let AI describe your data for better query understanding (optional but recommended)
 4. **Upload Schema** - Click "Upload Schema File" to enable natural language queries
@@ -196,10 +197,12 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Demo Database
 
-To try DataQuery Pro with sample data, you can run the CloudMetrics demo database:
+To try DataQuery Pro with sample data, demo database scripts are provided for all supported database types in the `scripts/` folder:
+
+### PostgreSQL
 
 ```bash
-# Start PostgreSQL with demo data
+# Start PostgreSQL container
 docker run -d \
   --name cloudmetrics-db \
   -e POSTGRES_USER=demo \
@@ -208,12 +211,61 @@ docker run -d \
   -p 5433:5432 \
   postgres:15
 
-# Connection details for DataQuery Pro:
-# Host: localhost
-# Port: 5433
-# Database: cloudmetrics
-# Username: demo
-# Password: demo123
+# Load demo data
+docker exec -i cloudmetrics-db psql -U demo -d cloudmetrics < scripts/demo-database.sql
+
+# Connection: localhost:5433, database: cloudmetrics, user: demo, password: demo123
+```
+
+### MySQL
+
+```bash
+# Start MySQL container
+docker run -d \
+  --name dataquery-mysql \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  -e MYSQL_DATABASE=demo \
+  -e MYSQL_USER=demo \
+  -e MYSQL_PASSWORD=password \
+  -p 3306:3306 \
+  mysql:8
+
+# Load demo data
+docker exec -i dataquery-mysql mysql -udemo -ppassword demo < scripts/demo-database-mysql.sql
+
+# Connection: localhost:3306, database: demo, user: demo, password: password
+```
+
+### SQL Server
+
+```bash
+# Start SQL Server container
+docker run -d \
+  --name dataquery-sqlserver \
+  -e ACCEPT_EULA=Y \
+  -e SA_PASSWORD=Strong@Password1 \
+  -p 1433:1433 \
+  mcr.microsoft.com/mssql/server:2022-latest
+
+# Create database and load demo data
+docker exec -i dataquery-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P 'Strong@Password1' -C \
+  -Q "CREATE DATABASE demo"
+docker exec -i dataquery-sqlserver /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P 'Strong@Password1' -d demo -C \
+  -i /dev/stdin < scripts/demo-database-sqlserver.sql
+
+# Connection: localhost:1433, database: demo, user: sa, password: Strong@Password1
+```
+
+### SQLite
+
+```bash
+# Create SQLite database (no container needed)
+mkdir -p data
+sqlite3 data/demo.db < scripts/demo-database-sqlite.sql
+
+# Connection: filepath = ./data/demo.db
 ```
 
 The demo database includes tables for organizations, subscriptions, products, invoices, usage events, support tickets, and more - perfect for exploring business analytics queries.
@@ -244,7 +296,7 @@ Comprehensive developer documentation is available in the [docs](./docs) folder:
 | Framework | Next.js 15 (App Router) |
 | UI | React 19, shadcn/ui, Tailwind CSS |
 | State | React Context + localStorage |
-| Database | PostgreSQL |
+| Databases | PostgreSQL, MySQL, SQL Server, SQLite |
 | AI | OpenAI API (Responses API) |
 | Charts | Recharts |
 
@@ -274,7 +326,7 @@ OPENAI_MODEL=gpt-5       # Model for query generation (optional)
 
 ## Roadmap
 
-- [ ] Support additional database types (MySQL, SQLite, MSSQL)
+- [x] ~~Support additional database types (MySQL, SQLite, MSSQL)~~ - **Completed!**
 - [ ] Enhanced chart creation and customization
 - [ ] Report scheduling
 - [ ] Team collaboration features
