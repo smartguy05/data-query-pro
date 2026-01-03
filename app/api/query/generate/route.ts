@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai";
+import { checkRateLimit, getOpenAIKey } from "@/utils/rate-limiter";
 
 // Helper function to upload schema and get new IDs
 async function uploadSchemaToOpenAI(schemaData: any, client: OpenAI, existingFileId?: string, existingVectorStoreId?: string) {
@@ -91,6 +92,23 @@ const dialectHints: Record<string, string> = {
 export async function POST(request: NextRequest) {
   try {
     console.log("Starting query generation...");
+
+    // Check rate limit first
+    const rateLimitResult = checkRateLimit(request);
+    if (!rateLimitResult.allowed) {
+      console.log("Rate limit exceeded for request");
+      return NextResponse.json(
+        {
+          error: "RATE_LIMIT_EXCEEDED",
+          message: "Demo rate limit exceeded. Please provide your own OpenAI API key to continue.",
+          limit: rateLimitResult.limit,
+          remaining: rateLimitResult.remaining,
+          resetTime: rateLimitResult.resetTime,
+        },
+        { status: 429 }
+      );
+    }
+
     const { query, databaseType, vectorStoreId, schemaData, existingFileId } = await request.json();
     console.log("Received query:", query);
     console.log("Received database type:", databaseType);
@@ -100,13 +118,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Query is required" }, { status: 400})
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    // Get API key (user-provided or server key)
+    const apiKey = getOpenAIKey(request);
+    if (!apiKey) {
       return NextResponse.json({ error: "OpenAI API key not configured" }, { status: 400});
     }
 
     console.log("Making OpenAI API request...")
     const client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
+      apiKey: apiKey
     });
 
     let currentVectorStoreId = vectorStoreId;
@@ -250,11 +270,21 @@ export async function POST(request: NextRequest) {
           ...result,
           newFileId,
           newVectorStoreId,
-          schemaReuploaded: true
+          schemaReuploaded: true,
+          rateLimit: {
+            remaining: rateLimitResult.remaining,
+            limit: rateLimitResult.limit,
+          },
         })
       }
 
-      return NextResponse.json(result)
+      return NextResponse.json({
+        ...result,
+        rateLimit: {
+          remaining: rateLimitResult.remaining,
+          limit: rateLimitResult.limit,
+        },
+      })
     } catch (parseError) {
       console.error("Failed to parse OpenAI response:", parseError)
       console.error("Raw content was:", output)
@@ -321,11 +351,21 @@ export async function POST(request: NextRequest) {
           ...fallbackResult,
           newFileId,
           newVectorStoreId,
-          schemaReuploaded: true
+          schemaReuploaded: true,
+          rateLimit: {
+            remaining: rateLimitResult.remaining,
+            limit: rateLimitResult.limit,
+          },
         })
       }
 
-      return NextResponse.json(fallbackResult)
+      return NextResponse.json({
+        ...fallbackResult,
+        rateLimit: {
+          remaining: rateLimitResult.remaining,
+          limit: rateLimitResult.limit,
+        },
+      })
     }
   } catch (error: any) {
     console.error("Error in query generation (falling back to mock):", error);

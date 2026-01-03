@@ -1,8 +1,25 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
+import { checkRateLimit, getOpenAIKey } from "@/utils/rate-limiter"
 
 export async function POST(request: NextRequest) {
   try {
+    // Check rate limit first
+    const rateLimitResult = checkRateLimit(request);
+    if (!rateLimitResult.allowed) {
+      console.log("Rate limit exceeded for request");
+      return NextResponse.json(
+        {
+          error: "RATE_LIMIT_EXCEEDED",
+          message: "Demo rate limit exceeded. Please provide your own OpenAI API key to continue.",
+          limit: rateLimitResult.limit,
+          remaining: rateLimitResult.remaining,
+          resetTime: rateLimitResult.resetTime,
+        },
+        { status: 429 }
+      );
+    }
+
     const { connectionId, vectorStoreId } = await request.json()
 
     console.log("Generating suggestions for connection:", connectionId, "with vectorStoreId:", vectorStoreId);
@@ -18,7 +35,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    // Get API key (user-provided or server key)
+    const apiKey = getOpenAIKey(request);
+    if (!apiKey) {
       console.error("OPENAI_API_KEY is not configured");
       return NextResponse.json(
         { error: "OpenAI API key is not configured" },
@@ -29,7 +48,7 @@ export async function POST(request: NextRequest) {
     const prompt = `Use the uploaded database schema file information in the vector store to create your suggestions.`;
 
     const client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
+      apiKey: apiKey
     });
 
     console.log("Calling OpenAI Responses API with model:", process.env.OPENAI_MODEL);
@@ -102,7 +121,13 @@ export async function POST(request: NextRequest) {
         suggestions = [];
     }
 
-    return NextResponse.json({ suggestions })
+    return NextResponse.json({
+      suggestions,
+      rateLimit: {
+        remaining: rateLimitResult.remaining,
+        limit: rateLimitResult.limit,
+      },
+    })
   } catch (error: any) {
     console.error("Error generating suggestions:", error)
     console.error("Error details:", {

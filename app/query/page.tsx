@@ -27,10 +27,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { QueryTab, QueryResult, RowLimitOption, FollowUpResponse } from "@/models/query-tab.interface"
 import { QueryTabContent } from "@/components/query-tab-content"
 import { FollowUpDialog } from "@/components/followup-dialog"
+import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
+import { useOpenAIKey } from "@/hooks/use-openai-key"
+import { ApiKeyDialog } from "@/components/api-key-dialog"
 
 export default function QueryPage() {
   const searchParams = useSearchParams()
   const { toast } = useToast()
+  const { fetchWithAuth, showRateLimitDialog, resetTimeInfo, clearRateLimitError } = useOpenAIFetch()
+  const { setApiKey } = useOpenAIKey()
 
   // Original query input
   const [naturalQuery, setNaturalQuery] = useState("")
@@ -177,7 +182,7 @@ export default function QueryPage() {
 
       const schema = connectionInformation.getSchema()
 
-      const response = await fetch("/api/query/generate", {
+      const response = await fetchWithAuth("/api/query/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -722,6 +727,21 @@ export default function QueryPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* API Key Dialog for Rate Limiting */}
+      <ApiKeyDialog
+        open={showRateLimitDialog}
+        onOpenChange={(open) => {
+          if (!open) clearRateLimitError();
+        }}
+        onSubmit={(apiKey) => {
+          setApiKey(apiKey);
+          clearRateLimitError();
+          // Retry the query after setting the API key
+          generateOriginalSQL();
+        }}
+        resetTime={resetTimeInfo}
+      />
     </div>
   )
 }

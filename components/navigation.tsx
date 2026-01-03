@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { BarChart3, Database, FileText, Search, Menu, X } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { ApiKeyIndicator } from "@/components/api-key-indicator"
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: BarChart3 },
@@ -56,13 +57,15 @@ export function Navigation() {
                 </Link>
               )
             })}
-            <div className="ml-4 pl-4 border-l border-slate-200 dark:border-slate-700">
+            <div className="ml-4 pl-4 border-l border-slate-200 dark:border-slate-700 flex items-center gap-2">
+              <ApiKeyIndicator />
               <ThemeToggle />
             </div>
           </div>
 
           {/* Mobile menu button */}
           <div className="md:hidden flex items-center gap-2">
+            <ApiKeyIndicator />
             <ThemeToggle />
             <Button variant="ghost" size="sm" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}

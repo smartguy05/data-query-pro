@@ -6,16 +6,35 @@ import {
   ChartConfig,
   CHART_TOOLS,
 } from "@/models/chart-config.interface"
+import { checkRateLimit, getOpenAIKey } from "@/utils/rate-limiter"
 
 export async function POST(request: NextRequest) {
   try {
+    // Check rate limit first
+    const rateLimitResult = checkRateLimit(request);
+    if (!rateLimitResult.allowed) {
+      console.log("Rate limit exceeded for request");
+      return NextResponse.json(
+        {
+          error: "RATE_LIMIT_EXCEEDED",
+          message: "Demo rate limit exceeded. Please provide your own OpenAI API key to continue.",
+          limit: rateLimitResult.limit,
+          remaining: rateLimitResult.remaining,
+          resetTime: rateLimitResult.resetTime,
+        },
+        { status: 429 }
+      );
+    }
+
     const { columns, rows, rowCount, preferredChartType }: ChartGenerationRequest = await request.json()
 
     if (!columns || !rows || columns.length === 0 || rows.length === 0) {
       return NextResponse.json({ error: "Valid data with columns and rows is required" }, { status: 400 })
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    // Get API key (user-provided or server key)
+    const apiKey = getOpenAIKey(request);
+    if (!apiKey) {
       return NextResponse.json({ error: "OpenAI API key not configured" }, { status: 500 })
     }
 
@@ -25,7 +44,7 @@ export async function POST(request: NextRequest) {
     console.log("[Chart Generation] Preferred chart type:", preferredChartType || "auto")
 
     const client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
+      apiKey: apiKey,
     })
 
     // Analyze data types for each column
@@ -171,7 +190,13 @@ Call the appropriate chart creation function with the proper configuration.`
     }
 
     console.log("[Chart Generation] Chart configuration generated successfully")
-    return NextResponse.json(result)
+    return NextResponse.json({
+      ...result,
+      rateLimit: {
+        remaining: rateLimitResult.remaining,
+        limit: rateLimitResult.limit,
+      },
+    })
   } catch (error: any) {
     console.error("[Chart Generation] Error:", error)
     return NextResponse.json({ error: error.message || "Failed to generate chart configuration" }, { status: 500 })

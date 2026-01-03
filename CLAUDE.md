@@ -176,7 +176,29 @@ Required in `.env.local`:
 ```
 OPENAI_API_KEY=sk-...        # Required for AI features
 OPENAI_MODEL=gpt-5          # Model for query generation
+DEMO_RATE_LIMIT=             # Optional: number of free requests per 24h per IP (empty = unlimited)
 ```
+
+### Rate Limiting & BYOK (Bring Your Own Key)
+
+The application supports IP-based rate limiting for demo deployments:
+
+- **Environment Variable**: `DEMO_RATE_LIMIT` (integer or unset)
+- **When unset/empty**: Rate limiting is disabled (app works normally)
+- **When set**: Users are limited to that many OpenAI API requests per 24-hour window per IP address
+
+**User-Provided API Keys**:
+- Users can bypass rate limits by providing their own OpenAI API key
+- Keys are stored in sessionStorage only (not persisted to localStorage or server)
+- Keys are sent in request headers (`x-user-openai-key`) and used directly with OpenAI
+- UI indicator in navigation shows key status (green checkmark if configured)
+
+**Implementation Details**:
+- Rate limiting: `utils/rate-limiter.ts` - in-memory IP tracking with 24h windows
+- Client hook: `hooks/use-openai-key.tsx` - manages user's API key in sessionStorage
+- Fetch wrapper: `hooks/use-openai-fetch.tsx` - auto-injects key headers and detects 429 errors
+- UI components: `components/api-key-dialog.tsx`, `components/api-key-indicator.tsx`
+- Server-side: All OpenAI API routes (`/api/query/generate`, `/api/schema/generate-descriptions`, `/api/dashboard/suggestions`, `/api/chart/generate`) check rate limits and accept user keys
 
 ## Common Workflows
 
