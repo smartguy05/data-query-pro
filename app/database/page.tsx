@@ -183,6 +183,7 @@ export default function DatabasePage() {
         description: data.description,
         status: "connected",
         createdAt: new Date().toISOString(),
+        source: "local",
       };
 
       connectionInformation.addConnection(newConnection);
@@ -690,6 +691,14 @@ export default function DatabasePage() {
                           >
                             {connection.status === "connected" ? "Active" : "Saved"}
                           </Badge>
+                          {connection.source === "server" && (
+                            <Badge
+                              variant="outline"
+                              className="bg-blue-50 text-blue-700 border-blue-200"
+                            >
+                              Server Config
+                            </Badge>
+                          )}
                           {connection.status !== "connected" && (
                             <Button size="sm" variant="outline" onClick={() => setCurrentConnection(connection)}>
                               Use Connection
@@ -721,17 +730,41 @@ export default function DatabasePage() {
                               <span className="text-sm text-green-600">Schema Uploaded</span>
                             </div>
                           )}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => openEditDialog(connection)}
-                            title="Edit connection"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => deleteConnection(connection.id)}>
-                            <Trash2 className="h-4 w-4 text-red-500" />
-                          </Button>
+                          {connection.source !== "server" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => openEditDialog(connection)}
+                              title="Edit connection"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {connection.source === "server" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled
+                              title="Server connections cannot be edited"
+                            >
+                              <Edit className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                          )}
+                          {connection.source !== "server" && (
+                            <Button size="sm" variant="ghost" onClick={() => deleteConnection(connection.id)}>
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          )}
+                          {connection.source === "server" && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled
+                              title="Server connections cannot be deleted"
+                            >
+                              <Trash2 className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </CardContent>
