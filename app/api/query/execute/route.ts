@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { DatabaseAdapterFactory, type AdapterConnectionConfig, type DatabaseType } from "@/lib/database"
+import { getServerConnectionCredentials } from "@/lib/server-config"
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,6 +29,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Database connection information is required" }, { status: 400 })
     }
 
+    // For server connections, look up credentials from config file
+    let password = connection.password
+    if (connection.source === "server") {
+      const serverConnection = await getServerConnectionCredentials(connection.id)
+      if (!serverConnection) {
+        return NextResponse.json(
+          { error: "Server connection not found" },
+          { status: 404 }
+        )
+      }
+      password = serverConnection.password
+    }
+
     // Validate database type
     const dbType = connection.type as string
     if (!DatabaseAdapterFactory.isSupported(dbType)) {
@@ -45,7 +59,7 @@ export async function POST(request: NextRequest) {
       port: parseInt(connection.port, 10),
       database: connection.database,
       username: connection.username,
-      password: connection.password,
+      password: password,
       filepath: connection.filepath, // For SQLite
       ssl: connection.host?.includes("azure"),
     }

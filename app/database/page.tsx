@@ -658,53 +658,58 @@ export default function DatabasePage() {
                 savedConnections.map((connection) => (
                   <Card key={connection.id}>
                     <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`p-2 rounded-lg ${
-                              connection.status === "connected" ? "bg-green-100" : "bg-slate-100"
+                      <div className="flex items-start gap-3">
+                        {/* Icon */}
+                        <div
+                          className={`p-2 rounded-lg flex-shrink-0 ${
+                            connection.status === "connected" ? "bg-green-100" : "bg-slate-100"
+                          }`}
+                        >
+                          <Database
+                            className={`h-5 w-5 ${
+                              connection.status === "connected" ? "text-green-600" : "text-slate-600"
                             }`}
-                          >
-                            <Database
-                              className={`h-5 w-5 ${
-                                connection.status === "connected" ? "text-green-600" : "text-slate-600"
-                              }`}
-                            />
-                          </div>
-                          <div>
-                            <h3 className="font-semibold">{connection.name}</h3>
-                            <p className="text-sm text-muted-foreground">
-                              {getConnectionDisplayInfo(connection)}
-                            </p>
-                            {connection.description && (
-                              <p className="text-xs text-muted-foreground mt-1 max-w-md truncate">{connection.description}</p>
-                            )}
-                            <p className="text-xs text-muted-foreground">
-                              Created: {new Date(connection.createdAt).toLocaleDateString()}
-                            </p>
-                          </div>
+                          />
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge
-                            variant={connection.status === "connected" ? "default" : "secondary"}
-                            className={connection.status === "connected" ? "bg-green-100 text-green-700" : ""}
-                          >
-                            {connection.status === "connected" ? "Active" : "Saved"}
-                          </Badge>
-                          {connection.source === "server" && (
+
+                        {/* Connection Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-semibold">{connection.name}</h3>
                             <Badge
-                              variant="outline"
-                              className="bg-blue-50 text-blue-700 border-blue-200"
+                              variant={connection.status === "connected" ? "default" : "secondary"}
+                              className={connection.status === "connected" ? "bg-green-100 text-green-700" : ""}
                             >
-                              Server Config
+                              {connection.status === "connected" ? "Active" : "Saved"}
                             </Badge>
+                            {connection.source === "server" && (
+                              <Badge
+                                variant="outline"
+                                className="bg-blue-50 text-blue-700 border-blue-200"
+                              >
+                                Server Config
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground truncate">
+                            {getConnectionDisplayInfo(connection)}
+                          </p>
+                          {connection.description && (
+                            <p className="text-xs text-muted-foreground mt-1 truncate">{connection.description}</p>
                           )}
+                          <p className="text-xs text-muted-foreground">
+                            Created: {new Date(connection.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-2 flex-shrink-0">
                           {connection.status !== "connected" && (
                             <Button size="sm" variant="outline" onClick={() => setCurrentConnection(connection)}>
                               Use Connection
                             </Button>
                           )}
-                          {!connection.schemaFileId && (
+                          {!connection.schemaFileId ? (
                             <Button
                               size="sm"
                               variant="outline"
@@ -719,52 +724,34 @@ export default function DatabasePage() {
                               ) : (
                                 <>
                                   <Upload className="h-4 w-4 mr-2" />
-                                  Upload Schema File
+                                  Upload Schema
                                 </>
                               )}
                             </Button>
-                          )}
-                          {!!connection.schemaFileId && (
-                            <div className="flex items-center gap-2">
-                              <CheckCircle className="h-4 w-4 text-green-600" />
-                              <span className="text-sm text-green-600">Schema Uploaded</span>
+                          ) : (
+                            <div className="flex items-center gap-1 text-green-600">
+                              <CheckCircle className="h-4 w-4" />
+                              <span className="text-xs whitespace-nowrap">Schema Uploaded</span>
                             </div>
                           )}
-                          {connection.source !== "server" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => openEditDialog(connection)}
-                              title="Edit connection"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {connection.source === "server" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled
-                              title="Server connections cannot be edited"
-                            >
-                              <Edit className="h-4 w-4 text-muted-foreground" />
-                            </Button>
-                          )}
-                          {connection.source !== "server" && (
-                            <Button size="sm" variant="ghost" onClick={() => deleteConnection(connection.id)}>
-                              <Trash2 className="h-4 w-4 text-red-500" />
-                            </Button>
-                          )}
-                          {connection.source === "server" && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled
-                              title="Server connections cannot be deleted"
-                            >
-                              <Trash2 className="h-4 w-4 text-muted-foreground" />
-                            </Button>
-                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => connection.source !== "server" && openEditDialog(connection)}
+                            disabled={connection.source === "server"}
+                            title={connection.source === "server" ? "Server connections cannot be edited" : "Edit connection"}
+                          >
+                            <Edit className={`h-4 w-4 ${connection.source === "server" ? "text-muted-foreground" : ""}`} />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => connection.source !== "server" && deleteConnection(connection.id)}
+                            disabled={connection.source === "server"}
+                            title={connection.source === "server" ? "Server connections cannot be deleted" : "Delete connection"}
+                          >
+                            <Trash2 className={`h-4 w-4 ${connection.source === "server" ? "text-muted-foreground" : "text-red-500"}`} />
+                          </Button>
                         </div>
                       </div>
                     </CardContent>

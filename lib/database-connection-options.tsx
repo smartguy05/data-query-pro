@@ -122,11 +122,12 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             const localConnectionsOnly = updatedConnections.filter(conn => conn.source !== "server");
             localStorage.setItem("databaseConnections", JSON.stringify(localConnectionsOnly));
 
-            // Always update currentSchema when connection changes
-            const schema = getSchema(currentConnection.id);
+            // Always update currentSchema when connection or schemas change
+            // Look up directly from connectionSchemas to ensure we get the latest
+            const schema = connectionSchemas.find(s => s.connectionId === currentConnection.id);
             setCurrentSchema(schema);
         }
-    }, [currentConnection]);
+    }, [currentConnection, connectionSchemas]);
 
     useEffect(() => {
         localStorage.setItem("connectionSchemas", JSON.stringify(connectionSchemas));
