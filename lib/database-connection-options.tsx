@@ -23,8 +23,10 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
                     source: conn.source || "local" as const
                 }));
 
-                // Fetch server-side connections
+                // Fetch server-side config (connections, schemas, reports)
                 let serverConnections: DatabaseConnection[] = [];
+                let serverSchemas: Schema[] = [];
+                let serverCurrentConnection: DatabaseConnection | null = null;
                 try {
                     const response = await fetch("/api/config/connections");
                     if (response.ok) {
@@ -32,10 +34,25 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
                         if (data.success && data.connections) {
                             serverConnections = data.connections;
                         }
+                        // Load schemas from server config (schemaData is keyed by connection ID)
+                        if (data.schemaData) {
+                            serverSchemas = Object.values(data.schemaData) as Schema[];
+                        }
+                        // Load current connection preference from server config
+                        if (data.currentConnection) {
+                            serverCurrentConnection = data.currentConnection;
+                        }
+                        // Load saved reports from server config into localStorage if not already present
+                        if (data.savedReports && Array.isArray(data.savedReports)) {
+                            const existingReports = JSON.parse(localStorage.getItem("saved_reports") || "[]");
+                            if (existingReports.length === 0) {
+                                localStorage.setItem("saved_reports", JSON.stringify(data.savedReports));
+                            }
+                        }
                     }
                 } catch (error) {
-                    console.error("Failed to load server connections:", error);
-                    // Continue with just local connections
+                    console.error("Failed to load server config:", error);
+                    // Continue with just local data
                 }
 
                 // Merge server and local connections
@@ -43,18 +60,27 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
                 const allConnections = [...serverConnections, ...localConnections];
                 setConnections(allConnections);
 
+                // Merge server and local schemas
+                // Server schemas take precedence (come first), local schemas fill in gaps
                 const storedSchemas: Schema[] = JSON.parse(localStorage.getItem("connectionSchemas") || "[]");
-                setConnectionSchemas(storedSchemas);
+                const serverSchemaIds = new Set(serverSchemas.map(s => s.connectionId));
+                const localOnlySchemas = storedSchemas.filter(s => !serverSchemaIds.has(s.connectionId));
+                const allSchemas = [...serverSchemas, ...localOnlySchemas];
+                setConnectionSchemas(allSchemas);
 
                 if (allConnections.length > 0) {
-                    const defaultConnection: DatabaseConnection | undefined = JSON.parse(localStorage.getItem("currentDbConnection") || "null");
+                    // Try localStorage first, then fall back to server config current connection
+                    let defaultConnection: DatabaseConnection | undefined = JSON.parse(localStorage.getItem("currentDbConnection") || "null");
+                    if (!defaultConnection && serverCurrentConnection) {
+                        defaultConnection = serverCurrentConnection;
+                    }
                     if (!!defaultConnection) {
                         // Find the connection in the merged list (in case it's a server connection)
-                        const foundConnection = allConnections.find(conn => conn.id === defaultConnection.id);
+                        const foundConnection = allConnections.find(conn => conn.id === defaultConnection!.id);
                         if (foundConnection) {
                             setCurrentConnection(foundConnection);
 
-                            const schema = storedSchemas.find((schema) => schema.connectionId === foundConnection.id);
+                            const schema = allSchemas.find((schema) => schema.connectionId === foundConnection.id);
                             if (!!schema) {
                                 setCurrentSchema(schema);
                             }
