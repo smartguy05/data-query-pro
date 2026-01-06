@@ -167,6 +167,23 @@ Save frequently used queries as reports for quick access. Reports can include pa
 
 ## Quick Start
 
+### Option 1: Docker (Recommended)
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd dashboard
+
+# Create environment file
+cp .env.example .env.local
+# Add your OpenAI API key to .env.local
+
+# Start with Docker Compose
+docker-compose up
+```
+
+### Option 2: Local Development
+
 ```bash
 # Install dependencies
 npm install
@@ -284,6 +301,12 @@ The demo database includes tables for organizations, subscriptions, products, in
 
 ---
 
+## Landing Page
+
+A product landing page is available at `/landing` showcasing features, screenshots, and installation instructions. See [app/landing/README.md](./app/landing/README.md) for customization details.
+
+---
+
 ## Documentation
 
 Comprehensive developer documentation is available in the [docs](./docs) folder:
@@ -317,10 +340,12 @@ Comprehensive developer documentation is available in the [docs](./docs) folder:
 ## Commands
 
 ```bash
-npm run dev      # Start development server
-npm run build    # Build for production
-npm start        # Start production server
-npm run lint     # Run linter
+npm run dev           # Start development server
+npm run build         # Build for production
+npm start             # Start production server
+npm run lint          # Run linter
+docker-compose up     # Start with Docker (includes build)
+docker-compose up -d  # Start in detached mode
 ```
 
 ---
@@ -332,7 +357,16 @@ Create a `.env.local` file with:
 ```bash
 OPENAI_API_KEY=sk-...    # Required for AI features
 OPENAI_MODEL=gpt-5       # Model for query generation (optional)
+DEMO_RATE_LIMIT=         # Optional: limit API requests per IP per 24h (empty = unlimited)
 ```
+
+### Rate Limiting & Bring Your Own Key (BYOK)
+
+For demo deployments, you can limit OpenAI API usage per IP address:
+
+- **`DEMO_RATE_LIMIT`**: Set to a number (e.g., `10`) to limit requests per 24-hour window per IP
+- **User API Keys**: Users can bypass rate limits by providing their own OpenAI API key via the settings dialog
+- Leave `DEMO_RATE_LIMIT` empty or unset to disable rate limiting
 
 ---
 

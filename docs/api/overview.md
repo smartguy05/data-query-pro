@@ -8,6 +8,9 @@ DataQuery Pro uses Next.js API routes for server-side operations. All routes are
 |----------|--------|---------|---------------|
 | `/api/query/generate` | POST | Convert natural language to SQL | [Query Endpoints](./query-endpoints.md) |
 | `/api/query/execute` | POST | Execute SQL on database | [Query Endpoints](./query-endpoints.md) |
+| `/api/query/enhance` | POST | Enhance vague queries with AI | [Query Endpoints](./query-endpoints.md) |
+| `/api/query/followup` | POST | Generate follow-up queries | [Query Endpoints](./query-endpoints.md) |
+| `/api/query/revise` | POST | Revise failed queries | [Query Endpoints](./query-endpoints.md) |
 | `/api/schema/introspect` | GET/POST | Database schema introspection | [Schema Endpoints](./schema-endpoints.md) |
 | `/api/schema/upload-schema` | POST | Upload schema to OpenAI | [Schema Endpoints](./schema-endpoints.md) |
 | `/api/schema/generate-descriptions` | POST | Generate AI descriptions | [Schema Endpoints](./schema-endpoints.md) |
@@ -16,6 +19,8 @@ DataQuery Pro uses Next.js API routes for server-side operations. All routes are
 | `/api/schema/status` | GET | Poll introspection status | [Schema Endpoints](./schema-endpoints.md) |
 | `/api/dashboard/suggestions` | POST | Generate metric suggestions | [Dashboard Endpoints](./dashboard-endpoints.md) |
 | `/api/chart/generate` | POST | Generate chart config | [Dashboard Endpoints](./dashboard-endpoints.md) |
+| `/api/config/connections` | GET | Get server-configured connections | - |
+| `/api/config/rate-limit-status` | GET | Check rate limit status | - |
 
 ## Common Patterns
 
@@ -86,7 +91,29 @@ const response = await client.responses.create({
 
 ## Rate Limiting
 
-No server-side rate limiting is implemented. OpenAI rate limits are handled with exponential backoff in the `generate-descriptions` endpoint.
+Server-side rate limiting is available for demo deployments:
+
+- **Configuration**: Set `DEMO_RATE_LIMIT` environment variable to limit requests per IP per 24-hour window
+- **Bypass**: Users can provide their own OpenAI API key via `x-user-openai-key` header to bypass limits
+- **Response**: Rate-limited requests return HTTP 429 with rate limit info in headers
+- **Implementation**: `utils/rate-limiter.ts` handles in-memory IP tracking
+
+### User-Provided API Keys (BYOK)
+
+All OpenAI endpoints accept a user-provided API key:
+
+```typescript
+const response = await fetch('/api/query/generate', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'x-user-openai-key': 'sk-...'  // Optional: user's own key
+  },
+  body: JSON.stringify({ /* payload */ })
+});
+```
+
+OpenAI rate limits (from OpenAI's API) are handled with exponential backoff in the `generate-descriptions` endpoint.
 
 ## Endpoint Categories
 

@@ -44,7 +44,7 @@ Natural language → OpenAI API → SQL → PostgreSQL → Results
 | Framework | Next.js 15 (App Router) |
 | UI | React 19, shadcn/ui, Tailwind CSS |
 | State | React Context + localStorage |
-| Database | PostgreSQL (postgres library) |
+| Databases | PostgreSQL, MySQL, SQL Server, SQLite |
 | AI | OpenAI API (Responses API) |
 | Charts | Recharts |
 
@@ -59,15 +59,23 @@ Natural language → OpenAI API → SQL → PostgreSQL → Results
 
 ## Known Limitations
 
-1. **PostgreSQL Only** - Despite UI options, only PostgreSQL is implemented
-2. **localStorage Storage** - All data stored client-side (not production-ready)
-3. **No Authentication** - No user auth or row-level security
-4. **Plain Text Passwords** - Credentials stored unencrypted
-5. **Schema Upload Required** - Must upload schema to OpenAI before queries work
+1. **localStorage Storage** - All data stored client-side (not production-ready)
+2. **No Authentication** - No user auth or row-level security
+3. **Plain Text Passwords** - Credentials stored unencrypted in localStorage
+4. **Schema Upload Required** - Must upload schema to OpenAI before queries work
 
 ## Environment Variables
 
 ```bash
 OPENAI_API_KEY=sk-...    # Required for AI features
-OPENAI_MODEL=gpt-5      # Model for query generation
+OPENAI_MODEL=gpt-5       # Model for query generation
+DEMO_RATE_LIMIT=         # Optional: API requests per IP per 24h (empty = unlimited)
 ```
+
+## Additional Features
+
+- **Landing Page** - Product showcase at `/landing` route
+- **Docker Deployment** - Deploy with `docker-compose up`
+- **Rate Limiting** - Optional IP-based rate limiting for demo deployments
+- **BYOK** - Users can provide their own OpenAI API key to bypass rate limits
+- **Server Config** - Pre-configured connections via `config/databases.json`

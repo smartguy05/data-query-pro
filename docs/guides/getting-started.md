@@ -4,12 +4,43 @@ Guide to setting up and running DataQuery Pro locally.
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 18+ (or Docker)
 - npm or yarn
-- PostgreSQL database (for connecting)
+- A supported database (PostgreSQL, MySQL, SQL Server, or SQLite)
 - OpenAI API key (for AI features)
 
 ## Installation
+
+### Option 1: Docker (Recommended)
+
+The fastest way to get started is with Docker:
+
+1. **Clone the repository:**
+```bash
+git clone <repository-url>
+cd dashboard
+```
+
+2. **Create environment file:**
+```bash
+cp .env.example .env.local
+```
+
+3. **Configure environment variables:**
+```bash
+# .env.local
+OPENAI_API_KEY=sk-...    # Your OpenAI API key
+```
+
+4. **Start with Docker Compose:**
+```bash
+docker-compose up
+```
+
+5. **Open browser:**
+Navigate to `http://localhost:3000`
+
+### Option 2: Local Development
 
 1. **Clone the repository:**
 ```bash
@@ -31,7 +62,7 @@ cp .env.example .env.local
 ```bash
 # .env.local
 OPENAI_API_KEY=sk-...    # Your OpenAI API key
-OPENAI_MODEL=gpt-5.1      # Model to use (gpt-5.1, gpt-5, etc.)
+OPENAI_MODEL=gpt-5       # Model to use (optional)
 ```
 
 5. **Start development server:**
@@ -50,10 +81,10 @@ Navigate to `http://localhost:3000`
 2. Click **Add Connection**
 3. Fill in connection details:
    - Name: Display name for the connection
-   - Type: PostgreSQL (only working option)
-   - Host: Database hostname
-   - Port: Database port (default 5432)
-   - Database: Database name
+   - Type: PostgreSQL, MySQL, SQL Server, or SQLite
+   - Host: Database hostname (not needed for SQLite)
+   - Port: Database port (varies by type)
+   - Database: Database name (or file path for SQLite)
    - Username: Database user
    - Password: Database password
    - Description: (Optional) Business context
@@ -140,10 +171,21 @@ hooks/               # Custom React hooks
 
 ## Environment Variables
 
-| Variable | Required | Description                      |
-|----------|----------|----------------------------------|
-| `OPENAI_API_KEY` | Yes | OpenAI API key for AI features   |
-| `OPENAI_MODEL` | No | Model name (defaults to gpt-5.1) |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENAI_API_KEY` | Yes | OpenAI API key for AI features |
+| `OPENAI_MODEL` | No | Model name (defaults to gpt-5) |
+| `DEMO_RATE_LIMIT` | No | API requests per IP per 24h (empty = unlimited) |
+
+### Rate Limiting (Optional)
+
+For demo deployments, set `DEMO_RATE_LIMIT` to limit OpenAI API usage:
+
+```bash
+DEMO_RATE_LIMIT=10  # 10 requests per IP per 24 hours
+```
+
+Users can bypass rate limits by providing their own OpenAI API key via the settings dialog in the navigation bar.
 
 ## Common Issues
 
