@@ -2,6 +2,8 @@
  * Chart configuration types for AI-powered data visualization
  */
 
+import type { DataRows, ToolParameterProperties } from './common-types';
+
 export type ChartType = "bar" | "line" | "pie" | "area" | "scatter" | "composed"
 
 export interface ChartToolDefinition {
@@ -11,7 +13,7 @@ export interface ChartToolDefinition {
     description: string
     parameters: {
       type: "object"
-      properties: Record<string, any>
+      properties: ToolParameterProperties
       required: string[]
     }
   }
@@ -93,7 +95,7 @@ export type ChartConfig =
 
 export interface ChartGenerationRequest {
   columns: string[]
-  rows: any[][]
+  rows: DataRows
   rowCount: number
   preferredChartType?: ChartType
 }

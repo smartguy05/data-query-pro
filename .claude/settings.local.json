@@ -38,7 +38,12 @@
       "Bash(powershell -Command \"Get-Content 'C:\\\\Users\\\\AnthonyJames\\\\Documents\\\\Code\\\\dashboard\\\\scripts\\\\demo-database.sql' | podman exec -i demo-postgres psql -U demo -d cloudmetrics\":*)",
       "Bash(dir \"C:\\\\Users\\\\AnthonyJames\\\\Documents\\\\Code\\\\dashboard\\\\public\\\\screenshots\")",
       "Bash(dir:*)",
-      "Bash(cmd /c \"copy .playwright-mcp\\\\21-query-error-revise.png public\\\\screenshots\\\\21-query-error-revise.png\")"
+      "Bash(cmd /c \"copy .playwright-mcp\\\\21-query-error-revise.png public\\\\screenshots\\\\21-query-error-revise.png\")",
+      "Bash(podman port:*)",
+      "Bash(taskkill:*)",
+      "Bash(cmd /c \"copy .playwright-mcp\\\\24-rate-limit-applies-after-clear.png public\\\\screenshots\"\")",
+      "Bash(powershell -Command \"Copy-Item ''.playwright-mcp/22-bypass-rate-limit-with-key.png'' ''public/screenshots/''\")",
+      "Bash(powershell -Command \"Copy-Item ''.playwright-mcp/23-key-persisted-in-session.png'' ''public/screenshots/''\")"
     ]
   }
 }

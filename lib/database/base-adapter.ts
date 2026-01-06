@@ -6,6 +6,7 @@ import type {
   IntrospectionResult,
   ConnectionTestResult,
   ProgressCallback,
+  ParameterizedQuery,
 } from './types';
 import type { DatabaseTable } from '@/models/database-table.interface';
 import type { Column } from '@/models/column.interface';
@@ -22,9 +23,10 @@ export abstract class BaseDatabaseAdapter implements IDatabaseAdapter {
   abstract connect(config: AdapterConnectionConfig): Promise<void>;
   abstract disconnect(): Promise<void>;
   abstract executeRawQuery(sql: string): Promise<Record<string, unknown>[]>;
+  abstract executeParameterizedQuery(query: ParameterizedQuery): Promise<Record<string, unknown>[]>;
   abstract getTablesQuery(): string;
-  abstract getColumnsQuery(tableName: string): string;
-  abstract getForeignKeysQuery(tableName: string): string;
+  abstract getColumnsQuery(tableName: string): ParameterizedQuery;
+  abstract getForeignKeysQuery(tableName: string): ParameterizedQuery;
 
   // Common implementation
   isConnected(): boolean {
@@ -95,11 +97,13 @@ export abstract class BaseDatabaseAdapter implements IDatabaseAdapter {
       const progress = 10 + Math.floor((i / tableNames.length) * 80);
       onProgress?.(progress, `Processing table ${i + 1}/${tableNames.length}: ${tableName}`);
 
-      // Get columns
-      const columnsResult = await this.executeRawQuery(this.getColumnsQuery(tableName));
+      // Get columns using parameterized query
+      const columnsQuery = this.getColumnsQuery(tableName);
+      const columnsResult = await this.executeParameterizedQuery(columnsQuery);
 
-      // Get foreign keys
-      const fkResult = await this.executeRawQuery(this.getForeignKeysQuery(tableName));
+      // Get foreign keys using parameterized query
+      const fkQuery = this.getForeignKeysQuery(tableName);
+      const fkResult = await this.executeParameterizedQuery(fkQuery);
       const fkMap = new Map<string, string>();
       fkResult.forEach((fk) => {
         const columnName = fk.column_name as string;

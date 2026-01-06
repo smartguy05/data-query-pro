@@ -1,59 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai";
 import { checkRateLimit, getOpenAIKey } from "@/utils/rate-limiter";
-
-// Helper function to upload schema and get new IDs
-async function uploadSchemaToOpenAI(schemaData: any, client: OpenAI, existingFileId?: string, existingVectorStoreId?: string) {
-  try {
-    // Filter out hidden tables and columns
-    const filteredData = {
-      ...schemaData,
-      tables: schemaData.tables
-        .filter((table: any) => !table.hidden)
-        .map((table: any) => ({
-          ...table,
-          columns: table.columns.filter((column: any) => !column.hidden)
-        }))
-    };
-
-    const jsonFile = new File([JSON.stringify(filteredData, null, 2)], 'database-schema.json', {
-      type: 'application/json'
-    });
-
-    // Try to delete existing file and vector store
-    try {
-      if (existingFileId) {
-        await client.files.delete(existingFileId);
-      }
-    } catch (e) {
-      console.log("Unable to delete existing file");
-    }
-
-    try {
-      if (existingVectorStoreId) {
-        await client.vectorStores.delete(existingVectorStoreId);
-      }
-    } catch (e) {
-      console.log("Unable to delete existing vector store");
-    }
-
-    // Create new file and vector store
-    const file = await client.files.create({
-      file: jsonFile,
-      purpose: 'user_data'
-    });
-
-    const vectorStore = await client.vectorStores.create({
-      name: "Database schema store",
-      file_ids: [file.id]
-    });
-
-    return { fileId: file.id, vectorStoreId: vectorStore.id };
-  } catch (error) {
-    console.error("Error uploading schema:", error);
-    throw error;
-  }
-}
+import { uploadSchemaToOpenAI } from "@/lib/openai/schema-upload";
 
 // SQL dialect-specific hints for different database types
 const dialectHints: Record<string, string> = {
@@ -237,7 +185,10 @@ Remember: Every table and column in your SQL must exactly match what exists in t
 
         try {
           // Re-upload the schema
-          const uploadResult = await uploadSchemaToOpenAI(schemaData, client, existingFileId, currentVectorStoreId);
+          const uploadResult = await uploadSchemaToOpenAI(schemaData, client, {
+            existingFileId,
+            existingVectorStoreId: currentVectorStoreId
+          });
           newFileId = uploadResult.fileId;
           newVectorStoreId = uploadResult.vectorStoreId;
           currentVectorStoreId = newVectorStoreId;

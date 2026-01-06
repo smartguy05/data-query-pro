@@ -1,8 +1,10 @@
+import type { ParameterDefaultValue } from './common-types';
+
 export interface ReportParameter {
   name: string;
   type: 'text' | 'number' | 'date' | 'datetime' | 'boolean';
   label: string;
-  defaultValue?: any;
+  defaultValue?: ParameterDefaultValue;
   description?: string;
 }
 
