@@ -31,10 +31,15 @@ import {
 import {useDatabaseOptions} from "@/lib/database-connection-options";
 import { useToast } from "@/hooks/use-toast";
 import { compareSchemas, hasSchemaChanges, getChangeSummary } from "@/utils/compare-schemas";
+import { useOpenAIFetch } from "@/hooks/use-openai-fetch";
+import { useOpenAIKey } from "@/hooks/use-openai-key";
+import { ApiKeyDialog } from "@/components/api-key-dialog";
 
 export function SchemaExplorer() {
   const connectionInformation = useDatabaseOptions();
   const { toast } = useToast();
+  const { fetchWithAuth, showRateLimitDialog, resetTimeInfo, clearRateLimitError } = useOpenAIFetch();
+  const { setApiKey } = useOpenAIKey();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -277,7 +282,7 @@ export function SchemaExplorer() {
         }
 
         try {
-          const response = await fetch("/api/schema/generate-descriptions", {
+          const response = await fetchWithAuth("/api/schema/generate-descriptions", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -1204,6 +1209,19 @@ export function SchemaExplorer() {
           cancelText="Cancel"
           variant="destructive"
           onConfirm={discardAllChanges}
+      />
+
+      {/* API Key Dialog for Rate Limiting */}
+      <ApiKeyDialog
+        open={showRateLimitDialog}
+        onOpenChange={(open) => {
+          if (!open) clearRateLimitError();
+        }}
+        onSubmit={(apiKey) => {
+          setApiKey(apiKey);
+          clearRateLimitError();
+        }}
+        resetTime={resetTimeInfo}
       />
     </div>
 )

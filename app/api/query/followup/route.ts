@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
+import { checkRateLimit, getOpenAIKey } from "@/utils/rate-limiter"
 
 /**
  * Builds a context string from query results for the AI.
@@ -55,6 +56,21 @@ export async function POST(request: NextRequest) {
       existingFileId
     } = await request.json()
 
+    // Check rate limit first
+    const rateLimitResult = checkRateLimit(request)
+    if (!rateLimitResult.allowed) {
+      return NextResponse.json(
+        {
+          error: "RATE_LIMIT_EXCEEDED",
+          message: "Demo rate limit exceeded. Please provide your own OpenAI API key to continue.",
+          limit: rateLimitResult.limit,
+          remaining: rateLimitResult.remaining,
+          resetTime: rateLimitResult.resetTime,
+        },
+        { status: 429 }
+      )
+    }
+
     // Validation
     if (!followUpQuestion) {
       return NextResponse.json({ error: "Follow-up question is required" }, { status: 400 })
@@ -64,12 +80,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Vector store ID is required" }, { status: 400 })
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    // Get API key (user-provided or server key)
+    const apiKey = getOpenAIKey(request)
+    if (!apiKey) {
       return NextResponse.json({ error: "OpenAI API key not configured" }, { status: 500 })
     }
 
     const client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
+      apiKey: apiKey
     })
 
     // Build context from results

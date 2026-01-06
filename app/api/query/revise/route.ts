@@ -1,9 +1,26 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai";
+import { checkRateLimit, getOpenAIKey } from "@/utils/rate-limiter";
 
 export async function POST(request: NextRequest) {
   try {
     console.log("Starting query revision...");
+
+    // Check rate limit first
+    const rateLimitResult = checkRateLimit(request);
+    if (!rateLimitResult.allowed) {
+      return NextResponse.json(
+        {
+          error: "RATE_LIMIT_EXCEEDED",
+          message: "Demo rate limit exceeded. Please provide your own OpenAI API key to continue.",
+          limit: rateLimitResult.limit,
+          remaining: rateLimitResult.remaining,
+          resetTime: rateLimitResult.resetTime,
+        },
+        { status: 429 }
+      );
+    }
+
     const {
       originalQuestion,
       generatedSql,
@@ -25,7 +42,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    // Get API key (user-provided or server key)
+    const apiKey = getOpenAIKey(request);
+    if (!apiKey) {
       return NextResponse.json(
         { error: "OpenAI API key not configured" },
         { status: 400 }
@@ -33,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     const client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
+      apiKey: apiKey
     });
 
     // Build the request with or without vector store

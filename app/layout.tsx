@@ -5,6 +5,7 @@ import { Navigation } from "@/components/navigation"
 import {DatabaseConnectionOptions} from "@/lib/database-connection-options";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/theme-provider";
+import { OpenAIApiProvider } from "@/components/openai-api-provider";
 
 export const metadata: Metadata = {
   title: "Database Query & Reporting Platform",
@@ -26,11 +27,13 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
-          <DatabaseConnectionOptions>
-            <Navigation />
-            <main>{children}</main>
-            <Toaster />
-          </DatabaseConnectionOptions>
+          <OpenAIApiProvider>
+            <DatabaseConnectionOptions>
+              <Navigation />
+              <main>{children}</main>
+              <Toaster />
+            </DatabaseConnectionOptions>
+          </OpenAIApiProvider>
         </ThemeProvider>
       </body>
     </html>

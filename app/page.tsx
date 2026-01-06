@@ -31,6 +31,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
+import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
+import { useOpenAIKey } from "@/hooks/use-openai-key"
+import { ApiKeyDialog } from "@/components/api-key-dialog"
 
 interface MetricSuggestion {
   title: string
@@ -52,6 +55,8 @@ interface Notification {
 export default function ContextualDashboard() {
   const connectionOptions = useDatabaseOptions()
   const { toast } = useToast()
+  const { fetchWithAuth, showRateLimitDialog, resetTimeInfo, clearRateLimitError } = useOpenAIFetch()
+  const { setApiKey } = useOpenAIKey()
   const [hasConnection, setHasConnection] = useState(false)
   const [hasSchemaFile, setHasSchemaFile] = useState(false)
   const [hasSchema, setHasSchema] = useState(false)
@@ -211,7 +216,7 @@ export default function ContextualDashboard() {
         return;
       }
 
-      const response = await fetch("/api/dashboard/suggestions", {
+      const response = await fetchWithAuth("/api/dashboard/suggestions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ connectionId, vectorStoreId: dbConnection.vectorStoreId }),
@@ -1172,6 +1177,19 @@ export default function ContextualDashboard() {
           </div>
       </div>
       <Toaster />
+
+      {/* API Key Dialog for Rate Limiting */}
+      <ApiKeyDialog
+        open={showRateLimitDialog}
+        onOpenChange={(open) => {
+          if (!open) clearRateLimitError();
+        }}
+        onSubmit={(apiKey) => {
+          setApiKey(apiKey);
+          clearRateLimitError();
+        }}
+        resetTime={resetTimeInfo}
+      />
     </div>
   )
 }
