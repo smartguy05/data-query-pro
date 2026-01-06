@@ -15,4 +15,5 @@ interface DatabaseConnection {
     schemaFileId?: string;
     vectorStoreId?: string;
     createdAt: string,
+    source?: "local" | "server"  // Track if connection is from server config file
 }

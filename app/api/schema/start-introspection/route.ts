@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { DatabaseAdapterFactory, type AdapterConnectionConfig, type DatabaseType } from "@/lib/database"
+import { getServerConnectionCredentials } from "@/lib/server-config"
 
 declare global {
   var processStatus: Map<
@@ -71,6 +72,16 @@ async function processSchemaInBackground(processId: string, connection: Record<s
       message: "Connecting to database...",
     })
 
+    // For server connections, look up credentials from config file
+    let password = connection.password as string
+    if (connection.source === "server") {
+      const serverConnection = await getServerConnectionCredentials(connection.id as string)
+      if (!serverConnection) {
+        throw new Error("Server connection not found")
+      }
+      password = serverConnection.password
+    }
+
     const dbType = connection.type as DatabaseType
     adapter = DatabaseAdapterFactory.create(dbType)
 
@@ -79,7 +90,7 @@ async function processSchemaInBackground(processId: string, connection: Record<s
       port: parseInt(connection.port as string, 10),
       database: connection.database as string,
       username: connection.username as string,
-      password: connection.password as string,
+      password: password,
       filepath: connection.filepath as string | undefined,
       ssl: (connection.host as string)?.includes("azure"),
     }

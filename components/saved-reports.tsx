@@ -50,8 +50,12 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
   const [cloneName, setCloneName] = useState("")
 
   useEffect(() => {
-    loadReports()
-  }, [])
+    // Wait for context to be initialized before loading reports
+    // This ensures server-config reports are written to localStorage first
+    if (connectionInfo.isInitialized) {
+      loadReports()
+    }
+  }, [connectionInfo.isInitialized, connectionInfo.currentConnection?.id])
 
   // Cleanup aria-hidden when dialogs close to prevent UI freeze
   useEffect(() => {
