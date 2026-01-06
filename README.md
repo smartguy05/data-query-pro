@@ -321,6 +321,7 @@ Comprehensive developer documentation is available in the [docs](./docs) folder:
 | Data Models | [docs/models/overview.md](./docs/models/overview.md) |
 | Getting Started Guide | [docs/guides/getting-started.md](./docs/guides/getting-started.md) |
 | OpenAI Integration | [docs/guides/openai-integration.md](./docs/guides/openai-integration.md) |
+| Testing Plan | [docs/testing-plan.md](./docs/testing-plan.md) |
 
 ---
 

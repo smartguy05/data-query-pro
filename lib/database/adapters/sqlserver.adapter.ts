@@ -1,6 +1,6 @@
 import sql from 'mssql';
 import { BaseDatabaseAdapter } from '../base-adapter';
-import type { AdapterConnectionConfig, DatabaseType } from '../types';
+import type { AdapterConnectionConfig, DatabaseType, ParameterizedQuery } from '../types';
 import { SQLServerQueries } from '../queries/sqlserver.queries';
 
 export class SQLServerAdapter extends BaseDatabaseAdapter {
@@ -44,15 +44,35 @@ export class SQLServerAdapter extends BaseDatabaseAdapter {
     return result.recordset as Record<string, unknown>[];
   }
 
+  async executeParameterizedQuery(query: ParameterizedQuery): Promise<Record<string, unknown>[]> {
+    if (!this.pool) {
+      throw new Error('Not connected to SQL Server');
+    }
+
+    const request = this.pool.request();
+
+    // Add parameters with named bindings
+    // SQL Server uses @paramName style, we assume params array corresponds to @tableName
+    query.params.forEach((param, index) => {
+      // Extract parameter name from query (e.g., @tableName)
+      const paramNames = query.sql.match(/@\w+/g) || [];
+      const paramName = paramNames[index]?.substring(1) || `param${index}`;
+      request.input(paramName, param);
+    });
+
+    const result = await request.query(query.sql);
+    return result.recordset as Record<string, unknown>[];
+  }
+
   getTablesQuery(): string {
     return SQLServerQueries.TABLES;
   }
 
-  getColumnsQuery(tableName: string): string {
+  getColumnsQuery(tableName: string): ParameterizedQuery {
     return SQLServerQueries.columnsForTable(tableName);
   }
 
-  getForeignKeysQuery(tableName: string): string {
+  getForeignKeysQuery(tableName: string): ParameterizedQuery {
     return SQLServerQueries.foreignKeysForTable(tableName);
   }
 

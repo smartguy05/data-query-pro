@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { DatabaseAdapterFactory, type AdapterConnectionConfig, type DatabaseType } from "@/lib/database"
-import { getServerConnectionCredentials } from "@/lib/server-config"
+import { validateConnection } from "@/lib/database/connection-validator"
+import { sanitizeDbError } from "@/utils/error-sanitizer"
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,44 +25,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (!connection) {
-      return NextResponse.json({ error: "Database connection information is required" }, { status: 400 })
-    }
+    // Validate connection and get adapter
+    const validationResult = await validateConnection(connection, {
+      validateRequiredFields: false, // execute route doesn't require field validation
+    })
 
-    // For server connections, look up full connection details from config file
-    let connectionDetails = connection
-    if (connection.source === "server") {
-      const serverConnection = await getServerConnectionCredentials(connection.id)
-      if (!serverConnection) {
-        return NextResponse.json(
-          { error: "Server connection not found" },
-          { status: 404 }
-        )
-      }
-      connectionDetails = serverConnection
-    }
-
-    // Validate database type
-    const dbType = connectionDetails.type as string
-    if (!DatabaseAdapterFactory.isSupported(dbType)) {
+    if (!validationResult.success) {
       return NextResponse.json(
-        { error: `Unsupported database type: ${dbType}` },
-        { status: 400 }
+        { error: validationResult.error },
+        { status: validationResult.statusCode }
       )
     }
 
-    // Create adapter for the connection type
-    const adapter = DatabaseAdapterFactory.create(dbType as DatabaseType)
-
-    const config: AdapterConnectionConfig = {
-      host: connectionDetails.host,
-      port: parseInt(connectionDetails.port, 10),
-      database: connectionDetails.database,
-      username: connectionDetails.username,
-      password: connectionDetails.password,
-      filepath: connectionDetails.filepath, // For SQLite
-      ssl: connectionDetails.host?.includes("azure"),
-    }
+    const { adapter, config } = validationResult
 
     try {
       await adapter.connect(config)
@@ -86,19 +61,12 @@ export async function POST(request: NextRequest) {
       await adapter.disconnect()
     }
   } catch (error) {
-    console.error("[v0] Error executing SQL:", error)
+    // Sanitize error to prevent leaking sensitive database information
+    const sanitized = sanitizeDbError(error)
 
-    let errorMessage = "Failed to execute query"
-    if (error instanceof Error) {
-      if (error.message.includes("column") && error.message.includes("does not exist")) {
-        errorMessage = `Column not found: ${error.message}`
-      } else if (error.message.includes("relation") && error.message.includes("does not exist")) {
-        errorMessage = `Table not found: ${error.message}`
-      } else {
-        errorMessage = error.message
-      }
-    }
-
-    return NextResponse.json({ error: errorMessage }, { status: 500 })
+    return NextResponse.json(
+      { error: sanitized.message, code: sanitized.code },
+      { status: sanitized.isUserError ? 400 : 500 }
+    )
   }
 }

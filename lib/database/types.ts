@@ -1,5 +1,9 @@
 import type { Column } from '@/models/column.interface';
 import type { DatabaseTable } from '@/models/database-table.interface';
+import type { ParameterizedQuery } from './queries/types';
+
+// Re-export for convenience
+export type { ParameterizedQuery } from './queries/types';
 
 // Supported database types
 export type DatabaseType = 'postgresql' | 'mysql' | 'sqlserver' | 'sqlite';
@@ -66,6 +70,7 @@ export interface IDatabaseAdapter {
   // Core operations
   testConnection(config: AdapterConnectionConfig): Promise<ConnectionTestResult>;
   executeQuery(sql: string): Promise<QueryResult>;
+  executeParameterizedQuery(query: ParameterizedQuery): Promise<Record<string, unknown>[]>;
   introspectSchema(onProgress?: ProgressCallback): Promise<IntrospectionResult>;
 
   // SQL dialect helpers

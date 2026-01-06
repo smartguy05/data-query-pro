@@ -9,17 +9,18 @@ import { LineChartComponent } from "@/components/charts/line-chart"
 import { PieChartComponent } from "@/components/charts/pie-chart"
 import { AreaChartComponent } from "@/components/charts/area-chart"
 import { ScatterChartComponent } from "@/components/charts/scatter-chart"
+import type { CellValue, DataRows } from "@/models/common-types"
 
 interface ChartDisplayProps {
   config: ChartConfig
   columns: string[]
-  rows: any[][]
+  rows: DataRows
 }
 
 export function ChartDisplay({ config, columns, rows }: ChartDisplayProps) {
   // Transform rows array into array of objects for Recharts
   const data = rows.map((row) => {
-    const obj: Record<string, any> = {}
+    const obj: Record<string, CellValue> = {}
     columns.forEach((col, index) => {
       obj[col] = row[index]
     })
@@ -49,7 +50,7 @@ export function ChartDisplay({ config, columns, rows }: ChartDisplayProps) {
         return (
           <Alert>
             <Info className="h-4 w-4" />
-            <AlertDescription>Unknown chart type: {(config as any).type}</AlertDescription>
+            <AlertDescription>Unknown chart type: {(config as { type: string }).type}</AlertDescription>
           </Alert>
         )
     }

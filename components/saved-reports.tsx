@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -57,26 +57,23 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     }
   }, [connectionInfo.isInitialized, connectionInfo.currentConnection?.id])
 
-  // Cleanup aria-hidden when dialogs close to prevent UI freeze
-  useEffect(() => {
-    if (!showEditDialog && !showCloneDialog) {
-      // Remove aria-hidden from all elements after dialog closes
-      setTimeout(() => {
-        const elementsWithAriaHidden = document.querySelectorAll('[aria-hidden="true"]')
-        elementsWithAriaHidden.forEach((element) => {
-          // Only remove aria-hidden from elements that are not portaled dialogs
-          if (!element.querySelector('[role="dialog"]') && element.getAttribute('role') !== 'dialog') {
-            element.removeAttribute('aria-hidden')
-          }
-        })
-
-        // Clear any focused elements
-        if (document.activeElement instanceof HTMLElement) {
-          document.activeElement.blur()
-        }
-      }, 100)
+  // Handle dialog close focus management using Radix UI's built-in mechanisms
+  // instead of manual DOM manipulation. The onOpenChange handlers below
+  // ensure proper cleanup when dialogs close.
+  const handleEditDialogClose = useCallback((open: boolean) => {
+    setShowEditDialog(open)
+    if (!open) {
+      setReportToEdit(null)
     }
-  }, [showEditDialog, showCloneDialog])
+  }, [])
+
+  const handleCloneDialogClose = useCallback((open: boolean) => {
+    setShowCloneDialog(open)
+    if (!open) {
+      setReportToClone(null)
+      setCloneName("")
+    }
+  }, [])
 
   const loadReports = () => {
     const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
@@ -146,17 +143,6 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     }, 50)
   }
 
-  const handleCloneDialogClose = (open: boolean) => {
-    setShowCloneDialog(open)
-    if (!open) {
-      // Delay clearing state to allow dialog cleanup to complete
-      setTimeout(() => {
-        setReportToClone(null)
-        setCloneName("")
-      }, 200)
-    }
-  }
-
   const confirmClone = () => {
     if (!reportToClone || !cloneName.trim()) return
 
@@ -188,16 +174,6 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
       setReportToEdit(clonedReport)
       setShowEditDialog(true)
     }, 300)
-  }
-
-  const handleEditDialogClose = (open: boolean) => {
-    setShowEditDialog(open)
-    if (!open) {
-      // Delay clearing reportToEdit to allow dialog cleanup to complete
-      setTimeout(() => {
-        setReportToEdit(null)
-      }, 200)
-    }
   }
 
   const saveEditedReport = (updatedReport: SavedReport) => {

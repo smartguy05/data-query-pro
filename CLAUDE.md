@@ -276,6 +276,34 @@ const {
 - All database-related types defined in `models/` directory
 - Use existing interfaces - don't create duplicate types
 
+## Testing
+
+A comprehensive testing plan is available at [docs/testing-plan.md](./docs/testing-plan.md). The plan covers:
+
+- **Phase 1**: Baseline feature tests (all pages and functionality)
+- **Phase 2**: Server configuration tests (`config/databases.json`)
+- **Phase 3**: Rate limiting and BYOK tests
+- **Phase 4**: AI integration quality tests
+
+### Running Tests with Playwright MCP
+
+Tests are designed to run with Playwright MCP for browser automation:
+
+1. Start PostgreSQL container with demo data (see testing plan for commands)
+2. Configure environment variables for the test phase
+3. Start the dev server
+4. Execute tests using Playwright MCP browser tools
+
+### Demo Database Setup
+
+```bash
+# Quick start with Podman
+podman run -d --name demo-postgres -e POSTGRES_USER=demo -e POSTGRES_PASSWORD=demo -e POSTGRES_DB=cloudmetrics -p 5432:5432 postgres:15
+cat scripts/demo-database.sql | podman exec -i demo-postgres psql -U demo -d cloudmetrics
+```
+
+Connection: `localhost:5432`, database: `cloudmetrics`, user: `demo`, password: `demo`
+
 ## Documentation Reference
 
 | Topic | Documentation |
@@ -289,3 +317,4 @@ const {
 | OpenAI Integration | [docs/guides/openai-integration.md](./docs/guides/openai-integration.md) |
 | Adding Database Support | [docs/guides/adding-database-support.md](./docs/guides/adding-database-support.md) |
 | Common Tasks | [docs/guides/common-tasks.md](./docs/guides/common-tasks.md) |
+| Testing Plan | [docs/testing-plan.md](./docs/testing-plan.md) |

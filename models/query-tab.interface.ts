@@ -3,12 +3,15 @@
  * Tracks state for original queries and follow-up questions in a tabbed UI.
  */
 
+import type { DataRows } from './common-types';
+import type { Schema } from './schema.interface';
+
 export type FollowUpResponseType = 'query' | 'explanation';
 export type RowLimitOption = 'none' | 25 | 50 | 100 | 'all';
 
 export interface QueryExecutionResult {
   columns: string[];
-  rows: any[][];
+  rows: DataRows;
   rowCount: number;
   executionTime: number;
 }
@@ -59,11 +62,11 @@ export interface FollowUpRequest {
   originalQuestion: string;
   generatedSql: string;
   resultColumns: string[];
-  resultRows: any[][];
+  resultRows: DataRows;
   totalRowCount: number;
   vectorStoreId: string;
   databaseType: string;
-  schemaData?: any;
+  schemaData?: Schema;
   existingFileId?: string;
 }
 

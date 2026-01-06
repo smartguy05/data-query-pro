@@ -107,7 +107,7 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             let updatedConnections: DatabaseConnection[] = [];
 
             // Update connection status in saved connections
-            if (connections.find(f => f.id == currentConnection.id)) {
+            if (connections.find(f => f.id === currentConnection.id)) {
                 updatedConnections = connections.map((conn) =>
                     conn.id === currentConnection.id
                         ? { ...conn, status: "connected" as const }
@@ -129,9 +129,13 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
         }
     }, [currentConnection, connectionSchemas]);
 
+    // Only save schemas to localStorage after initialization is complete
+    // This prevents overwriting saved data before it's loaded
     useEffect(() => {
-        localStorage.setItem("connectionSchemas", JSON.stringify(connectionSchemas));
-    }, [connectionSchemas]);
+        if (isInitialized) {
+            localStorage.setItem("connectionSchemas", JSON.stringify(connectionSchemas));
+        }
+    }, [connectionSchemas, isInitialized]);
     
     const getConnection = (id?: string): DatabaseConnection | undefined => {
         return !!id

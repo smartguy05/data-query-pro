@@ -6,6 +6,7 @@ import {DatabaseConnectionOptions} from "@/lib/database-connection-options";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/theme-provider";
 import { OpenAIApiProvider } from "@/components/openai-api-provider";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 export const metadata: Metadata = {
   title: "Database Query & Reporting Platform",
@@ -30,7 +31,14 @@ export default function RootLayout({
           <OpenAIApiProvider>
             <DatabaseConnectionOptions>
               <Navigation />
-              <main>{children}</main>
+              <main>
+                <ErrorBoundary
+                  title="Application Error"
+                  description="An unexpected error occurred in the application. Please try again or refresh the page."
+                >
+                  {children}
+                </ErrorBoundary>
+              </main>
               <Toaster />
             </DatabaseConnectionOptions>
           </OpenAIApiProvider>

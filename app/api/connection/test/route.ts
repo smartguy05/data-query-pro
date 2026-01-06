@@ -1,75 +1,22 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { DatabaseAdapterFactory, type AdapterConnectionConfig, type DatabaseType } from "@/lib/database"
-import { getServerConnectionCredentials } from "@/lib/server-config"
+import { validateConnection } from "@/lib/database/connection-validator"
+import { sanitizeDbError } from "@/utils/error-sanitizer"
 
 export async function POST(request: NextRequest) {
   try {
     const { connection } = await request.json()
 
-    if (!connection) {
-      return NextResponse.json({ error: "Connection data is required" }, { status: 400 })
-    }
+    // Validate connection and get adapter
+    const validationResult = await validateConnection(connection)
 
-    // For server connections, look up full connection details from config file
-    let connectionDetails = connection
-    if (connection.source === "server") {
-      const serverConnection = await getServerConnectionCredentials(connection.id)
-      if (!serverConnection) {
-        return NextResponse.json(
-          { success: false, error: "Server connection not found" },
-          { status: 404 }
-        )
-      }
-      connectionDetails = serverConnection
-    }
-
-    // Validate database type
-    const dbType = connectionDetails.type as string
-    if (!DatabaseAdapterFactory.isSupported(dbType)) {
+    if (!validationResult.success) {
       return NextResponse.json(
-        {
-          success: false,
-          error: `Unsupported database type: ${dbType}`,
-        },
-        { status: 400 }
+        { success: false, error: validationResult.error },
+        { status: validationResult.statusCode }
       )
     }
 
-    // For SQLite, filepath is required
-    if (dbType === "sqlite" && !connectionDetails.filepath) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "SQLite requires a file path",
-        },
-        { status: 400 }
-      )
-    }
-
-    // For other databases, validate required fields (skip for server connections as they're already validated)
-    if (dbType !== "sqlite" && connection.source !== "server") {
-      if (!connectionDetails.host || !connectionDetails.database || !connectionDetails.username) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Host, database, and username are required",
-          },
-          { status: 400 }
-        )
-      }
-    }
-
-    const adapter = DatabaseAdapterFactory.create(dbType as DatabaseType)
-
-    const config: AdapterConnectionConfig = {
-      host: connectionDetails.host || "",
-      port: parseInt(connectionDetails.port || "0", 10),
-      database: connectionDetails.database || "",
-      username: connectionDetails.username || "",
-      password: connectionDetails.password || "",
-      filepath: connectionDetails.filepath,
-      ssl: connectionDetails.host?.includes("azure"),
-    }
+    const { adapter, config } = validationResult
 
     console.log(`[v0] Testing ${adapter.displayName} connection:`, {
       host: config.host,
@@ -98,13 +45,16 @@ export async function POST(request: NextRequest) {
       )
     }
   } catch (error) {
-    console.error("[v0] Connection test error:", error)
+    // Sanitize error to prevent leaking sensitive connection information
+    const sanitized = sanitizeDbError(error)
+
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Connection test failed",
+        error: sanitized.message,
+        code: sanitized.code,
       },
-      { status: 500 }
+      { status: sanitized.isUserError ? 400 : 500 }
     )
   }
 }

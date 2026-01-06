@@ -20,11 +20,12 @@ import { ChartConfig } from "@/models/chart-config.interface"
 import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
 import { useOpenAIKey } from "@/hooks/use-openai-key"
 import { ApiKeyDialog } from "@/components/api-key-dialog"
+import type { CellValue, DataRows } from "@/models/common-types"
 
 interface QueryResultsProps {
   data: {
     columns: string[]
-    rows: any[][]
+    rows: DataRows
     rowCount: number
     executionTime: number
   }
@@ -50,9 +51,9 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
   const { setApiKey } = useOpenAIKey()
 
   // Strict date validation - only matches full ISO dates (YYYY-MM-DD)
-  const isValidFullDate = (val: any): boolean => {
+  const isValidFullDate = (val: CellValue): boolean => {
     if (val === null || val === undefined || val === "") return true
-    const str = val.toString()
+    const str = String(val)
     // Match ISO date format: YYYY-MM-DD (with optional time component)
     const isoDateRegex = /^\d{4}-\d{2}-\d{2}(T|\s|$)/
     return isoDateRegex.test(str) && !isNaN(Date.parse(str))
@@ -133,26 +134,26 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
     }
   }
 
-  const formatCellValue = (value: any, columnIndex: number) => {
+  const formatCellValue = (value: CellValue, columnIndex: number): string => {
     if (value === null || value === undefined) return "-"
 
     const type = columnTypes[columnIndex]
 
     if (type === "number") {
       const num = Number(value)
-      return isNaN(num) ? value : num.toLocaleString()
+      return isNaN(num) ? String(value) : num.toLocaleString()
     }
 
     if (type === "date") {
       try {
         // Use UTC timezone to prevent local timezone conversion shifting the date
-        return new Date(value).toLocaleDateString(undefined, { timeZone: "UTC" })
+        return new Date(String(value)).toLocaleDateString(undefined, { timeZone: "UTC" })
       } catch {
-        return value
+        return String(value)
       }
     }
 
-    return value.toString()
+    return String(value)
   }
 
   const exportToCSV = () => {
@@ -172,7 +173,7 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
 
   const exportToJSON = () => {
     const jsonData = processedData.map((row) => {
-      const obj: any = {}
+      const obj: Record<string, CellValue> = {}
       data.columns.forEach((col, i) => {
         obj[col] = row[i]
       })

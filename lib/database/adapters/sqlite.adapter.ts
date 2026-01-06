@@ -6,6 +6,7 @@ import type {
   IntrospectionResult,
   ProgressCallback,
   ConnectionTestResult,
+  ParameterizedQuery,
 } from '../types';
 import type { Column } from '@/models/column.interface';
 import type { DatabaseTable } from '@/models/database-table.interface';
@@ -17,6 +18,8 @@ export class SQLiteAdapter extends BaseDatabaseAdapter {
   readonly defaultPort = 0; // No port for SQLite
 
   private db: Database.Database | null = null;
+  // Cache valid table names for validation
+  private validTableNames: Set<string> = new Set();
 
   async connect(config: AdapterConnectionConfig): Promise<void> {
     if (!config.filepath) {
@@ -27,6 +30,9 @@ export class SQLiteAdapter extends BaseDatabaseAdapter {
     this.db = new Database(config.filepath, { readonly: false });
     this.config = config;
     this.connected = true;
+
+    // Pre-cache valid table names for SQL injection prevention
+    await this.refreshValidTableNames();
   }
 
   async disconnect(): Promise<void> {
@@ -34,8 +40,42 @@ export class SQLiteAdapter extends BaseDatabaseAdapter {
       this.db.close();
       this.db = null;
     }
+    this.validTableNames.clear();
     this.connected = false;
     this.config = null;
+  }
+
+  private async refreshValidTableNames(): Promise<void> {
+    if (!this.db) return;
+
+    const tables = this.db
+      .prepare(SQLiteQueries.TABLES)
+      .all() as { table_name: string }[];
+
+    this.validTableNames = new Set(tables.map(t => t.table_name));
+  }
+
+  /**
+   * Validates that a table name exists in the database.
+   * This prevents SQL injection by ensuring only valid table names are used.
+   */
+  private validateTableName(tableName: string): void {
+    if (!this.validTableNames.has(tableName)) {
+      throw new Error(`Invalid table name: ${tableName}`);
+    }
+  }
+
+  /**
+   * Escapes a table name for use in SQLite PRAGMA commands.
+   * Only allows alphanumeric characters and underscores.
+   */
+  private escapePragmaTableName(tableName: string): string {
+    // Validate table name contains only safe characters
+    if (!/^[\w]+$/.test(tableName)) {
+      throw new Error(`Invalid table name format: ${tableName}`);
+    }
+    // Double-quote and escape for safety
+    return `"${tableName.replace(/"/g, '""')}"`;
   }
 
   async testConnection(config: AdapterConnectionConfig): Promise<ConnectionTestResult> {
@@ -85,6 +125,39 @@ export class SQLiteAdapter extends BaseDatabaseAdapter {
     }
   }
 
+  async executeParameterizedQuery(query: ParameterizedQuery): Promise<Record<string, unknown>[]> {
+    if (!this.db) {
+      throw new Error('Not connected to SQLite');
+    }
+
+    // For PRAGMA commands, we need to validate and escape the table name
+    // since PRAGMA doesn't support parameter binding
+    if (query.sql.trim().toUpperCase().startsWith('PRAGMA')) {
+      // Validate the table name parameter
+      const tableName = query.params[0] as string;
+      this.validateTableName(tableName);
+
+      // Build the PRAGMA command with escaped table name
+      const escapedTableName = this.escapePragmaTableName(tableName);
+      let pragmaQuery: string;
+
+      if (query.sql.includes('table_info')) {
+        pragmaQuery = `PRAGMA table_info(${escapedTableName})`;
+      } else if (query.sql.includes('foreign_key_list')) {
+        pragmaQuery = `PRAGMA foreign_key_list(${escapedTableName})`;
+      } else {
+        throw new Error('Unsupported PRAGMA command');
+      }
+
+      const stmt = this.db.prepare(pragmaQuery);
+      return stmt.all() as Record<string, unknown>[];
+    }
+
+    // For regular queries, use better-sqlite3's built-in parameter binding
+    const stmt = this.db.prepare(query.sql);
+    return stmt.all(...query.params) as Record<string, unknown>[];
+  }
+
   // Override introspectSchema because SQLite uses PRAGMA with different result format
   async introspectSchema(onProgress?: ProgressCallback): Promise<IntrospectionResult> {
     if (!this.db) {
@@ -92,6 +165,9 @@ export class SQLiteAdapter extends BaseDatabaseAdapter {
     }
 
     onProgress?.(10, 'Fetching table list...');
+
+    // Refresh valid table names cache
+    await this.refreshValidTableNames();
 
     // Get all tables
     const tablesResult = this.db
@@ -105,30 +181,25 @@ export class SQLiteAdapter extends BaseDatabaseAdapter {
       const progress = 10 + Math.floor((i / tablesResult.length) * 80);
       onProgress?.(progress, `Processing table ${i + 1}/${tablesResult.length}: ${tableName}`);
 
-      // Get columns using PRAGMA table_info
-      // Returns: cid, name, type, notnull, dflt_value, pk
-      const columnsResult = this.db
-        .prepare(SQLiteQueries.tableInfo(tableName))
-        .all() as {
-          cid: number;
-          name: string;
-          type: string;
-          notnull: number;
-          dflt_value: string | null;
-          pk: number;
-        }[];
+      // Use parameterized queries (which validate table names)
+      const columnsQuery = this.getColumnsQuery(tableName);
+      const columnsResult = await this.executeParameterizedQuery(columnsQuery) as {
+        cid: number;
+        name: string;
+        type: string;
+        notnull: number;
+        dflt_value: string | null;
+        pk: number;
+      }[];
 
-      // Get foreign keys using PRAGMA foreign_key_list
-      // Returns: id, seq, table, from, to, on_update, on_delete, match
-      const fkResult = this.db
-        .prepare(SQLiteQueries.foreignKeyList(tableName))
-        .all() as {
-          id: number;
-          seq: number;
-          table: string;
-          from: string;
-          to: string;
-        }[];
+      const fkQuery = this.getForeignKeysQuery(tableName);
+      const fkResult = await this.executeParameterizedQuery(fkQuery) as {
+        id: number;
+        seq: number;
+        table: string;
+        from: string;
+        to: string;
+      }[];
 
       const fkMap = new Map<string, string>();
       fkResult.forEach((fk) => {
@@ -158,16 +229,16 @@ export class SQLiteAdapter extends BaseDatabaseAdapter {
     return { tables };
   }
 
-  // These are not used for SQLite since we override introspectSchema
+  // These are used by the base adapter but we handle them specially
   getTablesQuery(): string {
     return SQLiteQueries.TABLES;
   }
 
-  getColumnsQuery(tableName: string): string {
+  getColumnsQuery(tableName: string): ParameterizedQuery {
     return SQLiteQueries.tableInfo(tableName);
   }
 
-  getForeignKeysQuery(tableName: string): string {
+  getForeignKeysQuery(tableName: string): ParameterizedQuery {
     return SQLiteQueries.foreignKeyList(tableName);
   }
 }

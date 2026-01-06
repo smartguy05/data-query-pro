@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
-import { DatabaseAdapterFactory, type AdapterConnectionConfig, type DatabaseType } from "@/lib/database"
-import { getServerConnectionCredentials } from "@/lib/server-config"
+import { validateConnection } from "@/lib/database/connection-validator"
+import { sanitizeDbError } from "@/utils/error-sanitizer"
 
 export async function GET() {
   try {
@@ -27,44 +27,24 @@ export async function POST(request: Request) {
   try {
     const { connection } = await request.json()
     console.log("[v0] Connecting to database:", {
-      host: connection.host,
-      database: connection.database,
-      type: connection.type,
+      host: connection?.host,
+      database: connection?.database,
+      type: connection?.type,
     })
 
-    // For server connections, look up full connection details from config file
-    let connectionDetails = connection
-    if (connection.source === "server") {
-      const serverConnection = await getServerConnectionCredentials(connection.id)
-      if (!serverConnection) {
-        return NextResponse.json(
-          { error: "Server connection not found" },
-          { status: 404 }
-        )
-      }
-      connectionDetails = serverConnection
-    }
+    // Validate connection and get adapter
+    const validationResult = await validateConnection(connection, {
+      validateRequiredFields: false, // introspect doesn't require field validation
+    })
 
-    // Validate database type
-    const dbType = connectionDetails.type as string
-    if (!DatabaseAdapterFactory.isSupported(dbType)) {
+    if (!validationResult.success) {
       return NextResponse.json(
-        { error: `Unsupported database type: ${dbType}` },
-        { status: 400 }
+        { error: validationResult.error },
+        { status: validationResult.statusCode }
       )
     }
 
-    const adapter = DatabaseAdapterFactory.create(dbType as DatabaseType)
-
-    const config: AdapterConnectionConfig = {
-      host: connectionDetails.host,
-      port: parseInt(connectionDetails.port, 10),
-      database: connectionDetails.database,
-      username: connectionDetails.username,
-      password: connectionDetails.password,
-      filepath: connectionDetails.filepath,
-      ssl: connectionDetails.host?.includes("azure.com") || connectionDetails.host?.includes("azure"),
-    }
+    const { adapter, config } = validationResult
 
     try {
       await adapter.connect(config)
@@ -93,14 +73,17 @@ export async function POST(request: Request) {
     } finally {
       await adapter.disconnect()
     }
-  } catch (error: unknown) {
+  } catch (error) {
     console.error("[v0] Schema introspection error:", error)
-    const errorMessage = error instanceof Error ? error.message : "Unknown error"
+    // Sanitize error to prevent leaking sensitive database information
+    const sanitized = sanitizeDbError(error)
+
     return NextResponse.json(
       {
-        error: `Failed to introspect schema: ${errorMessage}`,
+        error: sanitized.message,
+        code: sanitized.code,
       },
-      { status: 500 },
+      { status: sanitized.isUserError ? 400 : 500 }
     )
   }
 }
