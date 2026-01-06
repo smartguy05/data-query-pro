@@ -29,8 +29,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Database connection information is required" }, { status: 400 })
     }
 
-    // For server connections, look up credentials from config file
-    let password = connection.password
+    // For server connections, look up full connection details from config file
+    let connectionDetails = connection
     if (connection.source === "server") {
       const serverConnection = await getServerConnectionCredentials(connection.id)
       if (!serverConnection) {
@@ -39,11 +39,11 @@ export async function POST(request: NextRequest) {
           { status: 404 }
         )
       }
-      password = serverConnection.password
+      connectionDetails = serverConnection
     }
 
     // Validate database type
-    const dbType = connection.type as string
+    const dbType = connectionDetails.type as string
     if (!DatabaseAdapterFactory.isSupported(dbType)) {
       return NextResponse.json(
         { error: `Unsupported database type: ${dbType}` },
@@ -55,13 +55,13 @@ export async function POST(request: NextRequest) {
     const adapter = DatabaseAdapterFactory.create(dbType as DatabaseType)
 
     const config: AdapterConnectionConfig = {
-      host: connection.host,
-      port: parseInt(connection.port, 10),
-      database: connection.database,
-      username: connection.username,
-      password: password,
-      filepath: connection.filepath, // For SQLite
-      ssl: connection.host?.includes("azure"),
+      host: connectionDetails.host,
+      port: parseInt(connectionDetails.port, 10),
+      database: connectionDetails.database,
+      username: connectionDetails.username,
+      password: connectionDetails.password,
+      filepath: connectionDetails.filepath, // For SQLite
+      ssl: connectionDetails.host?.includes("azure"),
     }
 
     try {

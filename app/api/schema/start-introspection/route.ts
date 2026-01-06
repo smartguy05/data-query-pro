@@ -72,27 +72,27 @@ async function processSchemaInBackground(processId: string, connection: Record<s
       message: "Connecting to database...",
     })
 
-    // For server connections, look up credentials from config file
-    let password = connection.password as string
+    // For server connections, look up full connection details from config file
+    let connectionDetails = connection
     if (connection.source === "server") {
       const serverConnection = await getServerConnectionCredentials(connection.id as string)
       if (!serverConnection) {
         throw new Error("Server connection not found")
       }
-      password = serverConnection.password
+      connectionDetails = serverConnection
     }
 
-    const dbType = connection.type as DatabaseType
+    const dbType = connectionDetails.type as DatabaseType
     adapter = DatabaseAdapterFactory.create(dbType)
 
     const config: AdapterConnectionConfig = {
-      host: connection.host as string,
-      port: parseInt(connection.port as string, 10),
-      database: connection.database as string,
-      username: connection.username as string,
-      password: password,
-      filepath: connection.filepath as string | undefined,
-      ssl: (connection.host as string)?.includes("azure"),
+      host: connectionDetails.host as string,
+      port: parseInt(connectionDetails.port as string, 10),
+      database: connectionDetails.database as string,
+      username: connectionDetails.username as string,
+      password: connectionDetails.password as string,
+      filepath: connectionDetails.filepath as string | undefined,
+      ssl: (connectionDetails.host as string)?.includes("azure"),
     }
 
     await adapter.connect(config)

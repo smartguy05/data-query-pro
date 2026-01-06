@@ -26,14 +26,14 @@ export async function GET() {
       });
     }
 
-    // Mark all connections as coming from server, strip passwords, and ensure disconnected initially
+    // Mark all connections as coming from server, strip sensitive data, and ensure disconnected initially
     const serverConnections = config.connections.map((conn: DatabaseConnection) => {
       const safeConnection = stripSensitiveData(conn);
       return {
         ...safeConnection,
         source: "server" as const,
         status: "disconnected" as const,
-      };
+      } as DatabaseConnection;
     });
 
     // Extract current connection if present, also strip password
