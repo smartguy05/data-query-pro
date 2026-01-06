@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DataQuery Pro is an AI-powered database visualization and query tool built with Next.js 15, React 19, and TypeScript. The application allows users to connect to PostgreSQL databases, generate AI-powered schema descriptions, and query data using natural language that gets converted to SQL via OpenAI's API.
+DataQuery Pro is an AI-powered database visualization and query tool built with Next.js 15, React 19, and TypeScript. The application allows users to connect to PostgreSQL, MySQL, SQL Server, or SQLite databases, generate AI-powered schema descriptions, and query data using natural language that gets converted to SQL via OpenAI's API.
 
 ## Development Commands
 
@@ -37,7 +37,7 @@ The application uses a centralized **React Context** pattern for database connec
 2. Schema introspection → uploaded as file to OpenAI → file ID and vector store ID saved to connection
 3. AI descriptions generated → schema with descriptions stored in localStorage
 4. Natural language query → sent to OpenAI with vector store context → generates SQL
-5. SQL execution → postgres library connects and executes → results returned
+5. SQL execution → database adapter connects and executes → results returned
 
 ### Project Structure
 
@@ -52,7 +52,7 @@ app/                          # Next.js 15 App Router
 └── api/                     # API routes
     ├── query/
     │   ├── generate/        # Natural language → SQL via OpenAI
-    │   └── execute/         # Execute SQL on PostgreSQL
+    │   └── execute/         # Execute SQL on connected database
     ├── schema/
     │   ├── introspect/      # Database schema introspection (POST)
     │   ├── generate-descriptions/  # AI table/column descriptions
@@ -125,7 +125,8 @@ config/                      # Server configuration
 - Model: Configured via `OPENAI_MODEL` environment variable
 
 ### Database Connections
-- Currently **only supports PostgreSQL** via the `postgres` library
+- Supports **PostgreSQL, MySQL, SQL Server, and SQLite** via database-specific adapters in `lib/database/adapters/`
+- Connection testing is real - the `/api/connection/test` endpoint actually connects and runs a test query
 - Connection credentials are stored in localStorage (not production-ready)
 - **Server Configuration**: Connections can be deployed via `config/databases.json` file for team sharing
   - Server connections are automatically loaded on startup
@@ -157,7 +158,7 @@ config/                      # Server configuration
 ### Query Execution
 - Route: `/api/query/execute/route.ts`
 - Validates queries to prevent dangerous operations (DROP, DELETE, UPDATE, INSERT, etc.)
-- Executes against PostgreSQL using connection credentials
+- Uses database adapters (`lib/database/adapters/`) for database-specific execution
 - Returns formatted results with columns, rows, execution time
 
 ### AI Suggestions
@@ -216,11 +217,12 @@ The application supports IP-based rate limiting for demo deployments:
 ## Common Workflows
 
 ### Adding Support for New Database Types
-1. Update `models/database-connection.interface.ts` type field
-2. Add connection logic in `/api/query/execute/route.ts` (currently hardcoded to postgres)
-3. Update schema introspection in `/api/schema/introspect/route.ts`
-4. Add database type option in `app/database/page.tsx` Select component
-5. Update SQL generation prompts in `/api/query/generate/route.ts` for dialect
+1. Create a new adapter in `lib/database/adapters/` extending `BaseDatabaseAdapter`
+2. Register the adapter in `lib/database/factory.ts`
+3. Add SQL queries in `lib/database/queries/` for the new database type
+4. Update `models/database-connection.interface.ts` type field if needed
+5. Add database type option in `app/database/page.tsx` Select component
+6. Update SQL generation prompts in `/api/query/generate/route.ts` for dialect
 
 See [docs/guides/adding-database-support.md](./docs/guides/adding-database-support.md) for detailed guide.
 
@@ -260,14 +262,12 @@ const {
 
 1. **Schema Upload Required**: Before generating queries, schema MUST be uploaded to OpenAI via "Upload Schema File" button in database page
 2. **LocalStorage Dependencies**: The app heavily relies on localStorage - won't work in SSR contexts
-3. **PostgreSQL Only**: Despite UI showing multiple database types, only PostgreSQL is actually implemented
-4. **No Real Connection Testing**: The "Connect Database" button simulates a 2-second delay but doesn't actually test connectivity
-5. **Password Storage**: Passwords are stored in plain text in localStorage (security issue for production)
-6. **Context Sync**: When updating connections, always update both the connections array AND currentConnection if it's the active one
-7. **Vector Store Pattern**: Each connection maintains its own vector store for schema context - don't share across connections
-8. **Vector Store Expiration**: OpenAI vector stores can be deleted or expire - handle 404 errors gracefully
-9. **Hidden Items**: Tables/columns marked `hidden: true` are filtered out before uploading to OpenAI
-10. **Check isInitialized**: Always check context `isInitialized` before rendering content that depends on loaded data
+3. **Password Storage**: Passwords are stored in plain text in localStorage (security issue for production)
+4. **Context Sync**: When updating connections, always update both the connections array AND currentConnection if it's the active one
+5. **Vector Store Pattern**: Each connection maintains its own vector store for schema context - don't share across connections
+6. **Vector Store Expiration**: OpenAI vector stores can be deleted or expire - handle 404 errors gracefully
+7. **Hidden Items**: Tables/columns marked `hidden: true` are filtered out before uploading to OpenAI
+8. **Check isInitialized**: Always check context `isInitialized` before rendering content that depends on loaded data
 
 ## TypeScript Notes
 
