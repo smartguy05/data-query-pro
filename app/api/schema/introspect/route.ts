@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { DatabaseAdapterFactory, type AdapterConnectionConfig, type DatabaseType } from "@/lib/database"
+import { getServerConnectionCredentials } from "@/lib/server-config"
 
 export async function GET() {
   try {
@@ -31,8 +32,21 @@ export async function POST(request: Request) {
       type: connection.type,
     })
 
+    // For server connections, look up full connection details from config file
+    let connectionDetails = connection
+    if (connection.source === "server") {
+      const serverConnection = await getServerConnectionCredentials(connection.id)
+      if (!serverConnection) {
+        return NextResponse.json(
+          { error: "Server connection not found" },
+          { status: 404 }
+        )
+      }
+      connectionDetails = serverConnection
+    }
+
     // Validate database type
-    const dbType = connection.type as string
+    const dbType = connectionDetails.type as string
     if (!DatabaseAdapterFactory.isSupported(dbType)) {
       return NextResponse.json(
         { error: `Unsupported database type: ${dbType}` },
@@ -43,13 +57,13 @@ export async function POST(request: Request) {
     const adapter = DatabaseAdapterFactory.create(dbType as DatabaseType)
 
     const config: AdapterConnectionConfig = {
-      host: connection.host,
-      port: parseInt(connection.port, 10),
-      database: connection.database,
-      username: connection.username,
-      password: connection.password,
-      filepath: connection.filepath,
-      ssl: connection.host?.includes("azure.com") || connection.host?.includes("azure"),
+      host: connectionDetails.host,
+      port: parseInt(connectionDetails.port, 10),
+      database: connectionDetails.database,
+      username: connectionDetails.username,
+      password: connectionDetails.password,
+      filepath: connectionDetails.filepath,
+      ssl: connectionDetails.host?.includes("azure.com") || connectionDetails.host?.includes("azure"),
     }
 
     try {

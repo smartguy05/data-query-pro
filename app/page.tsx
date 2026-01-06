@@ -31,6 +31,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
+import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
+import { useOpenAIKey } from "@/hooks/use-openai-key"
+import { ApiKeyDialog } from "@/components/api-key-dialog"
 
 interface MetricSuggestion {
   title: string
@@ -52,6 +55,8 @@ interface Notification {
 export default function ContextualDashboard() {
   const connectionOptions = useDatabaseOptions()
   const { toast } = useToast()
+  const { fetchWithAuth, showRateLimitDialog, resetTimeInfo, clearRateLimitError } = useOpenAIFetch()
+  const { setApiKey } = useOpenAIKey()
   const [hasConnection, setHasConnection] = useState(false)
   const [hasSchemaFile, setHasSchemaFile] = useState(false)
   const [hasSchema, setHasSchema] = useState(false)
@@ -108,9 +113,8 @@ export default function ContextualDashboard() {
             const cachedSuggestions = localStorage.getItem(suggestionsKey)
             if (cachedSuggestions) {
               setSuggestions(JSON.parse(cachedSuggestions))
-            } else if (!isLoadingSuggestionsRef.current) {
-              generateSuggestions(connection.id)
             }
+            // Don't auto-generate suggestions - let user trigger manually to save AI credits
           }
         }
 
@@ -155,11 +159,8 @@ export default function ContextualDashboard() {
   const regenerateSuggestions = async () => {
     setIsReGenerating(true);
     try {
-      const connectionSetting = localStorage.getItem("currentDbConnection");
-      let connection;
-      if (!!connectionSetting) {
-        connection = JSON.parse(connectionSetting);
-      }
+      // Use context to get connection instead of localStorage
+      const connection = connectionOptions.getConnection();
 
       if (!connection) {
         toast({
@@ -202,11 +203,8 @@ export default function ContextualDashboard() {
     isLoadingSuggestionsRef.current = true;
     setLoadingSuggestions(true);
     try {
-      const currentDbConnection = localStorage.getItem("currentDbConnection");
-      let dbConnection;
-      if (!!currentDbConnection) {
-        dbConnection = JSON.parse(currentDbConnection);
-      }
+      // Use context to get connection instead of localStorage to ensure we have latest data
+      const dbConnection = connectionOptions.getConnection(connectionId);
 
       if (!dbConnection?.vectorStoreId) {
         console.error("No vector store ID found for connection");
@@ -218,7 +216,7 @@ export default function ContextualDashboard() {
         return;
       }
 
-      const response = await fetch("/api/dashboard/suggestions", {
+      const response = await fetchWithAuth("/api/dashboard/suggestions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ connectionId, vectorStoreId: dbConnection.vectorStoreId }),
@@ -318,11 +316,10 @@ export default function ContextualDashboard() {
   const removeSuggestion = (index: number) => {
     try {
       // todo: add confirmation
-      const connectionSetting = localStorage.getItem("currentDbConnection");
-      let connection;
-      if (!!connectionSetting) {
-        connection = JSON.parse(connectionSetting);
-      }
+      // Use context to get connection instead of localStorage
+      const connection = connectionOptions.getConnection();
+      if (!connection) return;
+
       let cachedSuggestions = localStorage.getItem(`suggestions_${connection.id}`);
       let storedSuggestions = [];
       if (!!cachedSuggestions) {
@@ -1123,6 +1120,23 @@ export default function ContextualDashboard() {
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
                     <p className="text-muted-foreground mt-2">Analyzing your schema to generate suggestions...</p>
                   </div>
+                ) : suggestions.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Lightbulb className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground mb-4">No suggestions yet. Generate AI-powered suggestions based on your schema.</p>
+                    <Button
+                      onClick={() => {
+                        const connection = connectionOptions.getConnection();
+                        if (connection) {
+                          generateSuggestions(connection.id);
+                        }
+                      }}
+                      className="bg-amber-500 hover:bg-amber-600"
+                    >
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Generate Suggestions
+                    </Button>
+                  </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {suggestions.map((suggestion, index) => (
@@ -1163,6 +1177,19 @@ export default function ContextualDashboard() {
           </div>
       </div>
       <Toaster />
+
+      {/* API Key Dialog for Rate Limiting */}
+      <ApiKeyDialog
+        open={showRateLimitDialog}
+        onOpenChange={(open) => {
+          if (!open) clearRateLimitError();
+        }}
+        onSubmit={(apiKey) => {
+          setApiKey(apiKey);
+          clearRateLimitError();
+        }}
+        resetTime={resetTimeInfo}
+      />
     </div>
   )
 }

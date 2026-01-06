@@ -1,15 +1,35 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
 import { generateTableDescription, generateColumnDescription } from "@/utils/generate-descriptions"
+import { checkRateLimit, getOpenAIKey } from "@/utils/rate-limiter"
 
 export async function POST(request: NextRequest) {
   try {
+    // Check rate limit first
+    const rateLimitResult = checkRateLimit(request);
+    if (!rateLimitResult.allowed) {
+      console.log("Rate limit exceeded for request");
+      return NextResponse.json(
+        {
+          error: "RATE_LIMIT_EXCEEDED",
+          message: "Demo rate limit exceeded. Please provide your own OpenAI API key to continue.",
+          limit: rateLimitResult.limit,
+          remaining: rateLimitResult.remaining,
+          resetTime: rateLimitResult.resetTime,
+        },
+        { status: 429 }
+      );
+    }
+
     const { schema, databaseDescription, batchInfo } = await request.json()
 
     console.log(`Processing AI descriptions for batch ${batchInfo?.current || 1}/${batchInfo?.total || 1}`)
     console.log(`Tables in this batch: ${batchInfo?.tableNames?.join(", ") || "Unknown"}`)
 
-    if (!process.env.OPENAI_API_KEY) {
+    // Get API key (user-provided or server key)
+    const apiKey = getOpenAIKey(request);
+    if (!apiKey) {
+      // If no API key available, use fallback descriptions
       const enhancedSchema = {
         ...schema,
         tables: schema.tables.map((table: any) => ({
@@ -31,11 +51,18 @@ export async function POST(request: NextRequest) {
           })),
         })),
       }
-      return NextResponse.json({ success: true, schema: enhancedSchema })
+      return NextResponse.json({
+        success: true,
+        schema: enhancedSchema,
+        rateLimit: {
+          remaining: rateLimitResult.remaining,
+          limit: rateLimitResult.limit,
+        },
+      })
     }
 
     const client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
+      apiKey: apiKey
     })
 
     const enhancedSchema = { ...schema }
@@ -152,7 +179,14 @@ TASK: Write a concise, business-focused description (1 sentence) explaining what
       }
     }
 
-    return NextResponse.json({ success: true, schema: enhancedSchema })
+    return NextResponse.json({
+      success: true,
+      schema: enhancedSchema,
+      rateLimit: {
+        remaining: rateLimitResult.remaining,
+        limit: rateLimitResult.limit,
+      },
+    })
   } catch (error) {
     console.error("Error processing AI descriptions:", error)
     return NextResponse.json({ success: false, error: "Failed to generate descriptions" }, { status: 500 })

@@ -62,8 +62,10 @@ app/                          # Next.js 15 App Router
     │   └── status/          # Poll introspection status
     ├── dashboard/
     │   └── suggestions/     # Generate metric suggestions
-    └── chart/
-        └── generate/        # Generate chart configuration from data
+    ├── chart/
+    │   └── generate/        # Generate chart configuration from data
+    └── config/
+        └── connections/     # Read server-side database config
 
 components/                   # React components
 ├── ui/                      # shadcn/ui components (DO NOT modify manually)
@@ -106,6 +108,11 @@ docs/                        # Developer documentation
 ├── components/              # Component docs
 ├── models/                  # Data model docs
 └── guides/                  # How-to guides
+
+config/                      # Server configuration
+├── README.md                # Config documentation
+├── databases.json.example   # Example database config
+└── databases.json           # Actual config (gitignored)
 ```
 
 ## Important Implementation Details
@@ -120,11 +127,17 @@ docs/                        # Developer documentation
 ### Database Connections
 - Currently **only supports PostgreSQL** via the `postgres` library
 - Connection credentials are stored in localStorage (not production-ready)
+- **Server Configuration**: Connections can be deployed via `config/databases.json` file for team sharing
+  - Server connections are automatically loaded on startup
+  - Marked with "Server Config" badge in UI
+  - Cannot be edited/deleted through UI (read-only)
+  - See `config/README.md` for setup instructions
 - Each connection has:
   - Basic connection info (host, port, database, username, password)
   - Optional description for business context
   - Optional `schemaFileId` and `vectorStoreId` for OpenAI integration
   - Status: "connected" | "disconnected"
+  - Source: "local" | "server" (tracks origin of connection)
 
 ### Schema Management
 - Schema introspection via POST to `/api/schema/introspect` or WebSocket to `/api/schema/start-introspection`
@@ -176,7 +189,29 @@ Required in `.env.local`:
 ```
 OPENAI_API_KEY=sk-...        # Required for AI features
 OPENAI_MODEL=gpt-5          # Model for query generation
+DEMO_RATE_LIMIT=             # Optional: number of free requests per 24h per IP (empty = unlimited)
 ```
+
+### Rate Limiting & BYOK (Bring Your Own Key)
+
+The application supports IP-based rate limiting for demo deployments:
+
+- **Environment Variable**: `DEMO_RATE_LIMIT` (integer or unset)
+- **When unset/empty**: Rate limiting is disabled (app works normally)
+- **When set**: Users are limited to that many OpenAI API requests per 24-hour window per IP address
+
+**User-Provided API Keys**:
+- Users can bypass rate limits by providing their own OpenAI API key
+- Keys are stored in sessionStorage only (not persisted to localStorage or server)
+- Keys are sent in request headers (`x-user-openai-key`) and used directly with OpenAI
+- UI indicator in navigation shows key status (green checkmark if configured)
+
+**Implementation Details**:
+- Rate limiting: `utils/rate-limiter.ts` - in-memory IP tracking with 24h windows
+- Client hook: `hooks/use-openai-key.tsx` - manages user's API key in sessionStorage
+- Fetch wrapper: `hooks/use-openai-fetch.tsx` - auto-injects key headers and detects 429 errors
+- UI components: `components/api-key-dialog.tsx`, `components/api-key-indicator.tsx`
+- Server-side: All OpenAI API routes (`/api/query/generate`, `/api/schema/generate-descriptions`, `/api/dashboard/suggestions`, `/api/chart/generate`) check rate limits and accept user keys
 
 ## Common Workflows
 

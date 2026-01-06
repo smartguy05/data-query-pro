@@ -193,6 +193,18 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 4. **Upload Schema** - Click "Upload Schema File" to enable natural language queries
 5. **Start Querying** - Go to the Query page and ask questions in plain English
 
+### Server Configuration (Optional)
+
+For team deployments, you can provide pre-configured database connections via a server-side config file:
+
+1. Copy `config/databases.json.example` to `config/databases.json`
+2. Update with your shared database credentials
+3. Deploy the config file with your application
+4. All users will automatically see these connections marked as "Server Config"
+5. Server connections cannot be edited/deleted through the UI
+
+See [config/README.md](./config/README.md) for detailed setup instructions.
+
 ---
 
 ## Demo Database
