@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { DatabaseAdapterFactory, type AdapterConnectionConfig, type DatabaseType } from "@/lib/database"
+import { getServerConnectionCredentials } from "@/lib/server-config"
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,8 +10,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Connection data is required" }, { status: 400 })
     }
 
+    // For server connections, look up full connection details from config file
+    let connectionDetails = connection
+    if (connection.source === "server") {
+      const serverConnection = await getServerConnectionCredentials(connection.id)
+      if (!serverConnection) {
+        return NextResponse.json(
+          { success: false, error: "Server connection not found" },
+          { status: 404 }
+        )
+      }
+      connectionDetails = serverConnection
+    }
+
     // Validate database type
-    const dbType = connection.type as string
+    const dbType = connectionDetails.type as string
     if (!DatabaseAdapterFactory.isSupported(dbType)) {
       return NextResponse.json(
         {
@@ -22,7 +36,7 @@ export async function POST(request: NextRequest) {
     }
 
     // For SQLite, filepath is required
-    if (dbType === "sqlite" && !connection.filepath) {
+    if (dbType === "sqlite" && !connectionDetails.filepath) {
       return NextResponse.json(
         {
           success: false,
@@ -32,9 +46,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // For other databases, validate required fields
-    if (dbType !== "sqlite") {
-      if (!connection.host || !connection.database || !connection.username) {
+    // For other databases, validate required fields (skip for server connections as they're already validated)
+    if (dbType !== "sqlite" && connection.source !== "server") {
+      if (!connectionDetails.host || !connectionDetails.database || !connectionDetails.username) {
         return NextResponse.json(
           {
             success: false,
@@ -48,13 +62,13 @@ export async function POST(request: NextRequest) {
     const adapter = DatabaseAdapterFactory.create(dbType as DatabaseType)
 
     const config: AdapterConnectionConfig = {
-      host: connection.host || "",
-      port: parseInt(connection.port || "0", 10),
-      database: connection.database || "",
-      username: connection.username || "",
-      password: connection.password || "",
-      filepath: connection.filepath,
-      ssl: connection.host?.includes("azure"),
+      host: connectionDetails.host || "",
+      port: parseInt(connectionDetails.port || "0", 10),
+      database: connectionDetails.database || "",
+      username: connectionDetails.username || "",
+      password: connectionDetails.password || "",
+      filepath: connectionDetails.filepath,
+      ssl: connectionDetails.host?.includes("azure"),
     }
 
     console.log(`[v0] Testing ${adapter.displayName} connection:`, {

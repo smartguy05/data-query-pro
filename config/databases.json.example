@@ -1,0 +1,45 @@
+{
+  "connections": [
+    {
+      "id": "shared-production-db",
+      "name": "Production Database (Read-Only)",
+      "type": "postgresql",
+      "host": "db.example.com",
+      "port": "5432",
+      "database": "production",
+      "username": "readonly_user",
+      "password": "your_password_here",
+      "description": "Production database with read-only access for analytics and reporting",
+      "status": "disconnected",
+      "createdAt": "2024-01-01T00:00:00Z"
+    },
+    {
+      "id": "shared-staging-db",
+      "name": "Staging Database",
+      "type": "postgresql",
+      "host": "staging-db.example.com",
+      "port": "5432",
+      "database": "staging",
+      "username": "staging_user",
+      "password": "your_password_here",
+      "description": "Staging environment database for testing queries before production",
+      "status": "disconnected",
+      "createdAt": "2024-01-01T00:00:00Z"
+    },
+    {
+      "id": "shared-analytics-db",
+      "name": "Analytics Warehouse",
+      "type": "postgresql",
+      "host": "analytics.example.com",
+      "port": "5432",
+      "database": "analytics",
+      "username": "analyst",
+      "password": "your_password_here",
+      "description": "Data warehouse for business intelligence and analytics",
+      "status": "disconnected",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "schemaFileId": "file-abc123",
+      "vectorStoreId": "vs_xyz789"
+    }
+  ]
+}

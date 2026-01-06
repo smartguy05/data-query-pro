@@ -62,8 +62,10 @@ app/                          # Next.js 15 App Router
     │   └── status/          # Poll introspection status
     ├── dashboard/
     │   └── suggestions/     # Generate metric suggestions
-    └── chart/
-        └── generate/        # Generate chart configuration from data
+    ├── chart/
+    │   └── generate/        # Generate chart configuration from data
+    └── config/
+        └── connections/     # Read server-side database config
 
 components/                   # React components
 ├── ui/                      # shadcn/ui components (DO NOT modify manually)
@@ -106,6 +108,11 @@ docs/                        # Developer documentation
 ├── components/              # Component docs
 ├── models/                  # Data model docs
 └── guides/                  # How-to guides
+
+config/                      # Server configuration
+├── README.md                # Config documentation
+├── databases.json.example   # Example database config
+└── databases.json           # Actual config (gitignored)
 ```
 
 ## Important Implementation Details
@@ -120,11 +127,17 @@ docs/                        # Developer documentation
 ### Database Connections
 - Currently **only supports PostgreSQL** via the `postgres` library
 - Connection credentials are stored in localStorage (not production-ready)
+- **Server Configuration**: Connections can be deployed via `config/databases.json` file for team sharing
+  - Server connections are automatically loaded on startup
+  - Marked with "Server Config" badge in UI
+  - Cannot be edited/deleted through UI (read-only)
+  - See `config/README.md` for setup instructions
 - Each connection has:
   - Basic connection info (host, port, database, username, password)
   - Optional description for business context
   - Optional `schemaFileId` and `vectorStoreId` for OpenAI integration
   - Status: "connected" | "disconnected"
+  - Source: "local" | "server" (tracks origin of connection)
 
 ### Schema Management
 - Schema introspection via POST to `/api/schema/introspect` or WebSocket to `/api/schema/start-introspection`
