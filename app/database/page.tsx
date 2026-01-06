@@ -432,6 +432,10 @@ export default function DatabasePage() {
   }
 
   const getConnectionDisplayInfo = (connection: DatabaseConnection) => {
+    // For server connections, don't show obscured connection details
+    if (connection.source === "server") {
+      return `${connection.type.toUpperCase()} • Credentials managed by server`
+    }
     if (connection.type === "sqlite") {
       return `SQLite • ${connection.filepath || "No file path"}`
     }

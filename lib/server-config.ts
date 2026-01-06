@@ -54,12 +54,26 @@ export async function getServerConnectionCredentials(connectionId: string): Prom
 }
 
 /**
- * Strips sensitive data (password) from a connection object for client-side use
+ * Strips sensitive data from a connection object for client-side use.
+ * For server connections, we only expose what's needed for display and API calls.
  */
-export function stripSensitiveData(connection: DatabaseConnection): DatabaseConnection {
-  const { password, ...safeConnection } = connection;
+export function stripSensitiveData(connection: DatabaseConnection): Partial<DatabaseConnection> & { id: string } {
+  // Only expose minimal info needed for display and functionality
   return {
-    ...safeConnection,
-    password: "", // Empty password indicates it's stored server-side
+    id: connection.id,
+    name: connection.name,
+    type: connection.type,
+    description: connection.description,
+    status: connection.status,
+    createdAt: connection.createdAt,
+    // These are needed for OpenAI integration
+    schemaFileId: connection.schemaFileId,
+    vectorStoreId: connection.vectorStoreId,
+    // Empty/placeholder values to indicate server-side storage
+    host: "••••••••",
+    port: "••••",
+    database: "••••••••",
+    username: "••••••••",
+    password: "",
   };
 }
