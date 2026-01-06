@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -13,14 +13,29 @@ import { ApiKeyDialog } from "./api-key-dialog";
 
 /**
  * Component that shows the current API key status in the navigation
- * and allows users to manage their OpenAI API key
+ * and allows users to manage their OpenAI API key.
+ * Only renders when rate limiting is enabled on the server.
  */
 export function ApiKeyIndicator() {
   const { apiKey, hasApiKey, clearApiKey, setApiKey, isLoaded } = useOpenAIKey();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [rateLimitEnabled, setRateLimitEnabled] = useState<boolean | null>(null);
+
+  // Check if rate limiting is enabled on mount
+  useEffect(() => {
+    fetch("/api/config/rate-limit-status")
+      .then((res) => res.json())
+      .then((data) => setRateLimitEnabled(data.rateLimitEnabled))
+      .catch(() => setRateLimitEnabled(false));
+  }, []);
+
+  // Don't render if rate limiting is disabled or status is loading
+  if (rateLimitEnabled === null || !rateLimitEnabled) {
+    return null;
+  }
 
   if (!isLoaded) {
-    return null; // Don't render until loaded
+    return null; // Don't render until API key status loaded
   }
 
   const handleSubmit = (newKey: string) => {

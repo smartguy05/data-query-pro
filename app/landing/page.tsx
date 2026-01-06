@@ -274,7 +274,7 @@ export default function LandingPage() {
                   Review the generated query
                 </h3>
                 <p className="text-lg text-muted-foreground">
-                  See the SQL that AI generated, with explanations and confidence scores. Learn as you query.
+                  See the SQL that AI generated, with explanations and confidence scores. You can also edit the query directly before executing it. Learn as you query.
                 </p>
               </div>
             </div>
@@ -289,7 +289,7 @@ export default function LandingPage() {
                   Beautiful charts and tables
                 </h3>
                 <p className="text-lg text-muted-foreground">
-                  View results as interactive tables or switch to chart view with multiple visualization types.
+                  View results as interactive tables or switch to chart view. Let AI automatically choose the best chart type for your data, or select from bar, line, pie, area, and scatter charts.
                 </p>
               </div>
               <Card className="overflow-hidden border-2">
@@ -469,8 +469,11 @@ export default function LandingPage() {
                   Docker (Recommended)
                 </h3>
                 <div className="bg-muted/50 rounded-lg p-4 font-mono text-sm space-y-2">
-                  <div># Pull and run the container</div>
-                  <div className="text-primary">docker run -p 3000:3000 -e OPENAI_API_KEY=your_key dataquerypro/app</div>
+                  <div># Clone the repository</div>
+                  <div className="text-primary">git clone https://github.com/smartguy05/data-query-pro.git</div>
+                  <div className="text-primary">cd data-query-pro</div>
+                  <div className="mt-4"># Set your API key and run with docker-compose</div>
+                  <div className="text-primary">OPENAI_API_KEY=your_key docker-compose up -d</div>
                 </div>
               </div>
               <div>
