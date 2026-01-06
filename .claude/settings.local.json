@@ -32,7 +32,13 @@
       "mcp__playwright__browser_console_messages",
       "mcp__playwright__browser_select_option",
       "Bash(curl:*)",
-      "Bash(podman inspect:*)"
+      "Bash(podman inspect:*)",
+      "Bash(podman machine start:*)",
+      "Bash(timeout:*)",
+      "Bash(powershell -Command \"Get-Content 'C:\\\\Users\\\\AnthonyJames\\\\Documents\\\\Code\\\\dashboard\\\\scripts\\\\demo-database.sql' | podman exec -i demo-postgres psql -U demo -d cloudmetrics\":*)",
+      "Bash(dir \"C:\\\\Users\\\\AnthonyJames\\\\Documents\\\\Code\\\\dashboard\\\\public\\\\screenshots\")",
+      "Bash(dir:*)",
+      "Bash(cmd /c \"copy .playwright-mcp\\\\21-query-error-revise.png public\\\\screenshots\\\\21-query-error-revise.png\")"
     ]
   }
 }

@@ -21,6 +21,11 @@ export function Navigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const pathname = usePathname()
 
+  // Don't render navigation on landing page (it has its own nav)
+  if (pathname === "/landing") {
+    return null
+  }
+
   return (
     <nav className="bg-background border-b border-border sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-6">
