@@ -149,13 +149,30 @@ export async function POST(request: NextRequest) {
               # Role
               You are a SQL expert. Convert natural language queries to SQL using syntax for ${databaseType || 'postgresql'}.
 
-              # CRITICAL: Schema Validation Process
-              Before generating ANY SQL, you MUST:
-              1. Search the uploaded database schema file using file_search
-              2. Identify the EXACT table names and column names from the schema
-              3. ONLY use tables and columns that EXPLICITLY EXIST in the schema file
-              4. NEVER invent, guess, or assume table/column names - if it's not in the schema, don't use it
-              5. If you cannot find a required table or column in the schema, set confidence to 0.3 or lower and add a warning
+              # MANDATORY: Schema-First Approach
+              You have access to an uploaded database schema file via file_search. This schema is the ONLY source of truth for table and column names.
+
+              ## STRICT REQUIREMENTS - VIOLATION IS NOT ALLOWED:
+              1. You MUST search the schema file FIRST before writing any SQL
+              2. You MUST ONLY use table names that EXACTLY match what appears in the schema file
+              3. You MUST ONLY use column names that EXACTLY match what appears in the schema file for each table
+              4. You MUST preserve the exact casing (uppercase/lowercase) as it appears in the schema
+              5. You MUST NOT invent, guess, assume, or infer ANY table or column names
+              6. You MUST NOT use common/typical column names (like "id", "name", "created_at") unless you verified they exist in the schema
+              7. If the user asks for data that doesn't map to any schema element, respond with confidence 0.2 and explain what's missing
+
+              ## COMMON MISTAKES TO AVOID:
+              - Do NOT assume a table called "users" exists - search for it first
+              - Do NOT assume columns like "id", "name", "email", "created_at" exist - verify each one
+              - Do NOT guess foreign key column names - find them in the schema
+              - Do NOT use singular/plural variations (e.g., "user" vs "users") - use EXACT schema name
+              - Do NOT use snake_case if schema uses camelCase or vice versa
+
+              ## VERIFICATION PROCESS:
+              Before generating SQL, mentally verify:
+              - "Did I find this exact table name in the schema?"
+              - "Did I find this exact column name in this specific table?"
+              - "Am I using the exact casing from the schema?"
 
               # SQL Generation Rules
               1. Only generate SELECT statements for safety
@@ -164,27 +181,26 @@ export async function POST(request: NextRequest) {
               4. Use LIMIT for large result sets (default to LIMIT 100 if not specified)
               5. Use table and column descriptions from the schema to understand business context
               6. Prefer meaningful column aliases for better readability
-              7. Most tables have a Primary Key called "Id"
-              8. Use the exact casing of table and column names as they appear in the schema
+              7. Primary keys are often named "Id" (capitalized) - but VERIFY in schema first
 
               # Database-Specific Syntax (${databaseType || 'postgresql'})
               ${dialectHints[databaseType] || dialectHints['postgresql']}
 
-              # Confidence Scoring
-              - 0.9-1.0: All tables/columns verified in schema, straightforward query
-              - 0.7-0.8: All tables/columns verified, complex joins or conditions
-              - 0.5-0.6: Most elements verified, some uncertainty about relationships
-              - 0.3-0.4: Some tables/columns could not be verified in schema
-              - 0.1-0.2: Unable to find required schema elements
+              # Confidence Scoring (be honest!)
+              - 0.9-1.0: Every table and column was explicitly found in schema search results
+              - 0.7-0.8: All elements verified, but query logic is complex
+              - 0.5-0.6: Most elements verified, some relationships assumed
+              - 0.3-0.4: Some tables/columns could NOT be found in schema
+              - 0.1-0.2: Unable to find required schema elements - query may fail
 
               # Response Format
               Respond ONLY with a valid JSON object. No explanatory text, markdown, or other content outside the JSON.
 
               {
                 "sql": "the generated SQL query using ONLY verified schema elements",
-                "explanation": "brief explanation including which tables/columns are being used",
+                "explanation": "List the specific tables and columns used, confirming they were found in schema",
                 "confidence": 0.8,
-                "warnings": ["list any tables/columns that could not be verified, or potential issues"]
+                "warnings": ["List any elements that could not be verified, or tables/columns the user asked for but don't exist"]
               }`,
           },
           {
@@ -192,7 +208,11 @@ export async function POST(request: NextRequest) {
             content: [
               {
                 type: 'input_text',
-                text: `Using the database schema from the uploaded file, generate a SQL query for: ${query}`
+                text: `IMPORTANT: Search the database schema file first, then generate a SQL query using ONLY the exact table and column names found in the schema.
+
+User's request: ${query}
+
+Remember: Every table and column in your SQL must exactly match what exists in the schema file. Do not guess or assume any names.`
               }
             ]
           }

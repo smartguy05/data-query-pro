@@ -249,7 +249,7 @@ export default function QueryPage() {
         throw new Error("You must upload schema information file before enhancing queries!")
       }
 
-      const response = await fetch("/api/query/enhance", {
+      const response = await fetchWithAuth("/api/query/enhance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -347,7 +347,7 @@ export default function QueryPage() {
     try {
       const connection = connectionInformation.getConnection()
 
-      const response = await fetch("/api/query/revise", {
+      const response = await fetchWithAuth("/api/query/revise", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -417,7 +417,7 @@ export default function QueryPage() {
         throw new Error("No vector store available")
       }
 
-      const response = await fetch('/api/query/followup', {
+      const response = await fetchWithAuth('/api/query/followup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

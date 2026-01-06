@@ -53,11 +53,20 @@ export function useOpenAIKey() {
   /**
    * Get headers to include the user's API key in requests
    * Returns an object that can be spread into fetch headers
+   *
+   * Note: Reads from sessionStorage directly as a fallback to handle
+   * the case where the key was just set but React state hasn't updated yet
    */
   const getAuthHeaders = (): Record<string, string> => {
-    if (apiKey && apiKey.length > 0) {
+    // Check React state first, but fall back to sessionStorage for immediate updates
+    let key = apiKey;
+    if (!key && typeof window !== "undefined") {
+      key = sessionStorage.getItem(STORAGE_KEY);
+    }
+
+    if (key && key.length > 0) {
       return {
-        "x-user-openai-key": apiKey,
+        "x-user-openai-key": key,
       };
     }
     return {};

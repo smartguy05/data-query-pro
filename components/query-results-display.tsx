@@ -17,6 +17,9 @@ import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, Chevron
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ChartDisplay } from "@/components/chart-display"
 import { ChartConfig } from "@/models/chart-config.interface"
+import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
+import { useOpenAIKey } from "@/hooks/use-openai-key"
+import { ApiKeyDialog } from "@/components/api-key-dialog"
 
 interface QueryResultsProps {
   data: {
@@ -41,6 +44,10 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
   const [generatedCharts, setGeneratedCharts] = useState<Record<string, { config: ChartConfig; reasoning: string }>>({})
   const [isGeneratingChart, setIsGeneratingChart] = useState(false)
   const [chartError, setChartError] = useState<string | null>(null)
+
+  // Rate limiting hooks
+  const { fetchWithAuth, showRateLimitDialog, resetTimeInfo, clearRateLimitError } = useOpenAIFetch()
+  const { setApiKey } = useOpenAIKey()
 
   // Strict date validation - only matches full ISO dates (YYYY-MM-DD)
   const isValidFullDate = (val: any): boolean => {
@@ -193,7 +200,7 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
       // If no chart type specified, let AI choose
       if (!chartType) {
         setIsGeneratingChart(true)
-        const response = await fetch("/api/chart/generate", {
+        const response = await fetchWithAuth("/api/chart/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -230,7 +237,7 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
 
       // Generate new chart of specified type
       setIsGeneratingChart(true)
-      const response = await fetch("/api/chart/generate", {
+      const response = await fetchWithAuth("/api/chart/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -264,6 +271,7 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
   }
 
   return (
+    <>
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
@@ -540,5 +548,19 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
         )}
       </CardContent>
     </Card>
+
+    {/* API Key Dialog for Rate Limiting */}
+    <ApiKeyDialog
+      open={showRateLimitDialog}
+      onOpenChange={(open) => {
+        if (!open) clearRateLimitError();
+      }}
+      onSubmit={(apiKey) => {
+        setApiKey(apiKey);
+        clearRateLimitError();
+      }}
+      resetTime={resetTimeInfo}
+    />
+    </>
   )
 }
