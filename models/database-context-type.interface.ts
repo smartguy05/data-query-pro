@@ -5,6 +5,7 @@ interface DatabaseContextType {
     addConnection: (connection: DatabaseConnection) => void;
     updateConnection: (connection: DatabaseConnection) => void;
     deleteConnection: (id: string) => void;
+    duplicateConnection: (id: string) => DatabaseConnection | null;
     
     getSchema: (id?: string | undefined) => Schema | undefined;
     setSchema: (schema: Schema) => void;
