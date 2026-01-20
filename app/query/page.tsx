@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
-import { Loader2, Database, Sparkles } from "lucide-react"
+import { Loader2, Database, Sparkles, X } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { Toaster } from "@/components/ui/toaster"
 import { useDatabaseOptions } from "@/lib/database-connection-options"
@@ -135,6 +135,24 @@ export default function QueryPage() {
     setTabs(prev => prev.map(tab =>
       tab.id === tabId ? { ...tab, ...updates } : tab
     ))
+  }
+
+  // Helper: Remove a follow-up tab
+  const removeTab = (tabId: string) => {
+    const tabIndex = tabs.findIndex(t => t.id === tabId)
+    const tab = tabs[tabIndex]
+
+    // Don't allow removing the original tab
+    if (tab?.type === 'original') return
+
+    setTabs(prev => prev.filter(t => t.id !== tabId))
+
+    // If removing the active tab, switch to the previous tab or the original
+    if (activeTabId === tabId) {
+      const newIndex = Math.max(0, tabIndex - 1)
+      const remainingTabs = tabs.filter(t => t.id !== tabId)
+      setActiveTabId(remainingTabs[newIndex]?.id || remainingTabs[0]?.id || null)
+    }
   }
 
   // Helper: Get rows limited by user preference
@@ -658,11 +676,26 @@ export default function QueryPage() {
                       <TabsTrigger
                         key={tab.id}
                         value={tab.id}
-                        className="relative data-[state=active]:bg-background"
+                        className="relative data-[state=active]:bg-background pr-1"
                       >
-                        {getTabLabel(tab, index)}
+                        <span className={tab.type === 'followup' ? 'pr-1' : ''}>
+                          {getTabLabel(tab, index)}
+                        </span>
                         {tab.isGenerating && (
                           <Loader2 className="h-3 w-3 ml-1 animate-spin" />
+                        )}
+                        {tab.type === 'followup' && !tab.isGenerating && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              removeTab(tab.id)
+                            }}
+                            className="ml-1 p-0.5 rounded-sm hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors"
+                            aria-label={`Close ${getTabLabel(tab, index)}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
                         )}
                       </TabsTrigger>
                     ))}
