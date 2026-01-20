@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Database, CheckCircle, Loader2, Plus, Trash2, Download, Upload, Edit, AlertCircle } from "lucide-react"
+import { Database, CheckCircle, Loader2, Plus, Trash2, Download, Upload, Edit, AlertCircle, Copy } from "lucide-react"
 import {useDatabaseOptions} from "@/lib/database-connection-options";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import type { DatabaseType } from "@/lib/database"
@@ -335,6 +335,18 @@ export default function DatabasePage() {
 
   const deleteConnection = (id: string) => {
     connectionInformation.deleteConnection(id);
+  }
+
+  const handleDuplicateConnection = (connection: DatabaseConnection) => {
+    const isServerConnection = connection.source === "server";
+    const newConnection = connectionInformation.duplicateConnection(connection.id);
+    if (newConnection) {
+      if (isServerConnection) {
+        alert(`Connection "${newConnection.name}" created successfully!\n\nSince you duplicated a server connection, you'll need to:\n1. Edit the connection and enter the database credentials\n2. Upload the schema to OpenAI to enable AI queries`);
+      } else {
+        alert(`Connection "${newConnection.name}" created successfully! Remember to upload the schema to OpenAI to enable AI queries.`);
+      }
+    }
   }
 
   const setCurrentConnection = (connection: DatabaseConnection) => {
@@ -738,6 +750,14 @@ export default function DatabasePage() {
                               <span className="text-xs whitespace-nowrap">Schema Uploaded</span>
                             </div>
                           )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleDuplicateConnection(connection)}
+                            title="Duplicate connection"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
                           <Button
                             size="sm"
                             variant="outline"

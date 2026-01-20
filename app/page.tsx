@@ -22,7 +22,11 @@ import {
   Info,
   AlertTriangle,
   X,
-  Sparkles
+  Sparkles,
+  Shield,
+  Lock,
+  Eye,
+  Server
 } from "lucide-react"
 import Link from "next/link"
 import { SavedReport } from "@/models/saved-report.interface"
@@ -559,6 +563,115 @@ export default function ContextualDashboard() {
                   <ArrowRight className="h-5 w-5 ml-2" />
                 </Button>
               </Link>
+            </CardContent>
+          </Card>
+
+          {/* Data Privacy & Security Information */}
+          <Card className="mt-6 border-green-200 dark:border-green-900">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-6 w-6 text-green-600" />
+                Your Data Privacy & Security
+              </CardTitle>
+              <CardDescription>
+                Understanding how DataQuery Pro protects your data
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="bg-green-50 dark:bg-green-950 p-4 rounded-lg border border-green-200 dark:border-green-900">
+                <p className="font-semibold text-green-900 dark:text-green-100 mb-3">
+                  🔒 Your data never leaves your control without explicit consent
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  DataQuery Pro is designed with privacy-first principles. Here's exactly what gets sent to AI services and when:
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex gap-3">
+                  <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg h-fit">
+                    <Database className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-semibold mb-1">Schema Structure Only (Not Your Data)</h4>
+                    <p className="text-sm text-muted-foreground">
+                      When you upload your schema to enable AI queries, we only send <strong>metadata</strong>: table names,
+                      column names, data types, and relationships. <strong>Zero actual data rows</strong> are uploaded to OpenAI.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="p-2 bg-purple-100 dark:bg-purple-900 rounded-lg h-fit">
+                    <Eye className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-semibold mb-1">Query Results Stay Local</h4>
+                    <p className="text-sm text-muted-foreground">
+                      When you run a query, the results are displayed in your browser and <strong>never automatically sent to any AI service</strong>.
+                      Data only goes to OpenAI if you explicitly click "Ask a follow-up question" and include results as context.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="p-2 bg-amber-100 dark:bg-amber-900 rounded-lg h-fit">
+                    <Lock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-semibold mb-1">Credentials Stored Locally</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Database connection credentials (host, username, password) are stored in your browser's localStorage only.
+                      They never leave your machine and are never sent to our servers or any third party.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="p-2 bg-emerald-100 dark:bg-emerald-900 rounded-lg h-fit">
+                    <Server className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-semibold mb-1">Direct Database Connection</h4>
+                    <p className="text-sm text-muted-foreground">
+                      Your database queries execute directly from the application to your database. No intermediary servers store or
+                      process your query results. The application acts as a client-side tool with AI assistance.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-100 dark:bg-slate-900 p-4 rounded-lg border border-slate-200 dark:border-slate-800">
+                <h4 className="font-semibold mb-2 flex items-center gap-2">
+                  <Info className="h-4 w-4" />
+                  Complete Control Over AI Usage
+                </h4>
+                <ul className="space-y-2 text-sm text-muted-foreground">
+                  <li className="flex items-start gap-2">
+                    <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span><strong>Optional AI features:</strong> You can write and execute SQL queries manually without ever using AI</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span><strong>Bring your own API key:</strong> Use your own OpenAI API key for complete control and transparency</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span><strong>Hide sensitive tables:</strong> Mark tables or columns as "hidden" to exclude them from AI context entirely</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                    <span><strong>Read-only queries:</strong> AI only generates SELECT statements - no data modification commands</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg border border-blue-200 dark:border-blue-900">
+                <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                  💡 <strong>Best Practice:</strong> For production databases with sensitive data, consider using this tool with a read-only
+                  database user and/or creating a dedicated reporting view that excludes PII (personally identifiable information).
+                </p>
+              </div>
             </CardContent>
           </Card>
         </div>

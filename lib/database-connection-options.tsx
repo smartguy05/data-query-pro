@@ -182,6 +182,85 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
         localStorage.setItem("databaseConnections", JSON.stringify(localConnectionsOnly))
     }
 
+    const duplicateConnection = (id: string): DatabaseConnection | null => {
+        // Find the original connection
+        const originalConnection = connections.find(c => c.id === id);
+        if (!originalConnection) {
+            return null;
+        }
+
+        // Generate new unique ID
+        const newId = Date.now().toString();
+
+        // Create new connection with cleared vector store IDs
+        // For server connections, clear obscured credentials so user must re-enter them
+        const isServerConnection = originalConnection.source === "server";
+        const newConnection: DatabaseConnection = {
+            ...originalConnection,
+            id: newId,
+            name: `${originalConnection.name} (Copy)`,
+            schemaFileId: undefined,
+            vectorStoreId: undefined,
+            status: "disconnected",
+            source: "local", // Always local, even if duplicating server connection
+            createdAt: new Date().toISOString(),
+            // Clear obscured credentials from server connections
+            ...(isServerConnection && {
+                host: "",
+                port: originalConnection.type === "postgresql" ? "5432"
+                    : originalConnection.type === "mysql" ? "3306"
+                    : originalConnection.type === "sqlserver" ? "1433"
+                    : "",
+                database: "",
+                username: "",
+                password: "",
+            }),
+        };
+
+        // Duplicate schema if exists
+        const originalSchema = connectionSchemas.find(s => s.connectionId === id);
+        if (originalSchema) {
+            const newSchema: Schema = {
+                ...originalSchema,
+                connectionId: newId,
+                tables: originalSchema.tables.map(table => ({
+                    ...table,
+                    columns: table.columns.map(col => ({ ...col })),
+                })),
+            };
+            // Add schema (will be saved via useEffect)
+            setConnectionSchemas(prev => [...prev, newSchema]);
+        }
+
+        // Duplicate reports
+        const savedReports: SavedReport[] = JSON.parse(localStorage.getItem("saved_reports") || "[]");
+        const originalReports = savedReports.filter(r => r.connectionId === id);
+        if (originalReports.length > 0) {
+            const now = new Date().toISOString();
+            const newReports = originalReports.map(report => ({
+                ...report,
+                id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                connectionId: newId,
+                createdAt: now,
+                lastModified: now,
+                lastRun: undefined,
+            }));
+            localStorage.setItem("saved_reports", JSON.stringify([...savedReports, ...newReports]));
+        }
+
+        // Copy AI suggestions cache if exists
+        const suggestionsKey = `suggestions_${id}`;
+        const suggestions = localStorage.getItem(suggestionsKey);
+        if (suggestions) {
+            localStorage.setItem(`suggestions_${newId}`, suggestions);
+        }
+
+        // Add the new connection
+        addConnection(newConnection);
+
+        return newConnection;
+    }
+
     const getSchema = (id?: string): Schema | undefined => {
         if (!!id) {
             return connectionSchemas.find(f => f.connectionId === id);
@@ -220,6 +299,7 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
         <DatabaseContext.Provider value={{
             setConnectionStatus,
             deleteConnection,
+            duplicateConnection,
             setCurrentConnection,
             importConnections,
             updateConnection,
