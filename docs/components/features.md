@@ -88,9 +88,26 @@ interface QueryResultsDisplayProps {
 - Row search
 - CSV export
 - Switch to chart view
+- Automatic column type detection (text, number, currency, date, URL)
+- Manual column type override via dropdown on column header badges
+
+**Column Type Detection:**
+
+The component auto-detects column types by sampling the first 10 rows:
+
+| Type | Detection Method | Formatting |
+|------|-----------------|------------|
+| `text` | Default fallback | Plain string |
+| `number` | All values numeric | Locale-formatted (e.g., `1,234`) |
+| `currency` | Column name matches currency keywords (e.g., `price`, `revenue`, `cost`) AND values are numeric | USD formatted (e.g., `$1,234.56`) |
+| `date` | All values match ISO date format | Localized date/time |
+| `url` | All values match URL pattern (`http://`, `https://`, `www.`) | Clickable link with external link icon |
+| `empty` | All values null/undefined/empty | No formatting |
+
+Users can override the auto-detected type by clicking the type badge on any column header, which opens a dropdown with all available types. The auto-detected type is marked with "(detected)" in the dropdown. Overrides reset when new query results are loaded.
 
 **View Modes:**
-1. **Table** - Standard data table with sorting
+1. **Table** - Standard data table with sorting and type-aware formatting
 2. **Chart** - Visualization (via ChartDisplay)
 
 **Export Function:**
@@ -263,31 +280,113 @@ interface SavedReportsProps {
 ### ExecutiveMetrics
 **File:** `components/executive-metrics.tsx`
 
-High-level metric cards for dashboard.
+Static metric cards showing Revenue Growth, Customer Satisfaction, Market Share, and Operational Efficiency with value vs target and status badges.
 
 ### QuickActions
 **File:** `components/quick-actions.tsx`
 
-Quick action buttons:
-- New Query
-- View Schema
-- Run Recent Report
-- Export Data
+Quick action card with 4 color-coded buttons:
+- New Query (blue)
+- Generate Report (green)
+- Connect Database (purple)
+- View Analytics (orange)
 
 ### RecentReports
 **File:** `components/recent-reports.tsx`
 
-Shows recently run reports with quick-run option.
+Shows mock recent reports with type badges, timestamps, and download options.
 
-### ReportTemplates
-**File:** `components/report-templates.tsx`
+### PerformanceChart
+**File:** `components/performance-chart.tsx`
 
-Gallery of report templates by category.
+Mock 6-month revenue/customers/orders trend visualization with manual bar chart rendering.
 
-### ScheduledReports
-**File:** `components/scheduled-reports.tsx`
+---
 
-List of scheduled report runs (placeholder for future feature).
+## Query Components
+
+### QueryTabContent
+**File:** `components/query-tab-content.tsx`
+
+Displays an individual query tab with generated SQL, explanation, warnings, and results.
+
+**Features:**
+- Editable SQL textarea (dark background, monospace)
+- Execute and Save as Report buttons
+- Revision button for failed queries
+- Follow-up question button
+- Shows execution results or errors
+- Displays explanation responses (alternative to SQL queries)
+- Smooth scroll to results
+
+### FollowupDialog
+**File:** `components/followup-dialog.tsx`
+
+Dialog for asking follow-up questions about query results.
+
+**Features:**
+- Text input for follow-up question
+- Row limit selector: None (schema only), 25, 50, 100, or All
+- Warning when "All" exceeds 500 rows
+- Ctrl+Enter keyboard shortcut
+- Disabled state during processing
+
+---
+
+## Infrastructure Components
+
+### ErrorBoundary
+**File:** `components/error-boundary.tsx`
+
+React class component that catches JavaScript errors in child components.
+
+**Features:**
+- Fallback UI with error message
+- Reset button to recover
+- Optional custom fallback component
+- `withErrorBoundary` HOC for wrapping components
+
+**Usage:**
+```tsx
+<ErrorBoundary>
+  <ComponentThatMightError />
+</ErrorBoundary>
+
+// Or with HOC
+const SafeComponent = withErrorBoundary(MyComponent);
+```
+
+### OpenAIApiProvider
+**File:** `components/openai-api-provider.tsx`
+
+Context provider for OpenAI API key management.
+
+**Features:**
+- Stores key in sessionStorage (not localStorage)
+- Syncs between tabs via storage events
+- Provides: `setApiKey`, `clearApiKey`, `getAuthHeaders`
+- Exports `useOpenAIApiContext` hook
+
+### ApiKeyDialog
+**File:** `components/api-key-dialog.tsx`
+
+Dialog for users to enter their OpenAI API key to bypass rate limits.
+
+**Features:**
+- Key validation (must start with "sk-")
+- Reset time information display
+- Rate limit bypass explanation
+
+### ApiKeyIndicator
+**File:** `components/api-key-indicator.tsx`
+
+Navigation indicator showing OpenAI API key status.
+
+**Features:**
+- Green checkmark if key configured
+- Yellow alert if using demo (rate limited)
+- Popover menu for key management
+- Only renders when rate limiting is enabled
 
 ---
 
@@ -299,10 +398,11 @@ List of scheduled report runs (placeholder for future feature).
 Top navigation bar.
 
 **Features:**
-- Route links with active state
-- Current connection indicator
-- Theme toggle
-- Mobile responsive menu
+- Route links with active state (blue highlight)
+- Theme toggle (dark/light)
+- API key status indicator (when rate limiting enabled)
+- Mobile responsive with collapsible menu
+- Skips rendering on /landing page
 
 **Usage:**
 ```tsx

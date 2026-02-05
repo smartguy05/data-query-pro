@@ -33,9 +33,9 @@ This documentation provides comprehensive developer guidance for the DataQuery P
 ### Data Flow Summary
 ```
 User creates connection → localStorage → Context
-Schema introspection → PostgreSQL query → Context cache
+Schema introspection → Database adapter query → Context cache
 Schema upload → OpenAI file + vector store → Connection metadata
-Natural language → OpenAI API → SQL → PostgreSQL → Results
+Natural language → OpenAI API → SQL → Database adapter → Results
 ```
 
 ### Technology Stack
@@ -70,6 +70,7 @@ Natural language → OpenAI API → SQL → PostgreSQL → Results
 OPENAI_API_KEY=sk-...    # Required for AI features
 OPENAI_MODEL=gpt-5       # Model for query generation
 DEMO_RATE_LIMIT=         # Optional: API requests per IP per 24h (empty = unlimited)
+TRUSTED_PROXIES=         # Optional: comma-separated trusted proxy IPs
 ```
 
 ## Additional Features

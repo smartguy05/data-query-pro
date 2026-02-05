@@ -49,14 +49,14 @@ Database connection management (CRUD operations).
 - Add new connection form
 - Edit existing connections
 - Delete connections
-- Test connection (simulated)
+- Test connection (real - connects and runs test query)
 - Upload schema to OpenAI
 
 ### Connection Form Fields
 ```typescript
 {
   name: string;          // Display name
-  type: string;          // Database type (PostgreSQL only working)
+  type: string;          // Database type (postgresql, mysql, sqlserver, sqlite)
   host: string;          // Hostname
   port: string;          // Port number
   database: string;      // Database name
@@ -98,9 +98,9 @@ const handleUploadSchema = async (connectionId: string) => {
 ```
 
 ### Important Notes
-- "Connect" button simulates 2-second delay (doesn't test real connection)
+- "Connect" button performs a real connection test via `/api/connection/test`
 - Passwords stored in plain text in localStorage
-- Only PostgreSQL is actually implemented despite UI showing multiple types
+- All four database types (PostgreSQL, MySQL, SQL Server, SQLite) are fully implemented with adapters
 
 ---
 
@@ -169,8 +169,10 @@ Natural language query interface.
 - Generated SQL display
 - Confidence score
 - Execute queries
-- View results in table or chart
+- View results in table or chart with smart column type detection
+- Manual column type override (text, number, currency, date, URL)
 - Save as report
+- Auto-execute queries from saved reports via URL parameters
 
 ### Query Flow
 
@@ -198,13 +200,13 @@ Natural language query interface.
 
 ### State Management
 ```typescript
-const [query, setQuery] = useState('');
-const [generatedSQL, setGeneratedSQL] = useState('');
-const [explanation, setExplanation] = useState('');
-const [confidence, setConfidence] = useState(0);
-const [results, setResults] = useState<QueryResults | null>(null);
-const [isGenerating, setIsGenerating] = useState(false);
-const [isExecuting, setIsExecuting] = useState(false);
+// Tab-based state management for multiple queries
+const [tabs, setTabs] = useState<QueryTab[]>([]);
+const [activeTabId, setActiveTabId] = useState<string>('');
+const [naturalQuery, setNaturalQuery] = useState('');
+const [showFollowUpDialog, setShowFollowUpDialog] = useState(false);
+const [showSaveDialog, setShowSaveDialog] = useState(false);
+const [rowLimit, setRowLimit] = useState<RowLimitOption>(50);
 ```
 
 ### Key Operations
@@ -313,9 +315,12 @@ export default function RootLayout({ children }) {
 ```
 
 ### Provider Order
-1. **ThemeProvider** - Dark/light mode
-2. **DatabaseConnectionOptions** - Application state
-3. **Toaster** - Toast notifications (outside providers)
+1. **ThemeProvider** - Dark/light mode (no transition)
+2. **OpenAIApiProvider** - User API key management
+3. **DatabaseConnectionOptions** - Application state
+4. **Navigation** - Top navigation bar
+5. **ErrorBoundary** - Error catching wrapper
+6. **Toaster** - Toast notifications
 
 ---
 

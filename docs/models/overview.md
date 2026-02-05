@@ -47,7 +47,7 @@ const newConnection: DatabaseConnection = {
 **Notes:**
 - `schemaFileId` and `vectorStoreId` are populated after schema upload
 - `status` is managed by context, not user-set
-- Only `type: "PostgreSQL"` is actually implemented
+- All four database types are fully implemented: `postgresql`, `mysql`, `sqlserver`, `sqlite`
 
 ---
 
@@ -281,6 +281,62 @@ interface ChartConfig {
     showLegend?: boolean;
     colors?: string[];
   };
+}
+```
+
+---
+
+### QueryTab
+**File:** `models/query-tab.interface.ts`
+
+Represents a query tab in the multi-tab query interface.
+
+```typescript
+interface QueryTab {
+  id: string;
+  type: 'original' | 'followup';
+  question: string;
+  // Generation state
+  isGenerating: boolean;
+  generatedSql?: string;
+  explanation?: string;
+  confidence?: number;
+  warnings?: string[];
+  // Execution state
+  isExecuting: boolean;
+  results?: QueryExecutionResult;
+  error?: string;
+  // Follow-up specific
+  parentTabId?: string;
+  explanationResponse?: ExplanationResponse;
+}
+```
+
+**Related types:**
+- `FollowUpResponseType` - `'query' | 'explanation'`
+- `RowLimitOption` - `'none' | 25 | 50 | 100 | 'all'`
+- `QueryExecutionResult` - `{ columns, rows, rowCount, executionTime }`
+
+---
+
+### CommonTypes
+**File:** `models/common-types.ts`
+
+Shared type definitions used across the application.
+
+```typescript
+type CellValue = string | number | boolean | null | Date;
+type DataRow = CellValue[];
+type ParameterValue = string | number | boolean | Date | null | undefined;
+type JsonValue = string | number | boolean | null | JsonObject | JsonArray;
+
+interface AISuggestion {
+  id: string;
+  title: string;
+  description: string;
+  naturalLanguageQuery: string;
+  category: string;
+  priority: number;
 }
 ```
 

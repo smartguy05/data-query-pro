@@ -109,7 +109,7 @@ const { sql, explanation, confidence, warnings } = await response.json();
 
 **Location:** `app/api/query/execute/route.ts`
 
-Executes SQL queries against PostgreSQL.
+Executes SQL queries against the connected database.
 
 ### Request
 
@@ -156,18 +156,18 @@ Each keyword is checked with word boundaries to avoid false positives.
 
 ### Database Connection
 
-Uses the `postgres` library with SSL configuration:
+Uses database-specific adapters via the factory pattern:
 
 ```typescript
-const pgClient = postgres({
-  host: connection.host,
-  port: Number.parseInt(connection.port),
-  database: connection.database,
-  username: connection.username,
-  password: connection.password,
-  ssl: connection.host.includes("azure") ? { rejectUnauthorized: false } : false,
-});
+import { DatabaseAdapterFactory } from "@/lib/database";
+
+const adapter = DatabaseAdapterFactory.create(connection.type);
+await adapter.connect(config);
+const result = await adapter.executeQuery(sql);
+await adapter.disconnect();
 ```
+
+Supported databases: PostgreSQL (`pg`), MySQL (`mysql2`), SQL Server (`mssql`), SQLite (`better-sqlite3`).
 
 ### Result Formatting
 
@@ -239,7 +239,7 @@ User Input
 │ POST /api/query/execute  │
 ├─────────────────────────┤
 │ 1. Validate SQL safety  │
-│ 2. Connect to Postgres  │
+│ 2. Connect to database  │
 │ 3. Execute query        │
 │ 4. Format results       │
 └───────────┬─────────────┘
@@ -247,6 +247,127 @@ User Input
             ▼
     Display results
 ```
+
+---
+
+## POST /api/query/enhance
+
+**Location:** `app/api/query/enhance/route.ts`
+
+Improves natural language queries with specific schema details.
+
+### Request
+
+```typescript
+interface EnhanceRequest {
+  query: string;              // Original natural language query
+  vectorStoreId?: string;     // OpenAI vector store ID for schema context
+  databaseType?: string;      // Database type
+}
+```
+
+### Response
+
+```typescript
+interface EnhanceResponse {
+  enhancedQuery: string;      // Improved version of input query
+  improvements: string[];     // List of improvements made
+}
+```
+
+### Behavior
+
+1. Takes a vague query (e.g., "show revenue by month")
+2. Uses schema context to add specific table/column names
+3. Returns enhanced query with detailed instructions about tables, columns, and aggregations
+4. Rate limiting and BYOK support
+
+---
+
+## POST /api/query/revise
+
+**Location:** `app/api/query/revise/route.ts`
+
+Fixes SQL queries that failed during execution.
+
+### Request
+
+```typescript
+interface ReviseRequest {
+  originalQuestion: string;   // User's initial question
+  generatedSql: string;       // The SQL that failed
+  errorMessage: string;       // Database error message
+  databaseType: string;       // Database type
+  vectorStoreId?: string;     // Schema context
+}
+```
+
+### Response
+
+```typescript
+interface ReviseResponse {
+  sql: string;                // Corrected SQL query
+  explanation: string;        // Why it was fixed
+  confidence: number;         // 0-1 confidence score
+}
+```
+
+### Behavior
+
+1. Analyzes the error message from the failed query
+2. Searches schema context for correct table/column names
+3. Generates corrected SQL addressing the specific error
+4. Rate limiting and BYOK support
+
+---
+
+## POST /api/query/followup
+
+**Location:** `app/api/query/followup/route.ts`
+
+Processes follow-up questions on query results.
+
+### Request
+
+```typescript
+interface FollowUpRequest {
+  followUpQuestion: string;   // User's follow-up question
+  originalQuestion: string;   // Initial query
+  generatedSql: string;       // SQL that generated results
+  resultColumns: string[];    // Column names from results
+  resultRows: string[][];     // Result data
+  totalRowCount: number;      // Total rows returned
+  vectorStoreId?: string;     // Schema context
+  databaseType: string;       // Database type
+}
+```
+
+### Response
+
+```typescript
+// Can be one of two types:
+interface FollowUpQueryResponse {
+  responseType: 'query';
+  sql: string;                // New SQL query
+  explanation: string;
+  confidence: number;
+  warnings: string[];
+}
+
+interface FollowUpExplanationResponse {
+  responseType: 'explanation';
+  text: string;               // Analysis/explanation text
+  confidence: number;
+}
+```
+
+### Behavior
+
+1. Builds markdown table context from the original results
+2. Determines if follow-up needs a new query or just analysis
+3. If query: generates new SQL based on original context + follow-up
+4. If explanation: provides analysis text without generating SQL
+5. Rate limiting and BYOK support
 
 ## Related Documentation
 - [API Overview](./overview.md) - All endpoints

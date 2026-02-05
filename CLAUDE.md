@@ -2,6 +2,25 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## CRITICAL: Memory Files
+
+**ALWAYS update the `.memories/` directory files when relevant.** These files track project state across sessions:
+
+| File | Purpose | When to Update |
+|------|---------|----------------|
+| `.memories/completed.md` | Completed tasks by phase | When finishing ANY task, feature, or fix |
+| `.memories/todos.md` | Remaining tasks and tech debt | When adding, completing, or deprioritizing tasks |
+| `.memories/notes.md` | Issues, gotchas, lessons learned | When encountering bugs, workarounds, or patterns |
+
+**Rules:**
+1. Update these files **AT ALL TIMES** - they are the project's memory
+2. Update `completed.md` immediately after finishing a task (not at end of session)
+3. Update `todos.md` to check off completed items and add new discovered tasks
+4. Update `notes.md` with any issue you debug/solve that others might hit
+5. Keep entries concise but descriptive - future you needs to understand
+6. Periodically prune the todos file to remove old completed items
+7. Periodically summarize and prune completed.td to keep the file size small
+
 > **Detailed Documentation**: See the [docs/](./docs/) folder for comprehensive developer documentation including architecture details, API references, and guides.
 
 ## Project Overview
@@ -49,40 +68,83 @@ app/                          # Next.js 15 App Router
 ├── query/page.tsx           # Natural language query interface
 ├── schema/page.tsx          # Schema explorer with AI descriptions
 ├── reports/page.tsx         # Reports management
+├── landing/                 # Public landing page
+│   ├── page.tsx             # Landing page with features/screenshots
+│   └── layout.tsx           # Landing layout with SEO metadata
 └── api/                     # API routes
     ├── query/
     │   ├── generate/        # Natural language → SQL via OpenAI
-    │   └── execute/         # Execute SQL on connected database
+    │   ├── execute/         # Execute SQL on connected database
+    │   ├── followup/        # Follow-up questions on query results
+    │   ├── enhance/         # Enhance vague queries with AI
+    │   └── revise/          # Revise failed queries automatically
     ├── schema/
     │   ├── introspect/      # Database schema introspection (POST)
     │   ├── generate-descriptions/  # AI table/column descriptions
     │   ├── upload-schema/   # Upload schema to OpenAI file storage
     │   ├── update-description/     # Manually update descriptions
-    │   ├── start-introspection/    # WebSocket for real-time introspection
+    │   ├── start-introspection/    # Background introspection process
     │   └── status/          # Poll introspection status
+    ├── connection/
+    │   └── test/            # Test database connection
     ├── dashboard/
     │   └── suggestions/     # Generate metric suggestions
     ├── chart/
     │   └── generate/        # Generate chart configuration from data
     └── config/
-        └── connections/     # Read server-side database config
+        ├── connections/     # Read server-side database config
+        └── rate-limit-status/ # Check rate limit configuration
 
 components/                   # React components
 ├── ui/                      # shadcn/ui components (DO NOT modify manually)
 ├── charts/                  # Chart implementations (bar, line, pie, area, scatter)
 ├── schema-explorer.tsx      # Main schema browser component
 ├── query-results-display.tsx # Results with table/chart views
+├── query-tab-content.tsx    # Individual query tab display
+├── followup-dialog.tsx      # Follow-up question dialog
 ├── chart-display.tsx        # Main chart renderer
 ├── navigation.tsx           # Top navigation bar
 ├── saved-reports.tsx        # Reports list component
 ├── save-report-dialog.tsx   # Save query as report
 ├── edit-report-dialog.tsx   # Edit report metadata
 ├── parameter-config.tsx     # Configure report parameters
-└── parameter-input-dialog.tsx # Input parameters when running reports
+├── parameter-input-dialog.tsx # Input parameters when running reports
+├── error-boundary.tsx       # React error boundary wrapper
+├── openai-api-provider.tsx  # OpenAI API key context provider
+├── api-key-dialog.tsx       # API key input dialog
+├── api-key-indicator.tsx    # API key status in navigation
+├── theme-provider.tsx       # Dark/light theme provider
+└── theme-toggle.tsx         # Theme toggle button
 
 lib/                         # Shared utilities
 ├── database-connection-options.tsx  # Main state management context
-└── utils.ts                 # cn() utility for class names
+├── utils.ts                 # cn() utility for class names
+├── csrf.ts                  # CSRF protection utilities
+├── constants.ts             # Centralized app constants
+├── server-config.ts         # Server-side config reader
+├── api/
+│   └── response.ts          # API response helpers (success, error, etc.)
+├── config/
+│   └── trusted-proxies.ts   # Trusted proxy configuration
+├── openai/
+│   └── schema-upload.ts     # Schema upload to OpenAI utilities
+└── database/                # Database adapter system
+    ├── index.ts             # Re-exports
+    ├── types.ts             # Database types and interfaces
+    ├── factory.ts           # Adapter factory (registry pattern)
+    ├── base-adapter.ts      # Abstract base adapter class
+    ├── connection-validator.ts # Connection validation utilities
+    ├── adapters/            # Database-specific adapters
+    │   ├── postgresql.adapter.ts
+    │   ├── mysql.adapter.ts
+    │   ├── sqlserver.adapter.ts
+    │   └── sqlite.adapter.ts
+    └── queries/             # Database-specific SQL queries
+        ├── types.ts
+        ├── postgresql.queries.ts
+        ├── mysql.queries.ts
+        ├── sqlserver.queries.ts
+        └── sqlite.queries.ts
 
 models/                      # TypeScript interfaces
 ├── database-connection.interface.ts
@@ -91,15 +153,24 @@ models/                      # TypeScript interfaces
 ├── column.interface.ts
 ├── saved-report.interface.ts  # Report and parameter interfaces
 ├── chart-config.interface.ts
-└── database-context-type.interface.ts
+├── database-context-type.interface.ts
+├── connection-form-data.interface.ts # Form data for connections
+├── query-tab.interface.ts   # Query tab and follow-up types
+└── common-types.ts          # Shared types (CellValue, AISuggestion, etc.)
 
 utils/                       # Utility functions
 ├── generate-descriptions.ts  # Fallback description generators
-└── compare-schemas.ts        # Schema change detection
+├── compare-schemas.ts        # Schema change detection
+├── rate-limiter.ts           # IP-based rate limiting
+└── error-sanitizer.ts        # Database/OpenAI error sanitization
 
 hooks/                       # Custom React hooks
 ├── use-mobile.tsx           # Mobile responsive detection
-└── use-toast.ts             # Toast notifications
+├── use-toast.ts             # Toast notifications
+├── use-openai-key.tsx       # OpenAI API key management
+├── use-openai-fetch.tsx     # Fetch wrapper with auth/rate-limit
+├── use-unsaved-changes.ts   # Unsaved changes tracking
+└── use-schema-loading.ts    # Schema introspection state management
 
 docs/                        # Developer documentation
 ├── README.md                # Documentation index
@@ -155,11 +226,43 @@ config/                      # Server configuration
 - Returns: `{ sql, explanation, confidence, warnings }`
 - Handles non-JSON responses with fallback parsing
 
+### Query Enhancement
+- Route: `/api/query/enhance/route.ts`
+- Improves vague natural language queries with specific table/column names from schema
+- Returns: `{ enhancedQuery, improvements }`
+
+### Query Revision (Self-Correcting)
+- Route: `/api/query/revise/route.ts`
+- Fixes SQL queries that failed execution by analyzing error messages
+- Uses schema context to find correct table/column names
+- Returns corrected SQL with explanation
+
+### Follow-Up Questions
+- Route: `/api/query/followup/route.ts`
+- Processes follow-up questions on query results
+- Can return new SQL queries OR text explanations/analysis
+- Builds markdown table context from results for AI
+
 ### Query Execution
 - Route: `/api/query/execute/route.ts`
 - Validates queries to prevent dangerous operations (DROP, DELETE, UPDATE, INSERT, etc.)
 - Uses database adapters (`lib/database/adapters/`) for database-specific execution
 - Returns formatted results with columns, rows, execution time
+
+### Connection Testing
+- Route: `/api/connection/test/route.ts`
+- Tests database connections by actually connecting and running a test query
+- Returns latency and server version information
+- Sanitizes errors to prevent credential leaks
+
+### Column Type Detection & Override
+- `QueryResultsDisplay` auto-detects column types by sampling the first 10 rows of results
+- Supported types: `text`, `number`, `currency`, `date`, `url`, `empty`
+- **Currency detection**: Uses column name keyword matching (e.g., `price`, `revenue`, `cost`, `fee`, `salary`) combined with numeric value validation
+- **URL detection**: Matches values starting with `http://`, `https://`, or `www.`
+- **Manual override**: Users can click the type badge on any column header to change the detected type via a dropdown menu
+- Overrides are stored in component state (`columnTypeOverrides`) and reset when new data loads
+- Currency values formatted as USD (`$1,234.56`), URLs rendered as clickable links with external link icon
 
 ### AI Suggestions
 - Dashboard generates metric/report suggestions based on uploaded schema
@@ -191,6 +294,7 @@ Required in `.env.local`:
 OPENAI_API_KEY=sk-...        # Required for AI features
 OPENAI_MODEL=gpt-5          # Model for query generation
 DEMO_RATE_LIMIT=             # Optional: number of free requests per 24h per IP (empty = unlimited)
+TRUSTED_PROXIES=             # Optional: comma-separated trusted proxy IPs for rate limiting
 ```
 
 ### Rate Limiting & BYOK (Bring Your Own Key)

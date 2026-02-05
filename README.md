@@ -15,9 +15,12 @@ DataQuery Pro lets you connect to **PostgreSQL, MySQL, SQL Server, and SQLite** 
 - **Schema Introspection** - Automatically discover database structure, tables, and relationships
 - **AI Descriptions** - Generate business-focused descriptions for tables and columns
 - **Query Results Visualization** - View data as tables or various chart types
+- **Smart Column Types** - Auto-detects column types (text, number, currency, date, URL) with manual override
 - **Saved Reports** - Save queries as parameterized reports for reuse
 - **AI Suggestions** - Get smart metric and report recommendations based on your schema
 - **Follow-Up Questions** - Ask follow-up questions about your query results to drill deeper
+- **Server Configuration** - Deploy pre-configured connections via `config/databases.json` for teams
+- **Rate Limiting & BYOK** - Optional rate limiting with bring-your-own-key bypass for demos
 - **Dark/Light Mode** - Full theme support for comfortable viewing
 
 ---
@@ -124,7 +127,14 @@ When a query fails due to errors (like referencing a non-existent table), click 
 
 ### Query Results
 
-View your results as a sortable, searchable table or visualize them as charts.
+View your results as a sortable, searchable table or visualize them as charts. Each column is automatically typed (text, number, currency, date, URL) based on its name and values, with smart formatting applied:
+
+- **Currency columns** - Detected by column name (e.g., `revenue`, `price`, `total`) and formatted as `$1,234.56`
+- **URL columns** - Rendered as clickable links with an external link icon
+- **Date columns** - Formatted for readability
+- **Number columns** - Formatted with locale-appropriate separators
+
+Click the type badge on any column header to manually override the detected type.
 
 ![Results Table](screenshots/10-query-results-table.png)
 *Table view with search and export options*
@@ -359,6 +369,7 @@ Create a `.env.local` file with:
 OPENAI_API_KEY=sk-...    # Required for AI features
 OPENAI_MODEL=gpt-5       # Model for query generation (optional)
 DEMO_RATE_LIMIT=         # Optional: limit API requests per IP per 24h (empty = unlimited)
+TRUSTED_PROXIES=         # Optional: comma-separated trusted proxy IPs for rate limiting
 ```
 
 ### Rate Limiting & Bring Your Own Key (BYOK)

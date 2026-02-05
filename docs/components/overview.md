@@ -16,11 +16,14 @@ DataQuery Pro uses React components organized by functionality. UI primitives co
 ```
 layout.tsx
 ├── ThemeProvider
-│   └── DatabaseConnectionOptions (context)
-│       ├── Navigation
-│       └── [Page Component]
-│           └── [Feature Components]
-└── Toaster
+│   └── OpenAIApiProvider (API key context)
+│       └── DatabaseConnectionOptions (state context)
+│           ├── Navigation
+│           │   └── ApiKeyIndicator
+│           ├── ErrorBoundary
+│           │   └── [Page Component]
+│           │       └── [Feature Components]
+│           └── Toaster
 ```
 
 ## Key Components
@@ -40,9 +43,11 @@ Top navigation bar with route links.
 ```
 
 Features:
-- Connection status indicator
-- Current database name display
-- Active route highlighting
+- Active route highlighting (blue indicator)
+- Theme toggle (dark/light mode)
+- API key status indicator (when rate limiting enabled)
+- Mobile responsive with collapsible menu
+- Skips rendering on /landing page
 
 ### SchemaExplorer
 **File:** `components/schema-explorer.tsx`
@@ -78,6 +83,8 @@ Features:
 - Export to CSV
 - Chart visualization mode
 - Row count and execution time
+- Automatic column type detection (text, number, currency, date, URL)
+- Manual column type override via header badge dropdown
 
 Props:
 ```typescript
@@ -144,6 +151,7 @@ Detailed documentation: [Page Components](./pages.md)
 | Schema | `/schema` | `app/schema/page.tsx` |
 | Query | `/query` | `app/query/page.tsx` |
 | Reports | `/reports` | `app/reports/page.tsx` |
+| Landing | `/landing` | `app/landing/page.tsx` |
 
 ---
 
@@ -167,11 +175,20 @@ Detailed documentation: [Feature Components](./features.md)
 - `charts/scatter-chart.tsx` - Scatter plot
 
 ### Dashboard Components
-- `executive-metrics.tsx` - High-level metrics
-- `quick-actions.tsx` - Action buttons
-- `recent-reports.tsx` - Recent reports
-- `report-templates.tsx` - Report templates
-- `scheduled-reports.tsx` - Scheduled reports
+- `executive-metrics.tsx` - Static high-level metric cards
+- `quick-actions.tsx` - Quick action buttons (New Query, Reports, etc.)
+- `recent-reports.tsx` - Recent reports display
+- `performance-chart.tsx` - Mock performance visualization
+
+### Query Components
+- `query-tab-content.tsx` - Individual query tab with SQL, results, actions
+- `followup-dialog.tsx` - Follow-up question dialog with row limit selector
+
+### Infrastructure Components
+- `error-boundary.tsx` - React error boundary with fallback UI
+- `openai-api-provider.tsx` - OpenAI API key context provider
+- `api-key-dialog.tsx` - Dialog for entering OpenAI API key
+- `api-key-indicator.tsx` - Navigation indicator showing API key status
 
 ---
 

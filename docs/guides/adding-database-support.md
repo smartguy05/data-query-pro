@@ -4,215 +4,110 @@ Guide to extending DataQuery Pro for additional database types beyond PostgreSQL
 
 ## Current State
 
-The application currently only supports PostgreSQL despite the UI showing multiple database type options. All database-specific code is hardcoded for PostgreSQL.
+The application supports **all four database types**: PostgreSQL, MySQL, SQL Server, and SQLite. Each database has a dedicated adapter implementing the `IDatabaseAdapter` interface, with database-specific SQL queries for introspection.
+
+### Implemented Architecture
+
+```
+lib/database/
+├── types.ts              # DatabaseType, IDatabaseAdapter interface
+├── base-adapter.ts       # Abstract BaseDatabaseAdapter class
+├── factory.ts            # DatabaseAdapterFactory (registry pattern)
+├── connection-validator.ts # Connection validation utilities
+├── adapters/
+│   ├── postgresql.adapter.ts  # Uses 'pg' library
+│   ├── mysql.adapter.ts       # Uses 'mysql2/promise'
+│   ├── sqlserver.adapter.ts   # Uses 'mssql'
+│   └── sqlite.adapter.ts      # Uses 'better-sqlite3'
+└── queries/
+    ├── types.ts               # ParameterizedQuery interface
+    ├── postgresql.queries.ts
+    ├── mysql.queries.ts
+    ├── sqlserver.queries.ts
+    └── sqlite.queries.ts
+```
+
+### Adding a New Database Type
+
+To add support for a new database (e.g., Oracle, CockroachDB):
 
 ## Required Changes
 
-### 1. Update Connection Interface
+### 1. Create Database Adapter
 
-**File:** `models/database-connection.interface.ts`
+**File:** `lib/database/adapters/[newdb].adapter.ts`
 
-Add new type to union or use enum:
+Extend `BaseDatabaseAdapter`:
 
 ```typescript
-interface DatabaseConnection {
-  // ...
-  type: "PostgreSQL" | "MySQL" | "SQLite" | "MSSQL"; // Add new types
-  // ...
+import { BaseDatabaseAdapter } from '../base-adapter';
+import type { AdapterConnectionConfig, QueryResult, IntrospectionResult } from '../types';
+
+export class NewDbAdapter extends BaseDatabaseAdapter {
+  readonly type = 'newdb';
+  readonly displayName = 'NewDB';
+  readonly defaultPort = 1234;
+
+  async connect(config: AdapterConnectionConfig): Promise<void> { /* ... */ }
+  async disconnect(): Promise<void> { /* ... */ }
+  async executeRawQuery(sql: string): Promise<QueryResult> { /* ... */ }
+  async executeParameterizedQuery(query: ParameterizedQuery): Promise<QueryResult> { /* ... */ }
 }
 ```
 
-### 2. Update Query Execution
+### 2. Add Query Definitions
 
-**File:** `app/api/query/execute/route.ts`
+**File:** `lib/database/queries/[newdb].queries.ts`
 
-Add database-specific client initialization:
-
-```typescript
-import postgres from "postgres";
-import mysql from "mysql2/promise";  // Example for MySQL
-
-export async function POST(request: NextRequest) {
-  const { sql, connection } = await request.json();
-
-  // Existing validation...
-
-  let result;
-
-  switch (connection.type) {
-    case "PostgreSQL":
-      result = await executePostgres(sql, connection);
-      break;
-    case "MySQL":
-      result = await executeMySQL(sql, connection);
-      break;
-    case "SQLite":
-      result = await executeSQLite(sql, connection);
-      break;
-    default:
-      return NextResponse.json(
-        { error: `Unsupported database type: ${connection.type}` },
-        { status: 400 }
-      );
-  }
-
-  return NextResponse.json(result);
-}
-
-async function executePostgres(sql: string, connection: any) {
-  const pgClient = postgres({
-    host: connection.host,
-    port: Number.parseInt(connection.port),
-    database: connection.database,
-    username: connection.username,
-    password: connection.password,
-    ssl: connection.host.includes("azure") ? { rejectUnauthorized: false } : false,
-  });
-
-  try {
-    const result = await pgClient.unsafe(sql);
-    return formatResult(result);
-  } finally {
-    await pgClient.end();
-  }
-}
-
-async function executeMySQL(sql: string, connection: any) {
-  const conn = await mysql.createConnection({
-    host: connection.host,
-    port: Number.parseInt(connection.port),
-    database: connection.database,
-    user: connection.username,
-    password: connection.password,
-  });
-
-  try {
-    const [rows, fields] = await conn.execute(sql);
-    return formatMySQLResult(rows, fields);
-  } finally {
-    await conn.end();
-  }
-}
-```
-
-### 3. Update Schema Introspection
-
-**File:** `app/api/schema/introspect/route.ts`
-
-Add database-specific schema queries:
+Define introspection queries:
 
 ```typescript
-export async function POST(request: Request) {
-  const { connection } = await request.json();
+import type { ParameterizedQuery } from './types';
 
-  let schema;
-
-  switch (connection.type) {
-    case "PostgreSQL":
-      schema = await introspectPostgres(connection);
-      break;
-    case "MySQL":
-      schema = await introspectMySQL(connection);
-      break;
-    case "SQLite":
-      schema = await introspectSQLite(connection);
-      break;
-    default:
-      return NextResponse.json(
-        { error: `Unsupported database type: ${connection.type}` },
-        { status: 400 }
-      );
-  }
-
-  return NextResponse.json({ success: true, schema });
-}
-
-async function introspectPostgres(connection: any) {
-  // Existing PostgreSQL introspection logic
-  const sql = postgres({ /* ... */ });
-
-  const result = await sql`
-    SELECT t.table_name, c.column_name, c.data_type, ...
-    FROM information_schema.tables t
-    ...
-  `;
-
-  // Format and return
-}
-
-async function introspectMySQL(connection: any) {
-  const conn = await mysql.createConnection({ /* ... */ });
-
-  const [tables] = await conn.execute(`
-    SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE,
-           COLUMN_KEY, EXTRA
-    FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = ?
-    ORDER BY TABLE_NAME, ORDINAL_POSITION
-  `, [connection.database]);
-
-  // Format and return
-}
+export const newdbQueries = {
+  getTables(): ParameterizedQuery { /* ... */ },
+  getColumns(tableName: string): ParameterizedQuery { /* ... */ },
+  getForeignKeys(): ParameterizedQuery { /* ... */ },
+  testConnection(): ParameterizedQuery { /* ... */ },
+};
 ```
 
-### 4. Update Database Type Select
+### 3. Register the Adapter
+
+**File:** `lib/database/factory.ts`
+
+```typescript
+import { NewDbAdapter } from './adapters/newdb.adapter';
+
+DatabaseAdapterFactory.register('newdb', NewDbAdapter);
+```
+
+### 4. Update Type Definitions
+
+**File:** `lib/database/types.ts`
+
+Add to the `DatabaseType` union:
+
+```typescript
+export type DatabaseType = 'postgresql' | 'mysql' | 'sqlserver' | 'sqlite' | 'newdb';
+```
+
+### 5. Update UI
 
 **File:** `app/database/page.tsx`
 
-Update the Select component options:
+Add the new database type to the Select component and set default port.
 
-```tsx
-<Select
-  value={formData.type}
-  onValueChange={(value) => setFormData({ ...formData, type: value })}
->
-  <SelectTrigger>
-    <SelectValue placeholder="Select database type" />
-  </SelectTrigger>
-  <SelectContent>
-    <SelectItem value="PostgreSQL">PostgreSQL</SelectItem>
-    <SelectItem value="MySQL">MySQL</SelectItem>
-    <SelectItem value="SQLite">SQLite</SelectItem>
-    <SelectItem value="MSSQL">Microsoft SQL Server</SelectItem>
-  </SelectContent>
-</Select>
-```
-
-### 5. Update SQL Generation Prompts
+### 6. Update SQL Generation Prompts
 
 **File:** `app/api/query/generate/route.ts`
 
-The system prompt already accepts `databaseType`. Ensure SQL dialects are handled:
+Add dialect-specific hints for the new database type in the SQL hints section.
 
-```typescript
-const systemPrompt = `
-  You are a SQL expert. Convert natural language to SQL using syntax for ${databaseType}.
-
-  Database-specific considerations:
-  - PostgreSQL: Use ILIKE for case-insensitive, LIMIT, DATE functions
-  - MySQL: Use LIKE LOWER() for case-insensitive, LIMIT, DATE functions
-  - SQLite: Use LIKE for case-insensitive, LIMIT, date() functions
-  - MSSQL: Use TOP instead of LIMIT, GETDATE() for dates
-
-  ...
-`;
-```
-
-### 6. Add Database-Specific Dependencies
-
-**File:** `package.json`
-
-Install required database drivers:
+### 7. Add Dependencies
 
 ```bash
-# MySQL
-npm install mysql2
-
-# SQLite
-npm install better-sqlite3
-
-# MSSQL
-npm install tedious
+npm install [newdb-driver-package]
 ```
 
 ## Schema Query Reference
