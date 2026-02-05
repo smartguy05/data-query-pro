@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
-import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, ChevronLeft, ChevronRight, Loader2, Sparkles, LineChart, PieChart, AreaChart, ScatterChart } from "lucide-react"
+import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, ChevronLeft, ChevronRight, Loader2, Sparkles, LineChart, PieChart, AreaChart, ScatterChart, ExternalLink } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ChartDisplay } from "@/components/chart-display"
 import { ChartConfig } from "@/models/chart-config.interface"
@@ -59,13 +59,57 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
     return isoDateRegex.test(str) && !isNaN(Date.parse(str))
   }
 
+  // URL validation
+  const isValidUrl = (val: CellValue): boolean => {
+    if (val === null || val === undefined || val === "") return false
+    const str = String(val).trim()
+    // Match URLs starting with http://, https://, or www.
+    const urlRegex = /^(https?:\/\/|www\.)[^\s]+$/i
+    return urlRegex.test(str)
+  }
+
+  // Currency column name detection
+  const isCurrencyColumnName = (columnName: string): boolean => {
+    const currencyKeywords = [
+      'price', 'cost', 'amount', 'total', 'revenue', 'fee', 'salary',
+      'wage', 'payment', 'balance', 'budget', 'expense', 'income',
+      'profit', 'loss', 'rate', 'charge', 'discount', 'tax', 'subtotal',
+      'grand_total', 'net', 'gross', 'value', 'worth', 'mrr', 'arr'
+    ]
+    const lowerName = columnName.toLowerCase()
+    return currencyKeywords.some(keyword => lowerName.includes(keyword))
+  }
+
+  // Currency value detection (checks for currency symbols or numeric values in currency-named columns)
+  const isCurrencyValue = (val: CellValue): boolean => {
+    if (val === null || val === undefined || val === "") return true // Allow empty
+    const str = String(val).trim()
+    // Check if it starts with a currency symbol
+    const currencySymbolRegex = /^[$€£¥₹₽₪₩฿₫₴₦][\d,.\s]+$/
+    if (currencySymbolRegex.test(str)) return true
+    // Check if it's a number (can be formatted with commas)
+    const numericRegex = /^-?[\d,]+(\.\d+)?$/
+    return numericRegex.test(str) || !isNaN(Number(val))
+  }
+
   // Data type detection
   const columnTypes = useMemo(() => {
-    return data.columns.map((_, colIndex) => {
+    return data.columns.map((col, colIndex) => {
       const sampleValues = data.rows.slice(0, 10).map((row) => row[colIndex])
+      const nonEmptyValues = sampleValues.filter((val) => val !== null && val !== undefined && val !== "")
 
-      if (sampleValues.every((val) => val === null || val === undefined || val === "")) {
+      if (nonEmptyValues.length === 0) {
         return "empty"
+      }
+
+      // Check for URL type first (all non-empty values must be URLs)
+      if (nonEmptyValues.every((val) => isValidUrl(val))) {
+        return "url"
+      }
+
+      // Check for currency type (column name suggests currency AND values are numeric)
+      if (isCurrencyColumnName(col) && sampleValues.every((val) => isCurrencyValue(val))) {
+        return "currency"
       }
 
       if (sampleValues.every((val) => !isNaN(Number(val)) && val !== "")) {
@@ -97,15 +141,21 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
         const aVal = a[sortColumn]
         const bVal = b[sortColumn]
 
-        if (columnTypes[sortColumn] === "number") {
-          const aNum = Number(aVal) || 0
-          const bNum = Number(bVal) || 0
+        if (columnTypes[sortColumn] === "number" || columnTypes[sortColumn] === "currency") {
+          // For currency, strip symbols before parsing
+          const parseNum = (val: CellValue) => {
+            if (val === null || val === undefined) return 0
+            const str = String(val).replace(/[$€£¥₹₽₪₩฿₫₴₦,\s]/g, "")
+            return Number(str) || 0
+          }
+          const aNum = parseNum(aVal)
+          const bNum = parseNum(bVal)
           return sortDirection === "asc" ? aNum - bNum : bNum - aNum
         }
 
         if (columnTypes[sortColumn] === "date") {
-          const aDate = new Date(aVal).getTime() || 0
-          const bDate = new Date(bVal).getTime() || 0
+          const aDate = aVal ? new Date(String(aVal)).getTime() || 0 : 0
+          const bDate = bVal ? new Date(String(bVal)).getTime() || 0 : 0
           return sortDirection === "asc" ? aDate - bDate : bDate - aDate
         }
 
@@ -139,6 +189,20 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
 
     const type = columnTypes[columnIndex]
 
+    if (type === "currency") {
+      // Strip any existing currency symbols and parse the number
+      const strValue = String(value).replace(/[$€£¥₹₽₪₩฿₫₴₦,\s]/g, "")
+      const num = Number(strValue)
+      if (isNaN(num)) return String(value)
+      // Format as USD currency (can be extended to support other currencies)
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(num)
+    }
+
     if (type === "number") {
       const num = Number(value)
       return isNaN(num) ? String(value) : num.toLocaleString()
@@ -153,6 +217,7 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
       }
     }
 
+    // For URL type, return as-is (rendering handled separately)
     return String(value)
   }
 
@@ -477,7 +542,19 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
                     <tr key={i} className="border-b hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                       {row.map((cell, j) => (
                         <td key={j} className="px-4 py-3 text-slate-900 dark:text-slate-100">
-                          {formatCellValue(cell, j)}
+                          {columnTypes[j] === "url" && cell ? (
+                            <a
+                              href={String(cell).startsWith("http") ? String(cell) : `https://${cell}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline"
+                            >
+                              <span className="truncate max-w-xs">{String(cell)}</span>
+                              <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                            </a>
+                          ) : (
+                            formatCellValue(cell, j)
+                          )}
                         </td>
                       ))}
                     </tr>
