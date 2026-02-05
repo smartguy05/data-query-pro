@@ -21,6 +21,7 @@ DataQuery Pro lets you connect to **PostgreSQL, MySQL, SQL Server, and SQLite** 
 - **Follow-Up Questions** - Ask follow-up questions about your query results to drill deeper
 - **Server Configuration** - Deploy pre-configured connections via `config/databases.json` for teams
 - **Rate Limiting & BYOK** - Optional rate limiting with bring-your-own-key bypass for demos
+- **Authentication** - Optional Authentik SSO with per-user data isolation, sharing, and admin controls
 - **Dark/Light Mode** - Full theme support for comfortable viewing
 
 ---
@@ -187,10 +188,13 @@ cd dashboard
 # Create environment file
 cp .env.example .env.local
 # Add your OpenAI API key to .env.local
+# Optionally configure Authentik auth vars (see "Authentication with Authentik" below)
 
-# Start with Docker Compose
+# Start with Docker Compose (includes PostgreSQL for app data)
 docker-compose up
 ```
+
+Docker Compose includes a PostgreSQL database for app data. When auth env vars are not set, the app uses localStorage as before.
 
 ### Option 2: Local Development
 
@@ -341,7 +345,8 @@ Comprehensive developer documentation is available in the [docs](./docs) folder:
 |-------|------------|
 | Framework | Next.js 15 (App Router) |
 | UI | React 19, shadcn/ui, Tailwind CSS |
-| State | React Context + localStorage |
+| State | React Context + localStorage / PostgreSQL |
+| Auth | Auth.js v5 (next-auth) with Authentik OIDC |
 | Databases | PostgreSQL, MySQL, SQL Server, SQLite |
 | AI | OpenAI API (Responses API) |
 | Charts | Recharts |
@@ -380,6 +385,79 @@ For demo deployments, you can limit OpenAI API usage per IP address:
 - **User API Keys**: Users can bypass rate limits by providing their own OpenAI API key via the settings dialog
 - Leave `DEMO_RATE_LIMIT` empty or unset to disable rate limiting
 
+### Authentication with Authentik (Optional)
+
+DataQuery Pro supports optional multi-user authentication via [Authentik](https://goauthentik.io/) using OpenID Connect. When enabled, all user data (connections, schemas, reports) is stored in a PostgreSQL application database instead of localStorage, with per-user isolation and sharing capabilities.
+
+**When authentication is not configured, the app works exactly as before** using localStorage.
+
+#### Prerequisites
+
+- An [Authentik](https://goauthentik.io/) instance (self-hosted or cloud)
+- A PostgreSQL database for the application (separate from any databases you query)
+
+#### 1. Create an Authentik Application
+
+1. In Authentik, go to **Applications > Providers** and create a new **OAuth2/OpenID Provider**
+2. Set the **Redirect URI** to `http://localhost:3000/api/auth/callback/authentik` (adjust host/port for production)
+3. Under **Advanced Protocol Settings**, add `groups` to the **Scopes** (the app requests `openid email profile groups`)
+4. Go to **Applications** and create a new application linked to the provider
+5. Note the **Client ID**, **Client Secret**, and **Issuer URL** (e.g., `https://auth.example.com/application/o/dataquery-pro/`)
+
+#### 2. Create an Admin Group (Optional)
+
+1. In Authentik, go to **Directory > Groups** and create a group (e.g., `dataquery-admins`)
+2. Add users who should have admin access to this group
+3. Admins can manage server connection assignments in the app's admin panel at `/admin`
+
+#### 3. Configure Environment Variables
+
+Add these to your `.env.local`:
+
+```bash
+# Authentication (all 3 required to enable auth mode)
+AUTH_OIDC_ISSUER=https://auth.example.com/application/o/dataquery-pro/
+AUTH_OIDC_CLIENT_ID=your-client-id
+AUTH_OIDC_CLIENT_SECRET=your-client-secret
+AUTH_SECRET=your-random-secret          # Generate with: openssl rand -hex 32
+
+# Admin group name (must match the Authentik group name)
+AUTH_ADMIN_GROUP=dataquery-admins
+
+# App database for storing user data (required when auth is enabled)
+APP_DATABASE_URL=postgres://user:pass@localhost:5432/dataquery_app
+
+# Encryption key for database connection passwords (required when auth is enabled)
+APP_ENCRYPTION_KEY=your-64-char-hex     # Generate with: openssl rand -hex 32
+```
+
+#### 4. Create the App Database
+
+```bash
+# Create the PostgreSQL database
+createdb dataquery_app
+
+# Or with Docker
+docker exec -i your-postgres-container psql -U postgres -c "CREATE DATABASE dataquery_app"
+```
+
+The app automatically runs migrations on startup to create the required tables.
+
+#### How It Works
+
+| Feature | Without Auth (Default) | With Auth |
+|---------|----------------------|-----------|
+| Data storage | localStorage | PostgreSQL (encrypted) |
+| User isolation | Single user | Per-user with sharing |
+| Connection passwords | Plain text in browser | AES-256-GCM encrypted in database |
+| Login | None | SSO via Authentik |
+| Admin panel | N/A | `/admin` for server connection management |
+
+- **Data migration**: On first login, if you have existing data in localStorage, a migration dialog will offer to import it into your account
+- **Sharing**: Connections and reports can be shared with other users with configurable permissions (view/edit/admin)
+- **Server connections**: Admins can assign server-configured connections (`config/databases.json`) to specific users or Authentik groups via the admin panel
+- **Session strategy**: Uses JWT tokens (no server-side session storage required)
+
 ---
 
 ## Roadmap
@@ -387,7 +465,7 @@ For demo deployments, you can limit OpenAI API usage per IP address:
 - [x] ~~Support additional database types (MySQL, SQLite, MSSQL)~~ - **Completed!**
 - [ ] Enhanced chart creation and customization
 - [ ] Report scheduling
-- [ ] Team collaboration features
+- [x] ~~Team collaboration features~~ - **Completed!** (Authentik SSO, per-user data, sharing, admin panel)
 - [ ] Query history and favorites
 
 ---

@@ -1,7 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { getAuthContext } from '@/lib/auth/require-auth'
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await getAuthContext(request);
     const { tableName, columnName, description } = await request.json()
     
     const activeConnection = localStorage.getItem("currentDbConnection")

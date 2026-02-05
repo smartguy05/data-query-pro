@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { getAuthContext } from '@/lib/auth/require-auth'
 
 // Access the same in-memory storage
 declare global {
@@ -17,6 +18,7 @@ declare global {
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = await getAuthContext(request);
     const { searchParams } = new URL(request.url)
     const processId = searchParams.get("processId")
 

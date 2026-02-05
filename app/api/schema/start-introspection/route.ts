@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { DatabaseAdapterFactory, type AdapterConnectionConfig, type DatabaseType } from "@/lib/database"
 import { getServerConnectionCredentials } from "@/lib/server-config"
+import { getAuthContext } from '@/lib/auth/require-auth'
 
 declare global {
   var processStatus: Map<
@@ -23,6 +24,7 @@ if (!global.processStatus) {
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await getAuthContext(request);
     const { connection } = await request.json()
 
     if (!connection) {

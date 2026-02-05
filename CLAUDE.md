@@ -91,9 +91,32 @@ app/                          # Next.js 15 App Router
     │   └── suggestions/     # Generate metric suggestions
     ├── chart/
     │   └── generate/        # Generate chart configuration from data
-    └── config/
-        ├── connections/     # Read server-side database config
-        └── rate-limit-status/ # Check rate limit configuration
+    ├── config/
+    │   ├── connections/     # Read server-side database config
+    │   ├── rate-limit-status/ # Check rate limit configuration
+    │   └── auth-status/     # Check if auth is enabled
+    ├── auth/
+    │   └── [...nextauth]/   # Auth.js OIDC handler
+    ├── data/                # Authenticated CRUD routes
+    │   ├── connections/     # GET, POST
+    │   ├── connections/[id]/ # GET, PUT, DELETE, POST (duplicate)
+    │   ├── schemas/[connectionId]/ # GET, PUT
+    │   ├── reports/         # GET, POST
+    │   ├── reports/[id]/    # GET, PUT, DELETE
+    │   ├── suggestions/[connectionId]/ # GET, PUT
+    │   ├── preferences/     # GET, PUT
+    │   ├── notifications/dismiss/ # POST
+    │   └── import-local/    # POST (localStorage migration)
+    ├── sharing/
+    │   ├── connections/[id]/ # GET, POST, DELETE
+    │   ├── reports/[id]/    # GET, POST, DELETE
+    │   └── users/search/    # GET (search by email/name)
+    └── admin/
+        ├── users/           # GET (list all users)
+        ├── server-connections/ # GET (list server configs)
+        └── server-connections/[id]/
+            ├── assign/      # POST, DELETE
+            └── assignments/ # GET
 
 components/                   # React components
 ├── ui/                      # shadcn/ui components (DO NOT modify manually)
@@ -103,7 +126,10 @@ components/                   # React components
 ├── query-tab-content.tsx    # Individual query tab display
 ├── followup-dialog.tsx      # Follow-up question dialog
 ├── chart-display.tsx        # Main chart renderer
-├── navigation.tsx           # Top navigation bar
+├── auth-provider.tsx        # SessionProvider wrapper (conditional)
+├── share-dialog.tsx         # Share connections/reports with users
+├── data-migration-dialog.tsx # Import localStorage data on first login
+├── navigation.tsx           # Top navigation bar (with user menu when auth enabled)
 ├── saved-reports.tsx        # Reports list component
 ├── save-report-dialog.tsx   # Save query as report
 ├── edit-report-dialog.tsx   # Edit report metadata
@@ -117,13 +143,36 @@ components/                   # React components
 └── theme-toggle.tsx         # Theme toggle button
 
 lib/                         # Shared utilities
-├── database-connection-options.tsx  # Main state management context
+├── database-connection-options.tsx  # Main state management context (uses StorageProvider)
 ├── utils.ts                 # cn() utility for class names
 ├── csrf.ts                  # CSRF protection utilities
 ├── constants.ts             # Centralized app constants
 ├── server-config.ts         # Server-side config reader
 ├── api/
 │   └── response.ts          # API response helpers (success, error, etc.)
+├── auth/                    # Authentication
+│   ├── config.ts            # isAuthEnabled() check
+│   ├── auth-options.ts      # NextAuth config with OIDC provider
+│   └── require-auth.ts      # getAuthContext() + requireAdmin()
+├── db/                      # App database (PostgreSQL)
+│   ├── pool.ts              # Connection pool (getAppDb())
+│   ├── encryption.ts        # AES-256-GCM password encryption
+│   ├── migrate.ts           # SQL migration runner
+│   ├── migrations/          # SQL migration files
+│   │   └── 001_initial_schema.sql
+│   └── repositories/        # Data access layer
+│       ├── user-repository.ts
+│       ├── connection-repository.ts
+│       ├── schema-repository.ts
+│       ├── report-repository.ts
+│       ├── suggestion-repository.ts
+│       ├── preference-repository.ts
+│       ├── notification-repository.ts
+│       └── sharing-repository.ts
+├── storage/                 # Storage abstraction
+│   ├── storage-provider.ts  # Interface
+│   ├── local-storage-provider.ts  # localStorage impl (default)
+│   └── api-storage-provider.ts    # API-backed impl (auth mode)
 ├── config/
 │   └── trusted-proxies.ts   # Trusted proxy configuration
 ├── openai/
@@ -170,7 +219,10 @@ hooks/                       # Custom React hooks
 ├── use-openai-key.tsx       # OpenAI API key management
 ├── use-openai-fetch.tsx     # Fetch wrapper with auth/rate-limit
 ├── use-unsaved-changes.ts   # Unsaved changes tracking
-└── use-schema-loading.ts    # Schema introspection state management
+├── use-schema-loading.ts    # Schema introspection state management
+└── use-auth.ts              # Authentication state (user, isAdmin, signIn/signOut)
+
+instrumentation.ts           # Next.js 15 startup hook (runs DB migrations)
 
 docs/                        # Developer documentation
 ├── README.md                # Documentation index
@@ -188,6 +240,22 @@ config/                      # Server configuration
 
 ## Important Implementation Details
 
+### Authentication & Multi-User Mode (Optional)
+- **Dual-mode**: Auth is disabled by default. Enable by setting `AUTH_OIDC_ISSUER`, `AUTH_OIDC_CLIENT_ID`, `AUTH_OIDC_CLIENT_SECRET`
+- **Auth library**: Auth.js v5 (`next-auth`) with generic OIDC provider for Authentik
+- **Session strategy**: JWT (no database sessions)
+- **Storage abstraction**: `StorageProvider` interface in `lib/storage/`
+  - `LocalStorageProvider`: Current behavior, uses localStorage (when auth disabled)
+  - `ApiStorageProvider`: Calls `/api/data/*` CRUD routes (when auth enabled)
+- **App database**: PostgreSQL via `postgres` npm package, connection pool in `lib/db/pool.ts`
+  - Migrations run automatically on startup via `instrumentation.ts`
+  - All credentials encrypted with AES-256-GCM (`lib/db/encryption.ts`)
+- **Auth context**: All API routes call `getAuthContext(request)` — returns `null` when auth disabled (pass-through), or `{ userId, isAdmin, groups }` when enabled
+- **Connection credential resolution**: When auth enabled, `connection-validator.ts` resolves credentials from app DB instead of trusting client-supplied passwords
+- **Admin detection**: From Authentik OIDC groups claim, configurable via `AUTH_ADMIN_GROUP` env var
+- **Sharing**: Connections and reports can be shared with other users (view/edit/admin permissions)
+- **Data migration**: First-login dialog imports localStorage data into user's account
+
 ### OpenAI Integration
 - Uses **OpenAI Responses API** (not Chat Completions) for query generation
 - Schema files are uploaded to OpenAI and stored in a vector store
@@ -198,7 +266,7 @@ config/                      # Server configuration
 ### Database Connections
 - Supports **PostgreSQL, MySQL, SQL Server, and SQLite** via database-specific adapters in `lib/database/adapters/`
 - Connection testing is real - the `/api/connection/test` endpoint actually connects and runs a test query
-- Connection credentials are stored in localStorage (not production-ready)
+- Connection credentials are stored in localStorage (when auth disabled) or encrypted in PostgreSQL (when auth enabled)
 - **Server Configuration**: Connections can be deployed via `config/databases.json` file for team sharing
   - Server connections are automatically loaded on startup
   - Marked with "Server Config" badge in UI
@@ -295,6 +363,19 @@ OPENAI_API_KEY=sk-...        # Required for AI features
 OPENAI_MODEL=gpt-5          # Model for query generation
 DEMO_RATE_LIMIT=             # Optional: number of free requests per 24h per IP (empty = unlimited)
 TRUSTED_PROXIES=             # Optional: comma-separated trusted proxy IPs for rate limiting
+
+# Authentication (optional - all 3 required to enable auth mode)
+AUTH_OIDC_ISSUER=              # e.g. https://auth.example.com/application/o/dataquery-pro/
+AUTH_OIDC_CLIENT_ID=
+AUTH_OIDC_CLIENT_SECRET=
+AUTH_SECRET=                   # JWT signing key (openssl rand -hex 32)
+AUTH_ADMIN_GROUP=dataquery-admins  # Authentik group for admin access
+
+# App Database (required when auth is enabled)
+APP_DATABASE_URL=              # e.g. postgres://user:pass@localhost:5432/dataquery_app
+
+# Encryption (required when auth is enabled)
+APP_ENCRYPTION_KEY=            # 64-char hex string (openssl rand -hex 32)
 ```
 
 ### Rate Limiting & BYOK (Bring Your Own Key)

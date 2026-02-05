@@ -1,13 +1,15 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { validateConnection } from "@/lib/database/connection-validator"
 import { sanitizeDbError } from "@/utils/error-sanitizer"
+import { getAuthContext } from '@/lib/auth/require-auth';
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await getAuthContext(request);
     const { connection } = await request.json()
 
     // Validate connection and get adapter
-    const validationResult = await validateConnection(connection)
+    const validationResult = await validateConnection(connection, { authUserId: auth?.userId })
 
     if (!validationResult.success) {
       return NextResponse.json(

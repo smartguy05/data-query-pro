@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
 import { checkRateLimit, getOpenAIKey } from "@/utils/rate-limiter"
+import { getAuthContext } from '@/lib/auth/require-auth';
 
 /**
  * Builds a context string from query results for the AI.
@@ -43,6 +44,7 @@ function buildResultContext(
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await getAuthContext(request);
     const {
       followUpQuestion,
       originalQuestion,

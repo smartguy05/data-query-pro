@@ -7,6 +7,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/theme-provider";
 import { OpenAIApiProvider } from "@/components/openai-api-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { AuthProvider } from "@/components/auth-provider";
+import { DataMigrationDialog } from "@/components/data-migration-dialog";
 
 export const metadata: Metadata = {
   title: "Database Query & Reporting Platform",
@@ -28,20 +30,23 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
-          <OpenAIApiProvider>
-            <DatabaseConnectionOptions>
-              <Navigation />
-              <main>
-                <ErrorBoundary
-                  title="Application Error"
-                  description="An unexpected error occurred in the application. Please try again or refresh the page."
-                >
-                  {children}
-                </ErrorBoundary>
-              </main>
-              <Toaster />
-            </DatabaseConnectionOptions>
-          </OpenAIApiProvider>
+          <AuthProvider>
+            <OpenAIApiProvider>
+              <DatabaseConnectionOptions>
+                <Navigation />
+                <main>
+                  <ErrorBoundary
+                    title="Application Error"
+                    description="An unexpected error occurred in the application. Please try again or refresh the page."
+                  >
+                    {children}
+                  </ErrorBoundary>
+                </main>
+                <DataMigrationDialog />
+                <Toaster />
+              </DatabaseConnectionOptions>
+            </OpenAIApiProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

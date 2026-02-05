@@ -1,5 +1,7 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getServerConfig, stripSensitiveData } from "@/lib/server-config";
+import { getAuthContext } from '@/lib/auth/require-auth';
+import { isAuthEnabled } from '@/lib/auth/config';
 
 export const dynamic = "force-dynamic";
 
@@ -10,13 +12,16 @@ export const dynamic = "force-dynamic";
  * This allows administrators to deploy pre-configured database connections,
  * schemas, and reports that will be shared across all users.
  *
+ * When auth is enabled, only returns server connections assigned to the requesting user/groups.
+ *
  * SECURITY: Passwords are stripped from server connections before sending to client.
  * APIs that need credentials will look them up server-side by connection ID.
  *
  * Config file location: /config/databases.json in the project root
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const auth = await getAuthContext(request);
     const config = await getServerConfig();
 
     if (!config) {
@@ -26,8 +31,22 @@ export async function GET() {
       });
     }
 
+    let connections = config.connections || [];
+
+    // When auth is enabled, filter to only assigned server connections
+    if (isAuthEnabled() && auth) {
+      try {
+        const { getAssignedServerConnectionIds } = await import('@/lib/db/repositories/connection-repository');
+        const assignedIds = await getAssignedServerConnectionIds(auth.userId, auth.groups);
+        connections = connections.filter((c: DatabaseConnection) => assignedIds.includes(c.id));
+      } catch {
+        // If DB lookup fails, return no server connections rather than all
+        connections = [];
+      }
+    }
+
     // Mark all connections as coming from server, strip sensitive data, and ensure disconnected initially
-    const serverConnections = config.connections.map((conn: DatabaseConnection) => {
+    const serverConnections = connections.map((conn: DatabaseConnection) => {
       const safeConnection = stripSensitiveData(conn);
       return {
         ...safeConnection,

@@ -1,9 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { validateConnection } from "@/lib/database/connection-validator"
 import { sanitizeDbError } from "@/utils/error-sanitizer"
+import { getAuthContext } from '@/lib/auth/require-auth';
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await getAuthContext(request);
     const { sql, connection } = await request.json()
 
     if (!sql) {
@@ -28,6 +30,7 @@ export async function POST(request: NextRequest) {
     // Validate connection and get adapter
     const validationResult = await validateConnection(connection, {
       validateRequiredFields: false, // execute route doesn't require field validation
+      authUserId: auth?.userId,
     })
 
     if (!validationResult.success) {

@@ -1,9 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai";
 import { uploadSchemaToOpenAI } from "@/lib/openai/schema-upload";
+import { getAuthContext } from '@/lib/auth/require-auth';
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await getAuthContext(request);
     const { data, existingFileId, existingVectorStoreId } = await request.json();
 
     const openai = new OpenAI({

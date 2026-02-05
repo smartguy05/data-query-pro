@@ -7,8 +7,10 @@
 ## Medium Priority
 - [ ] Report scheduling (Roadmap item)
 - [ ] Team collaboration features (Roadmap item)
-- [ ] Move credentials out of localStorage for production security
-- [ ] Add proper authentication/authorization for production use
+- [x] Move credentials out of localStorage for production security (done: encrypted in PostgreSQL when auth enabled)
+- [x] Add proper authentication/authorization for production use (done: Authentik OIDC via Auth.js v5)
+- [ ] Test Authentik integration end-to-end with a real Authentik instance
+- [ ] Add connection/report sharing UI to database and reports pages
 
 ## Low Priority / Tech Debt
 - [ ] Remove mock/static dashboard components (executive-metrics, performance-chart, recent-reports) once real data is used

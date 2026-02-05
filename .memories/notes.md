@@ -15,9 +15,22 @@
 
 ## State Management
 - Context provider: `DatabaseConnectionOptions` in `lib/database-connection-options.tsx`
+- StorageProvider abstraction: `lib/storage/storage-provider.ts` interface
+  - `LocalStorageProvider`: localStorage (when auth disabled, default)
+  - `ApiStorageProvider`: calls /api/data/* routes (when auth enabled)
+- Determined at startup via `/api/config/auth-status` endpoint
 - localStorage is the persistence layer for single-user mode
 - sessionStorage is used for OpenAI API keys (not persisted across sessions)
 - Server config merged with local connections on startup
+
+## Authentication Architecture
+- Auth is optional: enabled when AUTH_OIDC_ISSUER + AUTH_OIDC_CLIENT_ID + AUTH_OIDC_CLIENT_SECRET are all set
+- Auth.js v5 with JWT strategy (no database sessions)
+- Admin detection via Authentik groups claim: user in AUTH_ADMIN_GROUP group gets isAdmin=true
+- All API routes call `getAuthContext(request)` which returns null when auth disabled (pass-through)
+- Connection credentials resolved from app DB (encrypted) when auth enabled, not from client payload
+- Server connections still resolved from config/databases.json; assignments tracked in server_connection_assignments table
+- Data migration dialog shows on first login when localStorage has data
 
 ## Documentation Patterns
 - CLAUDE.md is the primary reference for Claude Code - keep project structure tree up to date

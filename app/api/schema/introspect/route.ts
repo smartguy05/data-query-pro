@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { validateConnection } from "@/lib/database/connection-validator"
 import { sanitizeDbError } from "@/utils/error-sanitizer"
+import { getAuthContext } from '@/lib/auth/require-auth'
 
 export async function GET() {
   try {
@@ -25,6 +26,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const auth = await getAuthContext(request);
     const { connection } = await request.json()
     console.log("[v0] Connecting to database:", {
       host: connection?.host,
@@ -35,6 +37,7 @@ export async function POST(request: Request) {
     // Validate connection and get adapter
     const validationResult = await validateConnection(connection, {
       validateRequiredFields: false, // introspect doesn't require field validation
+      authUserId: auth?.userId,
     })
 
     if (!validationResult.success) {

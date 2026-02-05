@@ -67,6 +67,8 @@ export function generateCSRFToken(): string {
 export function shouldSkipCSRF(pathname: string): boolean {
   // Add any paths that should be exempt from CSRF protection
   const exemptPaths = [
+    // Auth.js handles its own CSRF protection
+    '/api/auth/',
     // Webhooks typically have their own authentication
     // '/api/webhooks/',
   ];
