@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -64,6 +64,9 @@ export default function QueryPage() {
 
   const connectionInformation = useDatabaseOptions()
 
+  // Auto-execute tracking for reports
+  const autoExecuteTabRef = useRef<string | null>(null)
+
   // Handle URL parameters
   useEffect(() => {
     const queryParam = searchParams.get("suggestion")
@@ -92,8 +95,27 @@ export default function QueryPage() {
       const tab = createOriginalTab("Saved Report Query", queryResult)
       setTabs([tab])
       setActiveTabId(tab.id)
+
+      // Auto-execute if requested (e.g., from running a saved report)
+      const autoExecute = searchParams.get("autoExecute")
+      if (autoExecute === 'true') {
+        autoExecuteTabRef.current = tab.id
+      }
     }
   }, [searchParams])
+
+  // Auto-execute query when tab is ready and context is initialized
+  // (e.g., from running a saved report)
+  useEffect(() => {
+    if (autoExecuteTabRef.current && connectionInformation.isInitialized) {
+      const tabId = autoExecuteTabRef.current
+      const tab = tabs.find(t => t.id === tabId)
+      if (tab) {
+        autoExecuteTabRef.current = null
+        executeTabQuery(tabId)
+      }
+    }
+  }, [tabs, connectionInformation.isInitialized])
 
   // Clear tabs when connection changes
   useEffect(() => {

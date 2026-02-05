@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useRef } from "react"
 import { QueryTab } from "@/models/query-tab.interface"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -29,6 +30,15 @@ export function QueryTabContent({
   isExecuting,
   isRevising = false
 }: QueryTabContentProps) {
+  const resultsRef = useRef<HTMLDivElement>(null)
+
+  // Scroll to results when they arrive
+  useEffect(() => {
+    if (tab.executionResults && resultsRef.current) {
+      resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [tab.executionResults])
+
   // Loading state - AI is processing the question
   if (tab.isGenerating) {
     return (
@@ -200,7 +210,7 @@ export function QueryTabContent({
 
         {/* Results Display */}
         {tab.executionResults && (
-          <div className="space-y-4">
+          <div ref={resultsRef} className="space-y-4">
             {/* Ask Follow-up Button - above results for visibility */}
             <div className="flex justify-end">
               <Button

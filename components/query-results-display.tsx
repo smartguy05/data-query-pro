@@ -71,13 +71,22 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
   // Currency column name detection
   const isCurrencyColumnName = (columnName: string): boolean => {
     const currencyKeywords = [
-      'price', 'cost', 'amount', 'total', 'revenue', 'fee', 'salary',
-      'wage', 'payment', 'balance', 'budget', 'expense', 'income',
-      'profit', 'loss', 'rate', 'charge', 'discount', 'tax', 'subtotal',
-      'grand_total', 'net', 'gross', 'value', 'worth', 'mrr', 'arr'
+      'price', 'cost', 'revenue', 'fee', 'salary',
+      'wage', 'payment', 'budget', 'expense', 'income',
+      'profit', 'charge', 'discount', 'tax', 'subtotal',
+      'grand_total', 'mrr', 'arr', 'spend', 'cash',
+      'deposit', 'withdrawal', 'refund', 'payout', 'billing',
+      'invoice', 'debt', 'credit', 'debit', 'premium',
+      'commission', 'bonus', 'stipend', 'allowance', 'tuition',
+      'rent', 'mortgage', 'loan', 'funding', 'donation'
     ]
     const lowerName = columnName.toLowerCase()
-    return currencyKeywords.some(keyword => lowerName.includes(keyword))
+    // Use word boundary matching to avoid false positives
+    // e.g., "fee" should match "monthly_fee" but "rate" shouldn't match "error_rate"
+    return currencyKeywords.some(keyword => {
+      const regex = new RegExp(`(^|[_\\s-])${keyword}([_\\s-]|$|s$|s[_\\s-])`)
+      return regex.test(lowerName)
+    })
   }
 
   // Currency value detection (checks for currency symbols or numeric values in currency-named columns)
