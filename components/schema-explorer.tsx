@@ -9,8 +9,8 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ConfirmationModal } from "@/components/ui/confirmation-modal"
-import { SchemaUpdateModal } from "@/components/ui/schema-update-modal"
+import { ConfirmationModal } from "@/components/confirmation-modal"
+import { SchemaUpdateModal } from "@/components/schema-update-modal"
 import {
   Database,
   TableIcon,
