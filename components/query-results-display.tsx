@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,6 +12,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu"
 import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, ChevronLeft, ChevronRight, Loader2, Sparkles, LineChart, PieChart, AreaChart, ScatterChart, ExternalLink } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -45,6 +47,14 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
   const [generatedCharts, setGeneratedCharts] = useState<Record<string, { config: ChartConfig; reasoning: string }>>({})
   const [isGeneratingChart, setIsGeneratingChart] = useState(false)
   const [chartError, setChartError] = useState<string | null>(null)
+
+  // Manual column type overrides (by column index)
+  const [columnTypeOverrides, setColumnTypeOverrides] = useState<Record<number, string>>({})
+
+  // Reset overrides when data changes
+  useEffect(() => {
+    setColumnTypeOverrides({})
+  }, [data])
 
   // Rate limiting hooks
   const { fetchWithAuth, showRateLimitDialog, resetTimeInfo, clearRateLimitError } = useOpenAIFetch()
@@ -101,8 +111,8 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
     return numericRegex.test(str) || !isNaN(Number(val))
   }
 
-  // Data type detection
-  const columnTypes = useMemo(() => {
+  // Data type detection (auto-detected)
+  const autoDetectedTypes = useMemo(() => {
     return data.columns.map((col, colIndex) => {
       const sampleValues = data.rows.slice(0, 10).map((row) => row[colIndex])
       const nonEmptyValues = sampleValues.filter((val) => val !== null && val !== undefined && val !== "")
@@ -132,6 +142,11 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
       return "text"
     })
   }, [data])
+
+  // Merge auto-detected types with manual overrides
+  const columnTypes = useMemo(() => {
+    return autoDetectedTypes.map((type, i) => columnTypeOverrides[i] || type)
+  }, [autoDetectedTypes, columnTypeOverrides])
 
   // Filtered and sorted data
   const processedData = useMemo(() => {
@@ -532,9 +547,43 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
                       >
                         <div className="flex items-center gap-2">
                           <span>{col}</span>
-                          <Badge variant="outline" className="text-xs">
-                            {columnTypes[i]}
-                          </Badge>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Badge
+                                variant="outline"
+                                className="text-xs cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {columnTypes[i]}
+                                <ChevronDown className="h-3 w-3 ml-1 opacity-50" />
+                              </Badge>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" onClick={(e) => e.stopPropagation()}>
+                              <DropdownMenuRadioGroup
+                                value={columnTypes[i]}
+                                onValueChange={(value) =>
+                                  setColumnTypeOverrides((prev) => {
+                                    const next = { ...prev }
+                                    if (value === autoDetectedTypes[i]) {
+                                      delete next[i]
+                                    } else {
+                                      next[i] = value
+                                    }
+                                    return next
+                                  })
+                                }
+                              >
+                                {["text", "number", "currency", "date", "url"].map((type) => (
+                                  <DropdownMenuRadioItem key={type} value={type}>
+                                    {type}
+                                    {type === autoDetectedTypes[i] && (
+                                      <span className="ml-2 text-xs text-muted-foreground">(detected)</span>
+                                    )}
+                                  </DropdownMenuRadioItem>
+                                ))}
+                              </DropdownMenuRadioGroup>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                           {sortColumn === i &&
                             (sortDirection === "asc" ? (
                               <ChevronUp className="h-4 w-4" />
