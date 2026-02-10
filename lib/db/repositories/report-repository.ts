@@ -10,15 +10,22 @@ interface DbReport {
   natural_language_query: string;
   sql: string;
   explanation: string;
-  warnings: string[];
+  warnings: string[] | string;
   confidence: number;
-  parameters: ReportParameter[];
+  parameters: ReportParameter[] | string;
   is_favorite: boolean;
   created_at: Date;
   last_modified: Date;
   last_run: Date | null;
   // Join field
   permission?: string;
+}
+
+function parseJsonb<T>(data: T | string, fallback: T): T {
+  if (typeof data === 'string') {
+    try { return JSON.parse(data); } catch { return fallback; }
+  }
+  return data ?? fallback;
 }
 
 function toClientReport(row: DbReport): SavedReport {
@@ -30,9 +37,9 @@ function toClientReport(row: DbReport): SavedReport {
     naturalLanguageQuery: row.natural_language_query,
     sql: row.sql,
     explanation: row.explanation,
-    warnings: row.warnings || [],
+    warnings: parseJsonb(row.warnings, []),
     confidence: row.confidence,
-    parameters: row.parameters || [],
+    parameters: parseJsonb(row.parameters, []),
     isFavorite: row.is_favorite,
     createdAt: row.created_at.toISOString(),
     lastModified: row.last_modified.toISOString(),
@@ -75,8 +82,8 @@ export async function createReport(
     ) VALUES (
       ${report.id}, ${report.connectionId}, ${userId}, ${report.name},
       ${report.description || null}, ${report.naturalLanguageQuery},
-      ${report.sql}, ${report.explanation}, ${JSON.stringify(report.warnings || [])},
-      ${report.confidence}, ${JSON.stringify(report.parameters || [])},
+      ${report.sql}, ${report.explanation}, ${sql.json(report.warnings || [])},
+      ${report.confidence}, ${sql.json(report.parameters || [])},
       ${report.isFavorite || false}, ${report.createdAt},
       ${report.lastModified}, ${report.lastRun || null}
     )
@@ -109,9 +116,9 @@ export async function updateReport(
       natural_language_query = COALESCE(${report.naturalLanguageQuery ?? null}, natural_language_query),
       sql = COALESCE(${report.sql ?? null}, sql),
       explanation = COALESCE(${report.explanation ?? null}, explanation),
-      warnings = COALESCE(${report.warnings ? JSON.stringify(report.warnings) : null}, warnings),
+      warnings = COALESCE(${report.warnings ? sql.json(report.warnings) : null}, warnings),
       confidence = COALESCE(${report.confidence ?? null}, confidence),
-      parameters = COALESCE(${report.parameters ? JSON.stringify(report.parameters) : null}, parameters),
+      parameters = COALESCE(${report.parameters ? sql.json(report.parameters) : null}, parameters),
       is_favorite = COALESCE(${report.isFavorite ?? null}, is_favorite),
       last_modified = ${report.lastModified || new Date().toISOString()},
       last_run = ${report.lastRun || existing.last_run}

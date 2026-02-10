@@ -9,6 +9,7 @@ import { OpenAIApiProvider } from "@/components/openai-api-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { AuthProvider } from "@/components/auth-provider";
 import { DataMigrationDialog } from "@/components/data-migration-dialog";
+import { ContentLoadingGate } from "@/components/content-loading-gate";
 
 export const metadata: Metadata = {
   title: "Database Query & Reporting Platform",
@@ -39,7 +40,9 @@ export default function RootLayout({
                     title="Application Error"
                     description="An unexpected error occurred in the application. Please try again or refresh the page."
                   >
-                    {children}
+                    <ContentLoadingGate>
+                      {children}
+                    </ContentLoadingGate>
                   </ErrorBoundary>
                 </main>
                 <DataMigrationDialog />

@@ -43,7 +43,9 @@
       "Bash(taskkill:*)",
       "Bash(cmd /c \"copy .playwright-mcp\\\\24-rate-limit-applies-after-clear.png public\\\\screenshots\"\")",
       "Bash(powershell -Command \"Copy-Item ''.playwright-mcp/22-bypass-rate-limit-with-key.png'' ''public/screenshots/''\")",
-      "Bash(powershell -Command \"Copy-Item ''.playwright-mcp/23-key-persisted-in-session.png'' ''public/screenshots/''\")"
+      "Bash(powershell -Command \"Copy-Item ''.playwright-mcp/23-key-persisted-in-session.png'' ''public/screenshots/''\")",
+      "Bash(podman-compose:*)",
+      "Bash(npx next dev:*)"
     ]
   }
 }

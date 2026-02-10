@@ -18,7 +18,10 @@ export async function getAuthContext(request: NextRequest): Promise<AuthContext 
   // Import next-auth dynamically to avoid issues when not installed/configured
   try {
     const { getToken } = await import('next-auth/jwt');
-    const token = await getToken({ req: request as Parameters<typeof getToken>[0]['req'] });
+    const token = await getToken({
+      req: request as Parameters<typeof getToken>[0]['req'],
+      secret: process.env.AUTH_SECRET,
+    });
 
     if (!token) {
       return null;

@@ -112,16 +112,23 @@ export abstract class BaseDatabaseAdapter implements IDatabaseAdapter {
         fkMap.set(columnName, `${foreignTable}.${foreignColumn}`);
       });
 
-      // Build columns array
-      const columns: Column[] = columnsResult.map((col) => ({
-        name: col.column_name as string,
-        type: col.data_type as string,
-        nullable: Boolean(col.is_nullable),
-        primary_key: Boolean(col.is_primary_key),
-        foreign_key: fkMap.get(col.column_name as string),
-        description: undefined,
-        aiDescription: undefined,
-      }));
+      // Build columns array, deduplicating by column name
+      const columnMap = new Map<string, Column>();
+      for (const col of columnsResult) {
+        const name = col.column_name as string;
+        if (!columnMap.has(name)) {
+          columnMap.set(name, {
+            name,
+            type: col.data_type as string,
+            nullable: Boolean(col.is_nullable),
+            primary_key: Boolean(col.is_primary_key),
+            foreign_key: fkMap.get(name),
+            description: undefined,
+            aiDescription: undefined,
+          });
+        }
+      }
+      const columns: Column[] = Array.from(columnMap.values());
 
       tables.push({
         name: tableName,

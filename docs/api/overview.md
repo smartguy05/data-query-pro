@@ -4,6 +4,7 @@ DataQuery Pro uses Next.js API routes for server-side operations. All routes are
 
 ## Endpoint Summary
 
+### Core Endpoints (both modes)
 | Endpoint | Method | Purpose | Documentation |
 |----------|--------|---------|---------------|
 | `/api/query/generate` | POST | Convert natural language to SQL | [Query Endpoints](./query-endpoints.md) |
@@ -15,12 +16,43 @@ DataQuery Pro uses Next.js API routes for server-side operations. All routes are
 | `/api/schema/upload-schema` | POST | Upload schema to OpenAI | [Schema Endpoints](./schema-endpoints.md) |
 | `/api/schema/generate-descriptions` | POST | Generate AI descriptions | [Schema Endpoints](./schema-endpoints.md) |
 | `/api/schema/update-description` | POST | Update single description | [Schema Endpoints](./schema-endpoints.md) |
-| `/api/schema/start-introspection` | WS | WebSocket for introspection | [Schema Endpoints](./schema-endpoints.md) |
+| `/api/schema/start-introspection` | POST | Start background introspection | [Schema Endpoints](./schema-endpoints.md) |
 | `/api/schema/status` | GET | Poll introspection status | [Schema Endpoints](./schema-endpoints.md) |
 | `/api/dashboard/suggestions` | POST | Generate metric suggestions | [Dashboard Endpoints](./dashboard-endpoints.md) |
 | `/api/chart/generate` | POST | Generate chart config | [Dashboard Endpoints](./dashboard-endpoints.md) |
+| `/api/connection/test` | POST | Test database connectivity | - |
 | `/api/config/connections` | GET | Get server-configured connections | - |
 | `/api/config/rate-limit-status` | GET | Check rate limit status | - |
+| `/api/config/auth-status` | GET | Check if auth is enabled | - |
+
+### Authenticated CRUD Endpoints (auth mode only)
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/data/connections` | GET, POST | List/create user connections |
+| `/api/data/connections/[id]` | GET, PUT, DELETE, POST | CRUD + duplicate connection |
+| `/api/data/schemas/[connectionId]` | GET, PUT | Get/update schema for connection |
+| `/api/data/reports` | GET, POST | List/create reports |
+| `/api/data/reports/[id]` | GET, PUT, DELETE | CRUD for individual report |
+| `/api/data/suggestions/[connectionId]` | GET, PUT | Get/update cached suggestions |
+| `/api/data/preferences` | GET, PUT | User preferences |
+| `/api/data/notifications/dismiss` | POST | Dismiss notification |
+| `/api/data/import-local` | POST | Import localStorage data |
+
+### Admin Endpoints (admin only)
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/admin/users` | GET | List all users |
+| `/api/admin/server-connections` | GET, POST | List/create server connections |
+| `/api/admin/server-connections/[id]` | PUT, DELETE | Update/delete server connection |
+| `/api/admin/server-connections/[id]/assign` | POST, DELETE | Assign/unassign user or group |
+| `/api/admin/server-connections/[id]/assignments` | GET | List assignments |
+
+### Sharing Endpoints (auth mode only)
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/sharing/connections/[id]` | GET, POST, DELETE | Manage connection shares |
+| `/api/sharing/reports/[id]` | GET, POST, DELETE | Manage report shares |
+| `/api/sharing/users/search` | GET | Search users by email/name |
 
 ## Common Patterns
 
@@ -55,20 +87,20 @@ Errors return appropriate HTTP status codes with JSON body:
 // 500 - Server Error (internal error)
 ```
 
-### Connection Credentials
-Several endpoints require database connection credentials:
+### Connection Credentials (Dual Format)
+Endpoints that connect to target databases accept two formats:
 
 ```typescript
-interface ConnectionPayload {
-  host: string;
-  port: string;
-  database: string;
-  username: string;
-  password: string;
-}
+// Auth mode: send only connection ID (credentials resolved server-side from app DB)
+{ connectionId: "abc123", source: "server", type: "postgresql" }
+
+// Default mode: send full connection details
+{ connection: { host: "...", port: "...", database: "...", username: "...", password: "..." } }
 ```
 
-**Security Note:** Credentials are passed from client-side localStorage. This is not secure for production.
+The `validateConnection()` function in `lib/database/connection-validator.ts` handles both formats.
+
+**Security Note:** In auth mode, credentials are never sent from the client. In default mode (localStorage), credentials are passed from the client.
 
 ## OpenAI API Integration
 

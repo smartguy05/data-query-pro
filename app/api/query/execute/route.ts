@@ -6,7 +6,12 @@ import { getAuthContext } from '@/lib/auth/require-auth';
 export async function POST(request: NextRequest) {
   try {
     const auth = await getAuthContext(request);
-    const { sql, connection } = await request.json()
+    const body = await request.json()
+    const sql = body.sql;
+    // Support both { connectionId } (auth mode) and { connection } (no-auth mode)
+    const connection = body.connectionId
+      ? { id: body.connectionId, source: body.source || 'local', type: body.type }
+      : body.connection;
 
     if (!sql) {
       return NextResponse.json({ error: "SQL query is required" }, { status: 400 })

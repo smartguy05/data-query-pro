@@ -2,28 +2,16 @@ import { NextRequest } from 'next/server';
 import { getAuthContext } from '@/lib/auth/require-auth';
 import { successResponse, badRequest, unauthorized, internalError } from '@/lib/api/response';
 import * as connRepo from '@/lib/db/repositories/connection-repository';
-import { getAssignedServerConnectionIds } from '@/lib/db/repositories/connection-repository';
-import { getServerConfig } from '@/lib/server-config';
 
 export async function GET(request: NextRequest) {
   try {
     const auth = await getAuthContext(request);
     if (!auth) return unauthorized();
 
-    // Get user's own + shared connections from app DB
-    const dbConnections = await connRepo.getConnectionsForUser(auth.userId, auth.groups);
-
-    // Get server connections assigned to this user/groups
-    const assignedIds = await getAssignedServerConnectionIds(auth.userId, auth.groups);
-    let serverConnections: DatabaseConnection[] = [];
-    if (assignedIds.length > 0) {
-      const config = await getServerConfig();
-      if (config?.connections) {
-        serverConnections = config.connections.filter(c => assignedIds.includes(c.id));
-      }
-    }
-
-    return successResponse([...serverConnections, ...dbConnections]);
+    // getConnectionsForUser includes DB-managed server connections
+    // Non-admins only see server connections that have a schema uploaded
+    const connections = await connRepo.getConnectionsForUser(auth.userId, auth.groups, auth.isAdmin);
+    return successResponse(connections);
   } catch (error) {
     console.error('[GET /api/data/connections]', error);
     return internalError();

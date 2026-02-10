@@ -1,8 +1,10 @@
 import { readFile } from "fs/promises";
 import { join } from "path";
+import { isAuthEnabled } from "@/lib/auth/config";
 
 /**
- * Reads the server config file and returns the raw config data
+ * Reads the server config file and returns the raw config data.
+ * When auth is enabled, returns null (server connections are DB-managed).
  */
 export async function getServerConfig(): Promise<{
   connections: DatabaseConnection[];
@@ -10,6 +12,9 @@ export async function getServerConfig(): Promise<{
   savedReports?: any[];
   currentDbConnection?: DatabaseConnection;
 } | null> {
+  // When auth is enabled, server connections are managed in the database
+  if (isAuthEnabled()) return null;
+
   try {
     const configPath = join(process.cwd(), "config", "databases.json");
     const fileContent = await readFile(configPath, "utf-8");
@@ -42,10 +47,13 @@ export async function getServerConfig(): Promise<{
 }
 
 /**
- * Looks up a server connection by ID and returns the full connection including password
- * This should only be used server-side for operations that need credentials
+ * Looks up a server connection by ID and returns the full connection including password.
+ * Only used for config-file connections (non-auth mode).
+ * When auth is enabled, use getServerConnectionCredentialsFromDb() instead.
  */
 export async function getServerConnectionCredentials(connectionId: string): Promise<DatabaseConnection | null> {
+  if (isAuthEnabled()) return null;
+
   const config = await getServerConfig();
   if (!config) return null;
 

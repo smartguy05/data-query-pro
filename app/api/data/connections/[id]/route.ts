@@ -32,9 +32,20 @@ export async function PUT(
 
     const { id } = await params;
     const body = await request.json();
-    const updated = await connRepo.updateConnection(auth.userId, { ...body, id });
-    if (!updated) return notFound('Connection not found or access denied');
 
+    // Try normal user connection update first
+    let updated = await connRepo.updateConnection(auth.userId, { ...body, id });
+
+    // If not found, try server connection metadata update (status, schemaFileId, vectorStoreId)
+    if (!updated) {
+      updated = await connRepo.updateServerConnectionMetadata(id, {
+        status: body.status,
+        schemaFileId: body.schemaFileId,
+        vectorStoreId: body.vectorStoreId,
+      });
+    }
+
+    if (!updated) return notFound('Connection not found or access denied');
     return successResponse(updated);
   } catch (error) {
     console.error('[PUT /api/data/connections/[id]]', error);

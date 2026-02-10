@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { FileText, Calendar, Trash2, MoreHorizontal, Eye, AlertTriangle, Play, Edit, Copy, Star, Database } from "lucide-react"
+import { FileText, Calendar, Trash2, MoreHorizontal, Eye, AlertTriangle, Play, Edit, Copy, Star, Database, ArrowRightLeft } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +23,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { SavedReport } from "@/models/saved-report.interface"
 import { useDatabaseOptions } from "@/lib/database-connection-options"
 import { useToast } from "@/hooks/use-toast"
@@ -48,18 +55,22 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
   const [showCloneDialog, setShowCloneDialog] = useState(false)
   const [reportToClone, setReportToClone] = useState<SavedReport | null>(null)
   const [cloneName, setCloneName] = useState("")
+  const [showCopyToDialog, setShowCopyToDialog] = useState(false)
+  const [reportToCopy, setReportToCopy] = useState<SavedReport | null>(null)
+  const [targetConnectionId, setTargetConnectionId] = useState<string>("")
 
   useEffect(() => {
-    // Wait for context to be initialized before loading reports
-    // This ensures server-config reports are written to localStorage first
+    // Filter reports from context by current connection
     if (connectionInfo.isInitialized) {
-      loadReports()
+      const activeConnection = connectionInfo.getConnection()
+      if (activeConnection) {
+        setReports(connectionInfo.reports.filter(r => r.connectionId === activeConnection.id))
+      } else {
+        setReports(connectionInfo.reports)
+      }
     }
-  }, [connectionInfo.isInitialized, connectionInfo.currentConnection?.id])
+  }, [connectionInfo.isInitialized, connectionInfo.currentConnection?.id, connectionInfo.reports])
 
-  // Handle dialog close focus management using Radix UI's built-in mechanisms
-  // instead of manual DOM manipulation. The onOpenChange handlers below
-  // ensure proper cleanup when dialogs close.
   const handleEditDialogClose = useCallback((open: boolean) => {
     setShowEditDialog(open)
     if (!open) {
@@ -75,18 +86,6 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     }
   }, [])
 
-  const loadReports = () => {
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-
-    // Filter by current connection if one is active
-    const activeConnection = connectionInfo.getConnection()
-    if (activeConnection) {
-      setReports(savedReports.filter(r => r.connectionId === activeConnection.id))
-    } else {
-      setReports(savedReports)
-    }
-  }
-
   const filteredReports = reports.filter(
     (report) =>
       report.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -94,11 +93,8 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
       report.naturalLanguageQuery.toLowerCase().includes(searchTerm.toLowerCase()),
   )
 
-  const deleteReport = (reportId: string) => {
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-    const updatedReports = savedReports.filter(r => r.id !== reportId)
-    localStorage.setItem("saved_reports", JSON.stringify(updatedReports))
-    loadReports()
+  const deleteReport = async (reportId: string) => {
+    await connectionInfo.deleteReport(reportId)
 
     toast({
       title: "Report Deleted",
@@ -106,18 +102,15 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     })
   }
 
-  const toggleFavorite = (reportId: string) => {
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-    const updatedReports = savedReports.map(r =>
-      r.id === reportId ? { ...r, isFavorite: !r.isFavorite } : r
-    )
-    localStorage.setItem("saved_reports", JSON.stringify(updatedReports))
-    loadReports()
+  const toggleFavorite = async (reportId: string) => {
+    const report = connectionInfo.reports.find(r => r.id === reportId)
+    if (!report) return
+    const updated = { ...report, isFavorite: !report.isFavorite }
+    await connectionInfo.updateReport(updated)
 
-    const report = updatedReports.find(r => r.id === reportId)
     toast({
-      title: report?.isFavorite ? "Added to Favorites" : "Removed from Favorites",
-      description: report?.isFavorite ? "This report is now a favorite" : "This report is no longer a favorite",
+      title: updated.isFavorite ? "Added to Favorites" : "Removed from Favorites",
+      description: updated.isFavorite ? "This report is now a favorite" : "This report is no longer a favorite",
     })
   }
 
@@ -143,7 +136,46 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     }, 50)
   }
 
-  const confirmClone = () => {
+  const copyToConnection = (report: SavedReport) => {
+    setTimeout(() => {
+      setReportToCopy(report)
+      setTargetConnectionId("")
+      setShowCopyToDialog(true)
+    }, 50)
+  }
+
+  const handleCopyToDialogClose = useCallback((open: boolean) => {
+    setShowCopyToDialog(open)
+    if (!open) {
+      setReportToCopy(null)
+      setTargetConnectionId("")
+    }
+  }, [])
+
+  const confirmCopyToConnection = async () => {
+    if (!reportToCopy || !targetConnectionId) return
+
+    const targetConn = connectionInfo.connections.find(c => c.id === targetConnectionId)
+    const copiedReport: SavedReport = {
+      ...reportToCopy,
+      id: `report_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      connectionId: targetConnectionId,
+      name: `${reportToCopy.name} (${targetConn?.name || targetConn?.database || "Copy"})`,
+      createdAt: new Date().toISOString(),
+      lastModified: new Date().toISOString(),
+      lastRun: undefined,
+    }
+
+    await connectionInfo.saveReport(copiedReport)
+    handleCopyToDialogClose(false)
+
+    toast({
+      title: "Report Copied",
+      description: `"${copiedReport.name}" created for ${targetConn?.name || targetConn?.database}`,
+    })
+  }
+
+  const confirmClone = async () => {
     if (!reportToClone || !cloneName.trim()) return
 
     const clonedReport: SavedReport = {
@@ -152,16 +184,11 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
       name: cloneName.trim(),
       createdAt: new Date().toISOString(),
       lastModified: new Date().toISOString(),
-      lastRun: undefined, // Reset last run time
+      lastRun: undefined,
     }
 
-    // Save to localStorage
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-    savedReports.push(clonedReport)
-    localStorage.setItem("saved_reports", JSON.stringify(savedReports))
-    loadReports()
+    await connectionInfo.saveReport(clonedReport)
 
-    // Close clone dialog properly
     handleCloneDialogClose(false)
 
     toast({
@@ -169,18 +196,14 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
       description: `"${cloneName.trim()}" has been created`,
     })
 
-    // Open in edit mode after a small delay
     setTimeout(() => {
       setReportToEdit(clonedReport)
       setShowEditDialog(true)
     }, 300)
   }
 
-  const saveEditedReport = (updatedReport: SavedReport) => {
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-    const updatedReports = savedReports.map(r => r.id === updatedReport.id ? updatedReport : r)
-    localStorage.setItem("saved_reports", JSON.stringify(updatedReports))
-    loadReports()
+  const saveEditedReport = async (updatedReport: SavedReport) => {
+    await connectionInfo.updateReport(updatedReport)
 
     toast({
       title: "Report Updated",
@@ -235,14 +258,7 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     }
 
     // Update last run time
-    const savedReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-    const updatedReports = savedReports.map(r =>
-      r.id === report.id
-        ? { ...r, lastRun: new Date().toISOString() }
-        : r
-    )
-    localStorage.setItem("saved_reports", JSON.stringify(updatedReports))
-    loadReports()
+    connectionInfo.updateReport({ ...report, lastRun: new Date().toISOString() })
 
     // Navigate to query page with the parameterized query
     // We'll pass the SQL directly since it's already been parameterized
@@ -333,6 +349,12 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
                             <Copy className="h-4 w-4 mr-2" />
                             Clone Report
                           </DropdownMenuItem>
+                          {connectionInfo.connections.length > 1 && (
+                            <DropdownMenuItem onClick={() => copyToConnection(report)}>
+                              <ArrowRightLeft className="h-4 w-4 mr-2" />
+                              Copy to Connection
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="text-red-600"
@@ -556,6 +578,53 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
               className="bg-blue-600 hover:bg-blue-700"
             >
               Clone & Edit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Copy to Connection Dialog */}
+      <Dialog open={showCopyToDialog} onOpenChange={handleCopyToDialogClose}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Copy Report to Connection</DialogTitle>
+            <DialogDescription>
+              Copy &quot;{reportToCopy?.name}&quot; to another database connection. Useful for running the same query across dev, staging, and production environments.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="target-connection">Target Connection</Label>
+              <Select value={targetConnectionId} onValueChange={setTargetConnectionId}>
+                <SelectTrigger id="target-connection">
+                  <SelectValue placeholder="Select a connection" />
+                </SelectTrigger>
+                <SelectContent>
+                  {connectionInfo.connections
+                    .filter(c => c.id !== reportToCopy?.connectionId)
+                    .map(c => (
+                      <SelectItem key={c.id} value={c.id}>
+                        <span className="flex items-center gap-2">
+                          {c.name || c.database}
+                          <span className="text-muted-foreground text-xs">({c.type})</span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => handleCopyToDialogClose(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmCopyToConnection}
+              disabled={!targetConnectionId}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <ArrowRightLeft className="h-4 w-4 mr-2" />
+              Copy Report
             </Button>
           </DialogFooter>
         </DialogContent>

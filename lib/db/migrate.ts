@@ -27,10 +27,16 @@ export async function runMigrations(): Promise<void> {
     files = readdirSync(migrationsDir)
       .filter(f => f.endsWith('.sql'))
       .sort();
-  } catch {
-    console.warn('[migrate] No migrations directory found, skipping');
+  } catch (e) {
+    console.warn(`[migrate] No migrations directory found at ${migrationsDir}, skipping`, e);
     return;
   }
+
+  if (files.length === 0) {
+    console.log('[migrate] No migration files found');
+    return;
+  }
+  console.log(`[migrate] Found ${files.length} migration file(s) in ${migrationsDir}`);
 
   for (const file of files) {
     if (appliedSet.has(file)) {

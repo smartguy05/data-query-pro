@@ -1,6 +1,7 @@
 "use client"
-import React, { createContext, useContext, useState, ReactNode, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect, useRef } from 'react';
 import type { StorageProvider } from '@/lib/storage/storage-provider';
+import type { SavedReport } from '@/models/saved-report.interface';
 import { LocalStorageProvider } from '@/lib/storage/local-storage-provider';
 import { ApiStorageProvider } from '@/lib/storage/api-storage-provider';
 
@@ -13,6 +14,7 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
     const [currentConnection, setCurrentConnection] = useState<DatabaseConnection>();
     const [currentSchema, setCurrentSchema] = useState<Schema>();
     const [isInitialized, setIsInitialized] = useState(false);
+    const [allReports, setAllReports] = useState<SavedReport[]>([]);
     const storageRef = useRef<StorageProvider | null>(null);
 
     useEffect(() => {
@@ -30,6 +32,23 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
                     // Auth status endpoint not available, use localStorage
                 }
 
+                // When auth is enabled, check if user has a session before calling API
+                if (authEnabled) {
+                    try {
+                        const sessionRes = await fetch('/api/auth/session');
+                        const session = sessionRes.ok ? await sessionRes.json() : null;
+                        if (!session?.user) {
+                            // Not logged in — skip API calls, initialize empty
+                            storageRef.current = null;
+                            return;
+                        }
+                    } catch {
+                        // Can't check session, initialize empty
+                        storageRef.current = null;
+                        return;
+                    }
+                }
+
                 const storage: StorageProvider = authEnabled
                     ? new ApiStorageProvider()
                     : new LocalStorageProvider();
@@ -42,16 +61,30 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
                 const allSchemas = await storage.getSchemas();
                 setConnectionSchemas(allSchemas);
 
+                // Load reports
+                try {
+                    const loadedReports = await storage.getReports();
+                    setAllReports(loadedReports);
+                } catch {
+                    // Reports may not be available
+                }
+
                 if (allConnections.length > 0) {
                     const currentId = await storage.getCurrentConnectionId();
-                    if (currentId) {
-                        const foundConnection = allConnections.find(conn => conn.id === currentId);
-                        if (foundConnection) {
-                            setCurrentConnection(foundConnection);
-                            const schema = allSchemas.find(s => s.connectionId === foundConnection.id);
-                            if (schema) {
-                                setCurrentSchema(schema);
-                            }
+                    let foundConnection = currentId
+                        ? allConnections.find(conn => conn.id === currentId)
+                        : undefined;
+
+                    // Auto-select first connection if no valid current connection
+                    if (!foundConnection) {
+                        foundConnection = allConnections[0];
+                    }
+
+                    if (foundConnection) {
+                        setCurrentConnection(foundConnection);
+                        const schema = allSchemas.find(s => s.connectionId === foundConnection!.id);
+                        if (schema) {
+                            setCurrentSchema(schema);
                         }
                     }
                 }
@@ -271,6 +304,85 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
         }
     }
 
+    const refreshConnections = useCallback(async () => {
+        if (!storageRef.current) return;
+        try {
+            const allConnections = await storageRef.current.getConnections();
+            setConnections(allConnections);
+
+            const allSchemas = await storageRef.current.getSchemas();
+            setConnectionSchemas(allSchemas);
+
+            // Update current connection/schema if still valid
+            if (currentConnection) {
+                const stillExists = allConnections.find(c => c.id === currentConnection.id);
+                if (stillExists) {
+                    setCurrentConnection(stillExists);
+                    const schema = allSchemas.find(s => s.connectionId === stillExists.id);
+                    setCurrentSchema(schema);
+                } else if (allConnections.length > 0) {
+                    // Current connection was removed, switch to first available
+                    setCurrentConnection(allConnections[0]);
+                    const schema = allSchemas.find(s => s.connectionId === allConnections[0].id);
+                    setCurrentSchema(schema);
+                } else {
+                    setCurrentConnection(undefined);
+                    setCurrentSchema(undefined);
+                }
+            }
+        } catch (error) {
+            console.error("Error refreshing connections:", error);
+        }
+    }, [currentConnection]);
+
+    // --- Report methods ---
+    const loadReports = useCallback(async () => {
+        if (!storageRef.current) {
+            // Fallback to localStorage when no storage provider
+            const stored = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[];
+            setAllReports(stored);
+            return;
+        }
+        try {
+            const loaded = await storageRef.current.getReports();
+            setAllReports(loaded);
+        } catch {
+            setAllReports([]);
+        }
+    }, []);
+
+    const saveReportCtx = useCallback(async (report: SavedReport) => {
+        if (storageRef.current) {
+            await storageRef.current.saveReport(report);
+        } else {
+            const stored = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[];
+            stored.push(report);
+            localStorage.setItem("saved_reports", JSON.stringify(stored));
+        }
+        setAllReports(prev => [...prev, report]);
+    }, []);
+
+    const updateReportCtx = useCallback(async (report: SavedReport) => {
+        if (storageRef.current) {
+            await storageRef.current.updateReport(report);
+        } else {
+            const stored = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[];
+            const updated = stored.map(r => r.id === report.id ? report : r);
+            localStorage.setItem("saved_reports", JSON.stringify(updated));
+        }
+        setAllReports(prev => prev.map(r => r.id === report.id ? report : r));
+    }, []);
+
+    const deleteReportCtx = useCallback(async (id: string) => {
+        if (storageRef.current) {
+            await storageRef.current.deleteReport(id);
+        } else {
+            const stored = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[];
+            localStorage.setItem("saved_reports", JSON.stringify(stored.filter(r => r.id !== id)));
+        }
+        setAllReports(prev => prev.filter(r => r.id !== id));
+    }, []);
+
     return (
         <DatabaseContext.Provider value={{
             setConnectionStatus,
@@ -290,6 +402,12 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             currentConnection,
             connectionSchemas,
             isInitialized,
+            refreshConnections,
+            reports: allReports,
+            loadReports,
+            saveReport: saveReportCtx,
+            updateReport: updateReportCtx,
+            deleteReport: deleteReportCtx,
     }}>
     {children}
     </DatabaseContext.Provider>

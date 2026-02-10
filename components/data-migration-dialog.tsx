@@ -10,8 +10,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Upload, Check, AlertCircle } from "lucide-react"
+import { useAuth } from "@/hooks/use-auth"
 
 export function DataMigrationDialog() {
+  const { isAuthenticated, isLoading, authEnabled } = useAuth()
   const [show, setShow] = useState(false)
   const [migrating, setMigrating] = useState(false)
   const [result, setResult] = useState<{
@@ -23,16 +25,16 @@ export function DataMigrationDialog() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Only show if auth is enabled, user is logged in, and data hasn't been migrated yet
-    const checkMigration = async () => {
+    // Wait for auth to finish loading
+    if (isLoading) return
+
+    // Only show if auth is enabled and user is actually logged in
+    if (!authEnabled || !isAuthenticated) return
+
+    const checkMigration = () => {
       try {
         // Check if already migrated
         if (localStorage.getItem("localDataMigrated") === "true") return
-
-        // Check if auth is enabled
-        const authRes = await fetch("/api/config/auth-status")
-        const authData = await authRes.json()
-        if (!authData.authEnabled) return
 
         // Check if there's local data to migrate
         const connections = JSON.parse(localStorage.getItem("databaseConnections") || "[]")
@@ -51,10 +53,8 @@ export function DataMigrationDialog() {
       }
     }
 
-    // Small delay to let auth settle
-    const timer = setTimeout(checkMigration, 2000)
-    return () => clearTimeout(timer)
-  }, [])
+    checkMigration()
+  }, [isLoading, authEnabled, isAuthenticated])
 
   const handleMigrate = async () => {
     setMigrating(true)

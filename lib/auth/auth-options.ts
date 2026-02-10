@@ -69,6 +69,27 @@ function getAuthOptions(): NextAuthConfig {
             console.error('Failed to upsert user:', error);
           }
         }
+
+        // If userId is missing (e.g. upsert failed on initial login), try to resolve it
+        if (!token.userId && token.sub) {
+          try {
+            const { getUserByOidcId, upsertUser } = await import('@/lib/db/repositories/user-repository');
+            let user = await getUserByOidcId(token.sub);
+            if (!user) {
+              user = await upsertUser({
+                oidcId: token.sub,
+                email: token.email as string || '',
+                name: token.name as string || undefined,
+                groups: (token.groups as string[]) || [],
+                isAdmin: token.isAdmin === true,
+              });
+            }
+            token.userId = user.id;
+          } catch {
+            // DB may not be ready yet, will retry on next request
+          }
+        }
+
         return token;
       },
       async session({ session, token }) {

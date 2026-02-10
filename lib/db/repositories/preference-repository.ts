@@ -3,9 +3,16 @@ import { getAppDb } from '../pool';
 interface DbPreference {
   user_id: string;
   current_connection_id: string | null;
-  preferences: Record<string, unknown>;
+  preferences: Record<string, unknown> | string;
   created_at: Date;
   updated_at: Date;
+}
+
+function parseJsonb<T>(data: T | string, fallback: T): T {
+  if (typeof data === 'string') {
+    try { return JSON.parse(data); } catch { return fallback; }
+  }
+  return data ?? fallback;
 }
 
 export async function getPreferences(userId: string): Promise<{
@@ -24,7 +31,7 @@ export async function getPreferences(userId: string): Promise<{
 
   return {
     currentConnectionId: row.current_connection_id,
-    preferences: row.preferences || {},
+    preferences: parseJsonb(row.preferences, {}),
   };
 }
 
@@ -42,10 +49,10 @@ export async function updatePreferences(
     VALUES (
       ${userId},
       ${data.currentConnectionId ?? null},
-      ${JSON.stringify(data.preferences || {})}
+      ${sql.json(data.preferences || {})}
     )
     ON CONFLICT (user_id) DO UPDATE SET
       current_connection_id = COALESCE(${data.currentConnectionId !== undefined ? data.currentConnectionId : null}, user_preferences.current_connection_id),
-      preferences = COALESCE(${data.preferences ? JSON.stringify(data.preferences) : null}, user_preferences.preferences)
+      preferences = COALESCE(${data.preferences ? sql.json(data.preferences) : null}, user_preferences.preferences)
   `;
 }

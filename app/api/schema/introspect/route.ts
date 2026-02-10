@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import { validateConnection } from "@/lib/database/connection-validator"
 import { sanitizeDbError } from "@/utils/error-sanitizer"
 import { getAuthContext } from '@/lib/auth/require-auth'
@@ -24,14 +24,19 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     const auth = await getAuthContext(request);
-    const { connection } = await request.json()
+    const body = await request.json()
+    // Support both { connectionId } (auth mode) and { connection } (no-auth mode)
+    const connection = body.connectionId
+      ? { id: body.connectionId, source: body.source || 'local', type: body.type }
+      : body.connection;
+
     console.log("[v0] Connecting to database:", {
-      host: connection?.host,
-      database: connection?.database,
       type: connection?.type,
+      id: connection?.id,
+      source: connection?.source,
     })
 
     // Validate connection and get adapter

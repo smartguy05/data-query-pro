@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_users_oidc_id ON users(oidc_id);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
+DROP TRIGGER IF EXISTS set_users_updated_at ON users;
 CREATE TRIGGER set_users_updated_at
     BEFORE UPDATE ON users
     FOR EACH ROW
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS database_connections (
 
 CREATE INDEX IF NOT EXISTS idx_connections_owner ON database_connections(owner_id);
 
+DROP TRIGGER IF EXISTS set_connections_updated_at ON database_connections;
 CREATE TRIGGER set_connections_updated_at
     BEFORE UPDATE ON database_connections
     FOR EACH ROW
@@ -72,6 +74,7 @@ CREATE TABLE IF NOT EXISTS connection_schemas (
 CREATE INDEX IF NOT EXISTS idx_schemas_connection ON connection_schemas(connection_id);
 CREATE INDEX IF NOT EXISTS idx_schemas_owner ON connection_schemas(owner_id);
 
+DROP TRIGGER IF EXISTS set_schemas_updated_at ON connection_schemas;
 CREATE TRIGGER set_schemas_updated_at
     BEFORE UPDATE ON connection_schemas
     FOR EACH ROW
@@ -99,6 +102,7 @@ CREATE TABLE IF NOT EXISTS saved_reports (
 CREATE INDEX IF NOT EXISTS idx_reports_owner ON saved_reports(owner_id);
 CREATE INDEX IF NOT EXISTS idx_reports_connection ON saved_reports(connection_id);
 
+DROP TRIGGER IF EXISTS set_reports_updated_at ON saved_reports;
 CREATE TRIGGER set_reports_updated_at
     BEFORE UPDATE ON saved_reports
     FOR EACH ROW
@@ -117,6 +121,7 @@ CREATE TABLE IF NOT EXISTS suggestions_cache (
 
 CREATE INDEX IF NOT EXISTS idx_suggestions_connection ON suggestions_cache(connection_id);
 
+DROP TRIGGER IF EXISTS set_suggestions_updated_at ON suggestions_cache;
 CREATE TRIGGER set_suggestions_updated_at
     BEFORE UPDATE ON suggestions_cache
     FOR EACH ROW
@@ -131,6 +136,7 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     updated_at              TIMESTAMPTZ DEFAULT NOW()
 );
 
+DROP TRIGGER IF EXISTS set_preferences_updated_at ON user_preferences;
 CREATE TRIGGER set_preferences_updated_at
     BEFORE UPDATE ON user_preferences
     FOR EACH ROW

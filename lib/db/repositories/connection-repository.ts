@@ -3,7 +3,7 @@ import { encryptPassword, decryptPassword } from '../encryption';
 
 interface DbConnection {
   id: string;
-  owner_id: string;
+  owner_id: string | null;
   name: string;
   type: string;
   host: string;
@@ -45,7 +45,8 @@ function toClientConnection(row: DbConnection): DatabaseConnection {
 
 export async function getConnectionsForUser(
   userId: string,
-  groups: string[] = []
+  groups: string[] = [],
+  isAdmin: boolean = false
 ): Promise<DatabaseConnection[]> {
   const sql = getAppDb()!;
 
@@ -64,21 +65,39 @@ export async function getConnectionsForUser(
     ORDER BY dc.created_at DESC
   `;
 
-  // Get server connections assigned to user or their groups
+  // Get DB-managed server connections assigned to user or their groups
+  // Also include server connections with no assignments (accessible to all)
+  // For non-admins: only show server connections that have a schema uploaded
   const assignedTargets = [userId, ...groups];
-  const assigned = await sql<{ connection_id: string }[]>`
-    SELECT DISTINCT connection_id
-    FROM server_connection_assignments
-    WHERE assigned_to = ANY(${assignedTargets})
-  `;
+  const serverConns = isAdmin
+    ? await sql<DbConnection[]>`
+        SELECT dc.* FROM database_connections dc
+        LEFT JOIN server_connection_assignments sca ON sca.connection_id = dc.id
+        WHERE dc.source = 'server'
+          AND (sca.assigned_to = ANY(${assignedTargets})
+               OR NOT EXISTS (SELECT 1 FROM server_connection_assignments WHERE connection_id = dc.id))
+        ORDER BY dc.created_at DESC
+      `
+    : await sql<DbConnection[]>`
+        SELECT dc.* FROM database_connections dc
+        LEFT JOIN server_connection_assignments sca ON sca.connection_id = dc.id
+        WHERE dc.source = 'server'
+          AND (sca.assigned_to = ANY(${assignedTargets})
+               OR NOT EXISTS (SELECT 1 FROM server_connection_assignments WHERE connection_id = dc.id))
+          AND EXISTS (SELECT 1 FROM connection_schemas WHERE connection_id = dc.id)
+        ORDER BY dc.created_at DESC
+      `;
 
-  const results = [
-    ...owned.map(toClientConnection),
-    ...shared.map(toClientConnection),
-  ];
+  // Deduplicate by id
+  const seen = new Set<string>();
+  const results: DatabaseConnection[] = [];
+  for (const row of [...owned, ...shared, ...serverConns]) {
+    if (!seen.has(row.id)) {
+      seen.add(row.id);
+      results.push(toClientConnection(row));
+    }
+  }
 
-  // Server connection IDs are returned separately - they're resolved from config/databases.json
-  // The caller will merge them from getServerConfig()
   return results;
 }
 
@@ -179,6 +198,33 @@ export async function updateConnection(
   return toClientConnection(row);
 }
 
+/**
+ * Update metadata fields on a server connection (any assigned user can do this).
+ * Only allows updating: status, schemaFileId, vectorStoreId.
+ */
+export async function updateServerConnectionMetadata(
+  connectionId: string,
+  updates: { status?: string; schemaFileId?: string | null; vectorStoreId?: string | null }
+): Promise<DatabaseConnection | null> {
+  const sql = getAppDb()!;
+
+  const [existing] = await sql<DbConnection[]>`
+    SELECT * FROM database_connections WHERE id = ${connectionId} AND source = 'server'
+  `;
+  if (!existing) return null;
+
+  const [row] = await sql<DbConnection[]>`
+    UPDATE database_connections SET
+      status = COALESCE(${updates.status ?? null}, status),
+      schema_file_id = ${updates.schemaFileId !== undefined ? (updates.schemaFileId as string | null) : existing.schema_file_id},
+      vector_store_id = ${updates.vectorStoreId !== undefined ? (updates.vectorStoreId as string | null) : existing.vector_store_id}
+    WHERE id = ${connectionId}
+    RETURNING *
+  `;
+
+  return toClientConnection(row);
+}
+
 export async function deleteConnection(userId: string, id: string): Promise<boolean> {
   const sql = getAppDb()!;
   const result = await sql`
@@ -194,12 +240,37 @@ export async function getConnectionCredentials(
 ): Promise<{ password: string; host: string; port: string; database: string; username: string; filepath?: string; type: string } | null> {
   const sql = getAppDb()!;
 
-  // Check ownership or sharing
+  // Check ownership, sharing, or server connection
   const [row] = await sql<DbConnection[]>`
     SELECT dc.* FROM database_connections dc
     LEFT JOIN connection_shares cs ON cs.connection_id = dc.id AND cs.shared_with_id = ${userId}
     WHERE dc.id = ${connectionId}
-      AND (dc.owner_id = ${userId} OR cs.shared_with_id = ${userId})
+      AND (dc.owner_id = ${userId} OR cs.shared_with_id = ${userId} OR dc.source = 'server')
+  `;
+
+  if (!row) return null;
+
+  return {
+    password: row.password_enc ? decryptPassword(row.password_enc) : '',
+    host: row.host,
+    port: row.port,
+    database: row.database_name,
+    username: row.username,
+    filepath: row.filepath || undefined,
+    type: row.type,
+  };
+}
+
+/**
+ * Get decrypted credentials for a server connection (no ownership check).
+ */
+export async function getServerConnectionCredentialsFromDb(
+  connectionId: string
+): Promise<{ password: string; host: string; port: string; database: string; username: string; filepath?: string; type: string } | null> {
+  const sql = getAppDb()!;
+
+  const [row] = await sql<DbConnection[]>`
+    SELECT * FROM database_connections WHERE id = ${connectionId} AND source = 'server'
   `;
 
   if (!row) return null;
@@ -221,13 +292,92 @@ export async function getConnectionById(
 ): Promise<DatabaseConnection | null> {
   const sql = getAppDb()!;
 
+  // Check ownership, sharing, or server connection
   const [row] = await sql<DbConnection[]>`
     SELECT dc.* FROM database_connections dc
     LEFT JOIN connection_shares cs ON cs.connection_id = dc.id AND cs.shared_with_id = ${userId}
     WHERE dc.id = ${connectionId}
-      AND (dc.owner_id = ${userId} OR cs.shared_with_id = ${userId})
+      AND (dc.owner_id = ${userId} OR cs.shared_with_id = ${userId} OR dc.source = 'server')
   `;
 
   if (!row) return null;
   return toClientConnection(row);
+}
+
+// ============================================================================
+// Server Connection CRUD (admin-only)
+// ============================================================================
+
+export async function createServerConnection(
+  conn: { name: string; type: string; host: string; port: string; database: string; username: string; password: string; filepath?: string; description?: string }
+): Promise<DatabaseConnection> {
+  const sql = getAppDb()!;
+  const id = Date.now().toString();
+  const passwordEnc = conn.password ? encryptPassword(conn.password) : '';
+
+  const [row] = await sql<DbConnection[]>`
+    INSERT INTO database_connections (
+      id, owner_id, name, type, host, port, database_name, username,
+      password_enc, filepath, description, status, source
+    ) VALUES (
+      ${id}, ${null}, ${conn.name}, ${conn.type}, ${conn.host},
+      ${conn.port}, ${conn.database}, ${conn.username}, ${passwordEnc},
+      ${conn.filepath || null}, ${conn.description || null},
+      'disconnected', 'server'
+    )
+    RETURNING *
+  `;
+  return toClientConnection(row);
+}
+
+export async function getAllServerConnections(): Promise<DatabaseConnection[]> {
+  const sql = getAppDb()!;
+
+  const rows = await sql<DbConnection[]>`
+    SELECT * FROM database_connections WHERE source = 'server'
+    ORDER BY created_at DESC
+  `;
+
+  return rows.map(toClientConnection);
+}
+
+export async function updateServerConnection(
+  id: string,
+  conn: { name?: string; type?: string; host?: string; port?: string; database?: string; username?: string; password?: string; filepath?: string; description?: string }
+): Promise<DatabaseConnection | null> {
+  const sql = getAppDb()!;
+
+  const [existing] = await sql<DbConnection[]>`
+    SELECT * FROM database_connections WHERE id = ${id} AND source = 'server'
+  `;
+  if (!existing) return null;
+
+  const passwordEnc = (conn.password !== undefined && conn.password !== '')
+    ? encryptPassword(conn.password)
+    : undefined;
+
+  const [row] = await sql<DbConnection[]>`
+    UPDATE database_connections SET
+      name = COALESCE(${conn.name ?? null}, name),
+      type = COALESCE(${conn.type ?? null}, type),
+      host = COALESCE(${conn.host ?? null}, host),
+      port = COALESCE(${conn.port ?? null}, port),
+      database_name = COALESCE(${conn.database ?? null}, database_name),
+      username = COALESCE(${conn.username ?? null}, username),
+      password_enc = COALESCE(${passwordEnc ?? null}, password_enc),
+      filepath = ${conn.filepath !== undefined ? (conn.filepath || null) : existing.filepath},
+      description = ${conn.description !== undefined ? (conn.description || null) : existing.description}
+    WHERE id = ${id} AND source = 'server'
+    RETURNING *
+  `;
+
+  return toClientConnection(row);
+}
+
+export async function deleteServerConnection(id: string): Promise<boolean> {
+  const sql = getAppDb()!;
+  const result = await sql`
+    DELETE FROM database_connections WHERE id = ${id} AND source = 'server'
+  `;
+  return result.count > 0;
 }

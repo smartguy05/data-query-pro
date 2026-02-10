@@ -1,7 +1,9 @@
 import { isAuthEnabled } from '@/lib/auth/config';
 import { notFound as notFoundResponse } from '@/lib/api/response';
+import NextAuth from 'next-auth';
+import { authOptions } from '@/lib/auth/auth-options';
 
-async function getHandlers() {
+function getHandlers() {
   if (!isAuthEnabled()) {
     return {
       GET: () => notFoundResponse('Authentication is not configured'),
@@ -9,19 +11,9 @@ async function getHandlers() {
     };
   }
 
-  const NextAuth = (await import('next-auth')).default;
-  const { authOptions } = await import('@/lib/auth/auth-options');
-  return NextAuth(authOptions);
+  const { handlers } = NextAuth(authOptions);
+  return handlers;
 }
 
-const handlersPromise = getHandlers();
-
-export async function GET(...args: Parameters<typeof fetch>) {
-  const handlers = await handlersPromise;
-  return (handlers as { GET: Function }).GET(...args);
-}
-
-export async function POST(...args: Parameters<typeof fetch>) {
-  const handlers = await handlersPromise;
-  return (handlers as { POST: Function }).POST(...args);
-}
+const { GET, POST } = getHandlers();
+export { GET, POST };

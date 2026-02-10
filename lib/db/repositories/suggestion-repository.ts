@@ -4,9 +4,16 @@ interface DbSuggestion {
   id: string;
   connection_id: string;
   owner_id: string;
-  suggestions: unknown[];
+  suggestions: unknown[] | string;
   created_at: Date;
   updated_at: Date;
+}
+
+function parseJsonb<T>(data: T | string, fallback: T): T {
+  if (typeof data === 'string') {
+    try { return JSON.parse(data); } catch { return fallback; }
+  }
+  return data ?? fallback;
 }
 
 export async function getSuggestions(
@@ -20,7 +27,7 @@ export async function getSuggestions(
     WHERE connection_id = ${connectionId} AND owner_id = ${userId}
   `;
 
-  return row ? row.suggestions : null;
+  return row ? parseJsonb(row.suggestions, []) : null;
 }
 
 export async function upsertSuggestions(
@@ -32,7 +39,7 @@ export async function upsertSuggestions(
 
   await sql`
     INSERT INTO suggestions_cache (connection_id, owner_id, suggestions)
-    VALUES (${connectionId}, ${userId}, ${JSON.stringify(suggestions)})
+    VALUES (${connectionId}, ${userId}, ${sql.json(suggestions)})
     ON CONFLICT (connection_id, owner_id) DO UPDATE SET
       suggestions = EXCLUDED.suggestions
   `;

@@ -16,6 +16,7 @@ import {
   type IDatabaseAdapter
 } from "@/lib/database";
 import { getServerConnectionCredentials } from "@/lib/server-config";
+import { isAuthEnabled } from "@/lib/auth/config";
 
 /**
  * Raw connection input from API requests.
@@ -74,10 +75,30 @@ async function resolveConnectionDetails(
   connection: ConnectionInput,
   authUserId?: string
 ): Promise<ConnectionInput | null> {
-  // Server connections always resolve from config file
+  // Server connections: resolve from DB when auth enabled, config file otherwise
   if (connection.source === "server") {
     if (!connection.id) {
       return null;
+    }
+    if (isAuthEnabled()) {
+      try {
+        const { getServerConnectionCredentialsFromDb } = await import("@/lib/db/repositories/connection-repository");
+        const creds = await getServerConnectionCredentialsFromDb(connection.id);
+        if (creds) {
+          return {
+            ...connection,
+            host: creds.host,
+            port: creds.port,
+            database: creds.database,
+            username: creds.username,
+            password: creds.password,
+            filepath: creds.filepath,
+            type: creds.type,
+          };
+        }
+      } catch {
+        // Fall through to config file
+      }
     }
     const serverConnection = await getServerConnectionCredentials(connection.id);
     return serverConnection;

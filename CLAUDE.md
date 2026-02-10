@@ -48,15 +48,20 @@ The application uses a centralized **React Context** pattern for database connec
 
 - **Provider**: `DatabaseConnectionOptions` component in `lib/database-connection-options.tsx`
 - **Hook**: `useDatabaseOptions()` - use this hook in any component that needs database connection state
-- **Persistence**: All connection data is stored in localStorage (connections, schemas, current connection)
-- **Important**: The context manages multiple database connections, current active connection, schema data, and their synchronization with localStorage
+- **Storage**: Pluggable via `StorageProvider` — localStorage (default) or API-backed PostgreSQL (when auth enabled)
+- **Important**: The context manages multiple database connections, current active connection, schema data, reports, and their synchronization with the storage layer
 
 ### Key Data Flow
-1. User creates database connection → stored in localStorage → added to context
+1. User creates database connection → stored via StorageProvider → added to context
 2. Schema introspection → uploaded as file to OpenAI → file ID and vector store ID saved to connection
-3. AI descriptions generated → schema with descriptions stored in localStorage
+3. AI descriptions generated → schema with descriptions stored via StorageProvider
 4. Natural language query → sent to OpenAI with vector store context → generates SQL
 5. SQL execution → database adapter connects and executes → results returned
+
+### Credential Resolution (Auth Mode)
+- Client sends only `{ connectionId, source, type }` — never credentials
+- Server resolves credentials from app DB via `validateConnection()` in `connection-validator.ts`
+- Default mode (no auth): client sends full `{ connection: { host, port, ... } }` as before
 
 ### Project Structure
 
@@ -67,7 +72,8 @@ app/                          # Next.js 15 App Router
 ├── database/page.tsx        # Database connection management
 ├── query/page.tsx           # Natural language query interface
 ├── schema/page.tsx          # Schema explorer with AI descriptions
-├── reports/page.tsx         # Reports management
+├── reports/page.tsx         # Reports management (with connection selector)
+├── admin/page.tsx           # Admin panel: server connections & assignments
 ├── landing/                 # Public landing page
 │   ├── page.tsx             # Landing page with features/screenshots
 │   └── layout.tsx           # Landing layout with SEO metadata
@@ -113,8 +119,9 @@ app/                          # Next.js 15 App Router
     │   └── users/search/    # GET (search by email/name)
     └── admin/
         ├── users/           # GET (list all users)
-        ├── server-connections/ # GET (list server configs)
+        ├── server-connections/ # GET, POST (list/create server connections)
         └── server-connections/[id]/
+            ├── route.ts     # PUT, DELETE (update/delete server connection)
             ├── assign/      # POST, DELETE
             └── assignments/ # GET
 
@@ -126,11 +133,12 @@ components/                   # React components
 ├── query-tab-content.tsx    # Individual query tab display
 ├── followup-dialog.tsx      # Follow-up question dialog
 ├── chart-display.tsx        # Main chart renderer
+├── content-loading-gate.tsx # Loading gate until context initialized
 ├── auth-provider.tsx        # SessionProvider wrapper (conditional)
 ├── share-dialog.tsx         # Share connections/reports with users
 ├── data-migration-dialog.tsx # Import localStorage data on first login
 ├── navigation.tsx           # Top navigation bar (with user menu when auth enabled)
-├── saved-reports.tsx        # Reports list component
+├── saved-reports.tsx        # Reports list with clone/copy-to-connection
 ├── save-report-dialog.tsx   # Save query as report
 ├── edit-report-dialog.tsx   # Edit report metadata
 ├── parameter-config.tsx     # Configure report parameters
@@ -159,7 +167,9 @@ lib/                         # Shared utilities
 │   ├── encryption.ts        # AES-256-GCM password encryption
 │   ├── migrate.ts           # SQL migration runner
 │   ├── migrations/          # SQL migration files
-│   │   └── 001_initial_schema.sql
+│   │   ├── 001_initial_schema.sql   # Core tables (users, connections, schemas, reports, etc.)
+│   │   ├── 002_server_connections.sql # Nullable owner_id, server connection support
+│   │   └── 003_cascade_connection_deletes.sql # FK cascades on schemas/reports/suggestions
 │   └── repositories/        # Data access layer
 │       ├── user-repository.ts
 │       ├── connection-repository.ts
@@ -369,6 +379,7 @@ AUTH_OIDC_ISSUER=              # e.g. https://auth.example.com/application/o/dat
 AUTH_OIDC_CLIENT_ID=
 AUTH_OIDC_CLIENT_SECRET=
 AUTH_SECRET=                   # JWT signing key (openssl rand -hex 32)
+AUTH_URL=                      # e.g. http://localhost:3000 (required by Auth.js v5)
 AUTH_ADMIN_GROUP=dataquery-admins  # Authentik group for admin access
 
 # App Database (required when auth is enabled)
@@ -499,6 +510,7 @@ Connection: `localhost:5432`, database: `cloudmetrics`, user: `demo`, password: 
 | Components | [docs/components/overview.md](./docs/components/overview.md) |
 | Data Models | [docs/models/overview.md](./docs/models/overview.md) |
 | Getting Started | [docs/guides/getting-started.md](./docs/guides/getting-started.md) |
+| Authentication Testing | [docs/guides/authentication-testing.md](./docs/guides/authentication-testing.md) |
 | OpenAI Integration | [docs/guides/openai-integration.md](./docs/guides/openai-integration.md) |
 | Adding Database Support | [docs/guides/adding-database-support.md](./docs/guides/adding-database-support.md) |
 | Common Tasks | [docs/guides/common-tasks.md](./docs/guides/common-tasks.md) |

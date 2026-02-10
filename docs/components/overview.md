@@ -16,14 +16,17 @@ DataQuery Pro uses React components organized by functionality. UI primitives co
 ```
 layout.tsx
 ├── ThemeProvider
-│   └── OpenAIApiProvider (API key context)
-│       └── DatabaseConnectionOptions (state context)
-│           ├── Navigation
-│           │   └── ApiKeyIndicator
-│           ├── ErrorBoundary
-│           │   └── [Page Component]
-│           │       └── [Feature Components]
-│           └── Toaster
+│   └── AuthProvider (SessionProvider, conditional)
+│       └── OpenAIApiProvider (API key context)
+│           └── DatabaseConnectionOptions (state context)
+│               ├── Navigation (with user menu when auth enabled)
+│               │   └── ApiKeyIndicator
+│               ├── ErrorBoundary
+│               │   └── ContentLoadingGate
+│               │       └── [Page Component]
+│               │           └── [Feature Components]
+│               ├── DataMigrationDialog
+│               └── Toaster
 ```
 
 ## Key Components
@@ -122,11 +125,13 @@ interface ChartDisplayProps {
 List and management of saved reports.
 
 Features:
-- Filter by connection
+- Filter by active connection
 - Search reports
-- Run reports
+- Run reports (with parameter input)
 - Edit/delete reports
-- Export/import
+- Clone reports (same connection)
+- Copy reports to another connection (for dev/staging/prod workflows)
+- Favorite reports
 
 ### SaveReportDialog
 **File:** `components/save-report-dialog.tsx`
@@ -151,6 +156,7 @@ Detailed documentation: [Page Components](./pages.md)
 | Schema | `/schema` | `app/schema/page.tsx` |
 | Query | `/query` | `app/query/page.tsx` |
 | Reports | `/reports` | `app/reports/page.tsx` |
+| Admin | `/admin` | `app/admin/page.tsx` |
 | Landing | `/landing` | `app/landing/page.tsx` |
 
 ---
@@ -183,6 +189,12 @@ Detailed documentation: [Feature Components](./features.md)
 ### Query Components
 - `query-tab-content.tsx` - Individual query tab with SQL, results, actions
 - `followup-dialog.tsx` - Follow-up question dialog with row limit selector
+
+### Auth & Admin Components
+- `auth-provider.tsx` - SessionProvider wrapper (renders conditionally based on auth status)
+- `content-loading-gate.tsx` - Loading gate until context is initialized (prevents flash of empty state)
+- `data-migration-dialog.tsx` - Import localStorage data on first authenticated login
+- `share-dialog.tsx` - Share connections/reports with other users
 
 ### Infrastructure Components
 - `error-boundary.tsx` - React error boundary with fallback UI

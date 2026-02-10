@@ -199,8 +199,8 @@ Docker Compose includes a PostgreSQL database for app data. When auth env vars a
 ### Option 2: Local Development
 
 ```bash
-# Install dependencies
-npm install
+# Install dependencies (pnpm required)
+pnpm install
 
 # Create environment file
 cp .env.example .env.local
@@ -209,10 +209,53 @@ cp .env.example .env.local
 # OPENAI_API_KEY=sk-...
 
 # Start development server
-npm run dev
+pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+### Option 3: Local Development with Authentication (Authentik)
+
+To test the full multi-user experience with OIDC authentication locally, use the included `docker-compose.auth-test.yml` which starts Authentik, an app database, and a demo database:
+
+```bash
+# 1. Start all containers (Authentik + app DB + demo DB)
+docker compose -f docker-compose.auth-test.yml up -d
+#   OR with Podman: podman-compose -f docker-compose.auth-test.yml up -d
+
+# 2. Wait ~60 seconds for Authentik to initialize, then run setup
+bash scripts/setup-authentik.sh
+
+# 3. Copy the output env vars into .env.local (also add OPENAI_API_KEY)
+
+# 4. Install and start
+pnpm install
+pnpm dev
+```
+
+Open http://localhost:3000 — you'll see a "Sign in with Authentik" login page.
+
+**Test accounts:**
+
+| Username | Password | Role |
+|---|---|---|
+| `testadmin` | `testadmin123` | Admin (manage server connections at `/admin`) |
+| `testuser` | `testuser123` | Regular user |
+
+**Services started by docker-compose.auth-test.yml:**
+
+| Service | Port | Purpose |
+|---|---|---|
+| `authentik-server` | `localhost:9000` | Authentik identity provider |
+| `app-db` | `localhost:5432` | DataQuery Pro app database |
+| `demo-db` | `localhost:5433` | Demo data (CloudMetrics) for testing queries |
+
+Authentik admin UI: http://localhost:9000/if/admin/ (login: `akadmin` / `admin`)
+
+The demo database can be added as a server connection from the Admin page:
+- **Host**: localhost, **Port**: 5433, **Database**: cloudmetrics, **User**: demo, **Password**: demo
+
+See [docs/guides/authentication-testing.md](./docs/guides/authentication-testing.md) for detailed troubleshooting and testing scenarios.
 
 ---
 
@@ -249,7 +292,7 @@ To try DataQuery Pro with sample data, demo database scripts are provided for al
 docker run -d \
   --name cloudmetrics-db \
   -e POSTGRES_USER=demo \
-  -e POSTGRES_PASSWORD=demo123 \
+  -e POSTGRES_PASSWORD=demo \
   -e POSTGRES_DB=cloudmetrics \
   -p 5433:5432 \
   postgres:15
@@ -257,8 +300,10 @@ docker run -d \
 # Load demo data
 docker exec -i cloudmetrics-db psql -U demo -d cloudmetrics < scripts/demo-database.sql
 
-# Connection: localhost:5433, database: cloudmetrics, user: demo, password: demo123
+# Connection: localhost:5433, database: cloudmetrics, user: demo, password: demo
 ```
+
+> **Note:** If using `docker-compose.auth-test.yml` (see Option 3 above), the demo database is already included and pre-loaded — no need to start it separately.
 
 ### MySQL
 
@@ -334,6 +379,7 @@ Comprehensive developer documentation is available in the [docs](./docs) folder:
 | Component Guide | [docs/components/overview.md](./docs/components/overview.md) |
 | Data Models | [docs/models/overview.md](./docs/models/overview.md) |
 | Getting Started Guide | [docs/guides/getting-started.md](./docs/guides/getting-started.md) |
+| Authentication Testing | [docs/guides/authentication-testing.md](./docs/guides/authentication-testing.md) |
 | OpenAI Integration | [docs/guides/openai-integration.md](./docs/guides/openai-integration.md) |
 | Testing Plan | [docs/testing-plan.md](./docs/testing-plan.md) |
 
@@ -356,10 +402,10 @@ Comprehensive developer documentation is available in the [docs](./docs) folder:
 ## Commands
 
 ```bash
-npm run dev           # Start development server
-npm run build         # Build for production
-npm start             # Start production server
-npm run lint          # Run linter
+pnpm dev              # Start development server
+pnpm build            # Build for production
+pnpm start            # Start production server
+pnpm lint             # Run linter
 docker-compose up     # Start with Docker (includes build)
 docker-compose up -d  # Start in detached mode
 ```
