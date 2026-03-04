@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerConfig, stripSensitiveData } from "@/lib/server-config";
+import { isAuthEnabled } from '@/lib/auth/config';
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,8 @@ export const dynamic = "force-dynamic";
  * This allows administrators to deploy pre-configured database connections,
  * schemas, and reports that will be shared across all users.
  *
+ * When auth is enabled, only returns server connections assigned to the requesting user/groups.
+ *
  * SECURITY: Passwords are stripped from server connections before sending to client.
  * APIs that need credentials will look them up server-side by connection ID.
  *
@@ -17,6 +20,15 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   try {
+    // When auth is enabled, server connections are managed in the DB
+    // and served via /api/data/connections — skip config file entirely
+    if (isAuthEnabled()) {
+      return NextResponse.json({
+        success: true,
+        connections: [],
+      });
+    }
+
     const config = await getServerConfig();
 
     if (!config) {
@@ -26,8 +38,10 @@ export async function GET() {
       });
     }
 
+    let connections = config.connections || [];
+
     // Mark all connections as coming from server, strip sensitive data, and ensure disconnected initially
-    const serverConnections = config.connections.map((conn: DatabaseConnection) => {
+    const serverConnections = connections.map((conn: DatabaseConnection) => {
       const safeConnection = stripSensitiveData(conn);
       return {
         ...safeConnection,

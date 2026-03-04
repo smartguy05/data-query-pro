@@ -13,41 +13,29 @@ Represents a saved database connection.
 interface DatabaseConnection {
   id: string;                    // UUID
   name: string;                  // Display name
-  type: string;                  // Database type (e.g., "PostgreSQL")
+  type: string;                  // Database type (e.g., "postgresql")
   host: string;                  // Hostname or IP
   port: string;                  // Port number
   database: string;              // Database name
   username: string;              // Username
-  password: string;              // Password (plain text)
+  password: string;              // Password (empty string when sent to client in auth mode)
+  filepath?: string;             // File path (for SQLite)
   description?: string;          // Business context description
   status: "connected" | "disconnected";
   schemaFileId?: string;         // OpenAI file ID
   vectorStoreId?: string;        // OpenAI vector store ID
+  source?: "local" | "server";   // Origin: user-created or admin-managed
   createdAt: string;             // ISO timestamp
 }
-```
-
-**Usage:**
-```typescript
-const newConnection: DatabaseConnection = {
-  id: crypto.randomUUID(),
-  name: "Production DB",
-  type: "PostgreSQL",
-  host: "db.example.com",
-  port: "5432",
-  database: "myapp",
-  username: "admin",
-  password: "secret",
-  description: "E-commerce production database",
-  status: "disconnected",
-  createdAt: new Date().toISOString()
-};
 ```
 
 **Notes:**
 - `schemaFileId` and `vectorStoreId` are populated after schema upload
 - `status` is managed by context, not user-set
-- All four database types are fully implemented: `postgresql`, `mysql`, `sqlserver`, `sqlite`
+- All four database types: `postgresql`, `mysql`, `sqlserver`, `sqlite`
+- `source: 'server'` indicates an admin-managed connection (no owner, stored in app DB)
+- `password` is always empty string on the client in auth mode — credentials resolved server-side
+- Server connections are only visible to non-admin users after a schema has been uploaded
 
 ---
 
@@ -247,8 +235,9 @@ interface DatabaseContextType {
   currentConnection?: DatabaseConnection;
   currentSchema?: Schema;
   isInitialized: boolean;
+  reports: SavedReport[];
 
-  // Methods
+  // Connection methods
   setConnectionStatus: (status: "idle" | "success" | "error") => void;
   setCurrentConnection: (conn?: DatabaseConnection) => void;
   getConnection: (id?: string) => DatabaseConnection | undefined;
@@ -256,11 +245,23 @@ interface DatabaseContextType {
   updateConnection: (conn: DatabaseConnection) => void;
   deleteConnection: (id: string) => void;
   importConnections: (conns: DatabaseConnection[]) => void;
+  refreshConnections: () => Promise<void>;
+
+  // Schema methods
   getSchema: (id?: string) => Schema | undefined;
   setSchema: (schema: Schema) => void;
   setCurrentSchema: (schema?: Schema) => void;
+
+  // Report methods
+  saveReport: (report: SavedReport) => Promise<void>;
+  updateReport: (report: SavedReport) => Promise<void>;
+  deleteReport: (id: string) => Promise<void>;
 }
 ```
+
+**Notes:**
+- `refreshConnections()` re-fetches all connections and schemas from the StorageProvider, useful after admin mutations
+- Reports are now managed through the context (not directly via localStorage)
 
 ---
 

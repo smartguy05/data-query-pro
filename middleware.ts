@@ -2,80 +2,99 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { validateCSRFToken, shouldSkipCSRF } from '@/lib/csrf';
 
-/**
- * Security headers to add to all responses.
- * These protect against common web vulnerabilities.
- */
+const AUTH_ENABLED =
+  !!process.env.AUTH_OIDC_ISSUER &&
+  !!process.env.AUTH_OIDC_CLIENT_ID &&
+  !!process.env.AUTH_OIDC_CLIENT_SECRET;
+
+const PUBLIC_PATHS = [
+  '/landing',
+  '/auth/login',
+  '/api/auth/',
+  '/api/config/auth-status',
+];
+
+function isPublicPath(pathname: string): boolean {
+  return PUBLIC_PATHS.some(p => pathname.startsWith(p));
+}
+
 const SECURITY_HEADERS = {
-  // Prevent clickjacking attacks by disallowing framing
   'X-Frame-Options': 'DENY',
-
-  // Prevent MIME type sniffing
   'X-Content-Type-Options': 'nosniff',
-
-  // Enable XSS filtering in older browsers
   'X-XSS-Protection': '1; mode=block',
-
-  // Control referrer information sent with requests
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-
-  // Restrict browser permissions
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
 };
 
-/**
- * Content Security Policy header.
- * This controls which resources the browser can load.
- */
-const CSP_DIRECTIVES = [
-  // Default to only allowing same-origin resources
-  "default-src 'self'",
+function getCSPDirectives(): string[] {
+  const directives = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self' https://api.openai.com",
+    "worker-src 'self' blob:",
+    "media-src 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+  ];
 
-  // Scripts: self, inline (for Next.js), and eval (for some libraries)
-  // Note: 'unsafe-inline' and 'unsafe-eval' are needed for Next.js dev mode
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  // Add Authentik issuer to form-action if auth is enabled
+  const issuer = process.env.AUTH_OIDC_ISSUER;
+  if (AUTH_ENABLED && issuer) {
+    try {
+      const issuerOrigin = new URL(issuer).origin;
+      directives.push(`form-action 'self' ${issuerOrigin}`);
+    } catch {
+      directives.push("form-action 'self'");
+    }
+  } else {
+    directives.push("form-action 'self'");
+  }
 
-  // Styles: self and inline (for styled-components, Tailwind, etc.)
-  "style-src 'self' 'unsafe-inline'",
+  return directives;
+}
 
-  // Images: self, data URIs (for inline images), and blob (for generated images)
-  "img-src 'self' data: blob:",
-
-  // Fonts: self and data URIs
-  "font-src 'self' data:",
-
-  // Connect to self and OpenAI API
-  "connect-src 'self' https://api.openai.com",
-
-  // Allow workers from self
-  "worker-src 'self' blob:",
-
-  // Media: self only
-  "media-src 'self'",
-
-  // Objects (plugins): none
-  "object-src 'none'",
-
-  // Frame ancestors: none (prevents framing)
-  "frame-ancestors 'none'",
-
-  // Form actions: self only
-  "form-action 'self'",
-
-  // Base URI: self only
-  "base-uri 'self'",
-];
-
-/**
- * Middleware function that runs on every request.
- * Adds security headers and validates CSRF tokens for API routes.
- */
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Check CSRF for API routes
+  // Auth check (when auth is enabled)
+  if (AUTH_ENABLED && !isPublicPath(pathname)) {
+    try {
+      const { getToken } = await import('next-auth/jwt');
+      const token = await getToken({
+        req: request,
+        secret: process.env.AUTH_SECRET,
+      });
+
+      if (!token) {
+        // For API routes, return 401
+        if (pathname.startsWith('/api/')) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: {
+                code: 'UNAUTHORIZED',
+                message: 'Authentication required',
+              },
+            },
+            { status: 401 }
+          );
+        }
+        // For page routes, redirect to login
+        const loginUrl = new URL('/auth/login', request.url);
+        loginUrl.searchParams.set('callbackUrl', request.url);
+        return NextResponse.redirect(loginUrl);
+      }
+    } catch (error) {
+      console.error('[middleware] Auth check failed:', error);
+    }
+  }
+
+  // CSRF check for API routes (skip for Auth.js routes which handle their own CSRF)
   if (pathname.startsWith('/api/')) {
-    // Skip CSRF validation for exempt paths
     if (!shouldSkipCSRF(pathname)) {
       if (!validateCSRFToken(request)) {
         return NextResponse.json(
@@ -95,30 +114,17 @@ export function middleware(request: NextRequest) {
   // Create response and add security headers
   const response = NextResponse.next();
 
-  // Add all security headers
   Object.entries(SECURITY_HEADERS).forEach(([key, value]) => {
     response.headers.set(key, value);
   });
 
-  // Add CSP header
-  response.headers.set('Content-Security-Policy', CSP_DIRECTIVES.join('; '));
+  response.headers.set('Content-Security-Policy', getCSPDirectives().join('; '));
 
   return response;
 }
 
-/**
- * Configure which paths the middleware runs on.
- * Excludes static files and images for performance.
- */
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder files
-     */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

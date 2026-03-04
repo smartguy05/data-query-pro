@@ -9,8 +9,8 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ConfirmationModal } from "@/components/ui/confirmation-modal"
-import { SchemaUpdateModal } from "@/components/ui/schema-update-modal"
+import { ConfirmationModal } from "@/components/confirmation-modal"
+import { SchemaUpdateModal } from "@/components/schema-update-modal"
 import {
   Database,
   TableIcon,
@@ -34,9 +34,11 @@ import { compareSchemas, hasSchemaChanges, getChangeSummary } from "@/utils/comp
 import { useOpenAIFetch } from "@/hooks/use-openai-fetch";
 import { useOpenAIKey } from "@/hooks/use-openai-key";
 import { ApiKeyDialog } from "@/components/api-key-dialog";
+import { useAuth } from "@/hooks/use-auth";
 
 export function SchemaExplorer() {
   const connectionInformation = useDatabaseOptions();
+  const { authEnabled } = useAuth();
   const { toast } = useToast();
   const { fetchWithAuth, showRateLimitDialog, resetTimeInfo, clearRateLimitError } = useOpenAIFetch();
   const { setApiKey } = useOpenAIKey();
@@ -193,12 +195,17 @@ export function SchemaExplorer() {
       setProcessProgress(0)
       setProcessMessage("Starting schema introspection...")
 
+      // When auth is enabled, send only the connection ID — server resolves credentials
+      const body = authEnabled
+        ? { connectionId: connection.id, source: connection.source, type: connection.type }
+        : { connection };
+
       const response = await fetch("/api/schema/start-introspection", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ connection }),
+        body: JSON.stringify(body),
       })
 
       if (response.ok) {
@@ -548,12 +555,16 @@ export function SchemaExplorer() {
 
     try {
       // Fetch fresh schema from database
+      const introspectBody = authEnabled
+        ? { connectionId: connection.id, source: connection.source, type: connection.type }
+        : { connection };
+
       const response = await fetch("/api/schema/introspect", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ connection }),
+        body: JSON.stringify(introspectBody),
       });
 
       if (!response.ok) {

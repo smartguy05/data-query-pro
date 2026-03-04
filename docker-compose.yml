@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   app:
     build:
@@ -11,22 +9,55 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
       - DEMO_RATE_LIMIT=${DEMO_RATE_LIMIT:-}
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
+      # Authentication (optional - set all AUTH_OIDC_* vars to enable)
+      - AUTH_OIDC_ISSUER=${AUTH_OIDC_ISSUER:-}
+      - AUTH_OIDC_CLIENT_ID=${AUTH_OIDC_CLIENT_ID:-}
+      - AUTH_OIDC_CLIENT_SECRET=${AUTH_OIDC_CLIENT_SECRET:-}
+      - AUTH_SECRET=${AUTH_SECRET:-}
+      - AUTH_ADMIN_GROUP=${AUTH_ADMIN_GROUP:-dataquery-admins}
+      # App database connection (built from the credentials below)
+      - APP_DATABASE_URL=postgres://${APP_DB_USER:-dataquery}:${APP_DB_PASSWORD:-dataquery}@app-db:5432/${APP_DB_NAME:-dataquery_app}
+      # Encryption key for stored passwords (required when auth is enabled)
+      - APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY:-}
+    volumes:
+      - ./config:/app/config:ro
+    depends_on:
+      app-db:
+        condition: service_healthy
     restart: unless-stopped
 
-  # Optional: PostgreSQL database for development/demo
-  # Uncomment to include a PostgreSQL container
-  # postgres:
+  # PostgreSQL database for app data (connections, schemas, reports, users)
+  app-db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=${APP_DB_USER:-dataquery}
+      - POSTGRES_PASSWORD=${APP_DB_PASSWORD:-dataquery}
+      - POSTGRES_DB=${APP_DB_NAME:-dataquery_app}
+    volumes:
+      - app_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${APP_DB_USER:-dataquery} -d ${APP_DB_NAME:-dataquery_app}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # Optional: demo PostgreSQL database with sample data
+  # Uncomment to include a demo database for testing queries
+  # demo-db:
   #   image: postgres:15-alpine
   #   ports:
-  #     - "5432:5432"
+  #     - "5433:5432"
   #   environment:
   #     - POSTGRES_USER=demo
   #     - POSTGRES_PASSWORD=demo123
   #     - POSTGRES_DB=cloudmetrics
   #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
+  #     - demo_db_data:/var/lib/postgresql/data
   #     - ./scripts/demo-database.sql:/docker-entrypoint-initdb.d/init.sql
   #   restart: unless-stopped
 
-# volumes:
-#   postgres_data:
+volumes:
+  app_db_data:
+  # demo_db_data:

@@ -26,8 +26,18 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-/.idea/
+.idea/
 /.playwright-mcp/
+
+# Windows artifacts
+nul
+
+# SQLite demo databases
+/data/*.db
+
+# env override (keep .env.example)
+!.env.example
+!.env.production
 
 # database config with credentials
 /config/databases.json

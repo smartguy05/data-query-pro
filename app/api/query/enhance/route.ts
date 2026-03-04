@@ -1,9 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai";
 import { checkRateLimit, getOpenAIKey } from "@/utils/rate-limiter";
+import { getAuthContext } from '@/lib/auth/require-auth';
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await getAuthContext(request);
     console.log("Starting query enhancement...");
 
     // Check rate limit first

@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { DatabaseAdapterFactory, type AdapterConnectionConfig, type DatabaseType } from "@/lib/database"
-import { getServerConnectionCredentials } from "@/lib/server-config"
+import { validateConnection } from "@/lib/database/connection-validator"
+import { getAuthContext } from '@/lib/auth/require-auth'
 
 declare global {
   var processStatus: Map<
@@ -23,20 +24,32 @@ if (!global.processStatus) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { connection } = await request.json()
+    const auth = await getAuthContext(request);
+    const body = await request.json()
+
+    // Support both { connectionId } (auth mode) and { connection } (no-auth mode)
+    const connection = body.connectionId
+      ? { id: body.connectionId, source: body.source || 'local', type: body.type }
+      : body.connection;
 
     if (!connection) {
       return NextResponse.json({ error: "Connection data is required" }, { status: 400 })
     }
 
-    // Validate database type
-    const dbType = connection.type as string
-    if (!DatabaseAdapterFactory.isSupported(dbType)) {
+    // Resolve credentials and validate via the shared connection validator
+    const validationResult = await validateConnection(connection, {
+      validateRequiredFields: false,
+      authUserId: auth?.userId,
+    })
+
+    if (!validationResult.success) {
       return NextResponse.json(
-        { error: `Unsupported database type: ${dbType}` },
-        { status: 400 }
+        { error: validationResult.error },
+        { status: validationResult.statusCode }
       )
     }
+
+    const { config, dbType } = validationResult
 
     // Generate unique process ID
     const processId = `schema_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
@@ -48,8 +61,8 @@ export async function POST(request: NextRequest) {
       startTime: Date.now(),
     })
 
-    // Start background processing (don't await)
-    processSchemaInBackground(processId, connection)
+    // Start background processing with resolved config (don't await)
+    processSchemaInBackground(processId, dbType, config)
 
     return NextResponse.json({
       processId,
@@ -61,7 +74,11 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function processSchemaInBackground(processId: string, connection: Record<string, unknown>) {
+async function processSchemaInBackground(
+  processId: string,
+  dbType: DatabaseType,
+  config: AdapterConnectionConfig
+) {
   let adapter = null
 
   try {
@@ -72,29 +89,7 @@ async function processSchemaInBackground(processId: string, connection: Record<s
       message: "Connecting to database...",
     })
 
-    // For server connections, look up full connection details from config file
-    let connectionDetails = connection
-    if (connection.source === "server") {
-      const serverConnection = await getServerConnectionCredentials(connection.id as string)
-      if (!serverConnection) {
-        throw new Error("Server connection not found")
-      }
-      connectionDetails = serverConnection
-    }
-
-    const dbType = connectionDetails.type as DatabaseType
     adapter = DatabaseAdapterFactory.create(dbType)
-
-    const config: AdapterConnectionConfig = {
-      host: connectionDetails.host as string,
-      port: parseInt(connectionDetails.port as string, 10),
-      database: connectionDetails.database as string,
-      username: connectionDetails.username as string,
-      password: connectionDetails.password as string,
-      filepath: connectionDetails.filepath as string | undefined,
-      ssl: (connectionDetails.host as string)?.includes("azure"),
-    }
-
     await adapter.connect(config)
 
     global.processStatus.set(processId, {

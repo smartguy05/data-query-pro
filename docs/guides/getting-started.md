@@ -4,8 +4,8 @@ Guide to setting up and running DataQuery Pro locally.
 
 ## Prerequisites
 
-- Node.js 18+ (or Docker)
-- npm or yarn
+- Node.js 18+
+- **pnpm** (package manager) — install with `npm install -g pnpm`
 - A supported database (PostgreSQL, MySQL, SQL Server, or SQLite)
 - OpenAI API key (for AI features)
 
@@ -50,7 +50,7 @@ cd dashboard
 
 2. **Install dependencies:**
 ```bash
-npm install
+pnpm install
 ```
 
 3. **Create environment file:**
@@ -67,7 +67,7 @@ OPENAI_MODEL=gpt-5       # Model to use (optional)
 
 5. **Start development server:**
 ```bash
-npm run dev
+pnpm dev
 ```
 
 6. **Open browser:**
@@ -125,16 +125,16 @@ This creates a vector store for query context.
 
 ```bash
 # Start development server
-npm run dev
+pnpm dev
 
 # Build for production
-npm run build
+pnpm build
 
 # Start production server
-npm start
+pnpm start
 
 # Run linter
-npm run lint
+pnpm lint
 ```
 
 ## Project Structure
@@ -176,6 +176,14 @@ hooks/               # Custom React hooks
 | `OPENAI_API_KEY` | Yes | OpenAI API key for AI features |
 | `OPENAI_MODEL` | No | Model name (defaults to gpt-5) |
 | `DEMO_RATE_LIMIT` | No | API requests per IP per 24h (empty = unlimited) |
+| `AUTH_OIDC_ISSUER` | For auth | OIDC issuer URL (enables auth mode) |
+| `AUTH_OIDC_CLIENT_ID` | For auth | OIDC client ID |
+| `AUTH_OIDC_CLIENT_SECRET` | For auth | OIDC client secret |
+| `AUTH_SECRET` | For auth | JWT signing key (`openssl rand -hex 32`) |
+| `AUTH_URL` | For auth | App URL, e.g. `http://localhost:3000` |
+| `AUTH_ADMIN_GROUP` | For auth | Authentik group name for admin access |
+| `APP_DATABASE_URL` | For auth | PostgreSQL connection string for app data |
+| `APP_ENCRYPTION_KEY` | For auth | 64-char hex key for encrypting passwords |
 
 ### Rate Limiting (Optional)
 
@@ -186,6 +194,39 @@ DEMO_RATE_LIMIT=10  # 10 requests per IP per 24 hours
 ```
 
 Users can bypass rate limits by providing their own OpenAI API key via the settings dialog in the navigation bar.
+
+## Auth Mode (Multi-User with Authentik)
+
+The steps above run the app in **default mode** (localStorage, no auth). To test with OIDC authentication, admin panel, and PostgreSQL-backed storage, see the [Authentication Testing guide](./authentication-testing.md).
+
+Quick summary:
+
+```bash
+# 1. Start Authentik + app DB + demo DB
+docker compose -f docker-compose.auth-test.yml up -d
+
+# 2. Wait ~60s, then configure Authentik
+bash scripts/setup-authentik.sh
+
+# 3. Copy the output env vars into .env.local (alongside OPENAI_API_KEY)
+
+# 4. Start the dev server
+pnpm dev
+```
+
+Test accounts: `testadmin` / `testadmin123` (admin) and `testuser` / `testuser123` (regular user).
+
+## Demo Database
+
+A demo PostgreSQL database with sample CloudMetrics data is available. If you're using `docker-compose.auth-test.yml`, it's already included on port 5433. Otherwise:
+
+```bash
+docker run -d --name demo-postgres -e POSTGRES_USER=demo -e POSTGRES_PASSWORD=demo \
+  -e POSTGRES_DB=cloudmetrics -p 5433:5432 postgres:15
+docker exec -i demo-postgres psql -U demo -d cloudmetrics < scripts/demo-database.sql
+```
+
+Connection details: host `localhost`, port `5433`, database `cloudmetrics`, user `demo`, password `demo`.
 
 ## Common Issues
 
@@ -249,5 +290,6 @@ function MyComponent() {
 
 ## Related Documentation
 - [Architecture Overview](../architecture/overview.md) - System design
+- [Authentication Testing](./authentication-testing.md) - Local Authentik setup for auth mode
 - [Adding Database Support](./adding-database-support.md) - New DB types
 - [OpenAI Integration](./openai-integration.md) - AI features

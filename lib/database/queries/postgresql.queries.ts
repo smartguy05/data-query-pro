@@ -15,15 +15,14 @@ export const PostgreSQLQueries: QueryBuilder = {
         pg_catalog.format_type(a.atttypid, a.atttypmod) as data_type,
         NOT a.attnotnull as is_nullable,
         pg_catalog.pg_get_expr(d.adbin, d.adrelid) as column_default,
-        CASE WHEN pk.attname IS NOT NULL THEN true ELSE false END as is_primary_key
+        CASE WHEN pk.attnum IS NOT NULL THEN true ELSE false END as is_primary_key
       FROM pg_catalog.pg_attribute a
       JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
       JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
       LEFT JOIN pg_catalog.pg_attrdef d ON a.attrelid = d.adrelid AND a.attnum = d.adnum
       LEFT JOIN (
-        SELECT i.indrelid, unnest(i.indkey) as attnum, a.attname
+        SELECT i.indrelid, unnest(i.indkey) as attnum
         FROM pg_catalog.pg_index i
-        JOIN pg_catalog.pg_attribute a ON i.indexrelid = a.attrelid
         WHERE i.indisprimary
       ) pk ON a.attrelid = pk.indrelid AND a.attnum = pk.attnum
       WHERE c.relname = $1

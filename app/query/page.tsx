@@ -30,12 +30,14 @@ import { FollowUpDialog } from "@/components/followup-dialog"
 import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
 import { useOpenAIKey } from "@/hooks/use-openai-key"
 import { ApiKeyDialog } from "@/components/api-key-dialog"
+import { useAuth } from "@/hooks/use-auth"
 
 export default function QueryPage() {
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const { fetchWithAuth, showRateLimitDialog, resetTimeInfo, clearRateLimitError } = useOpenAIFetch()
   const { setApiKey } = useOpenAIKey()
+  const { authEnabled } = useAuth()
 
   // Original query input
   const [naturalQuery, setNaturalQuery] = useState("")
@@ -338,13 +340,14 @@ export default function QueryPage() {
     try {
       const activeConnection = connectionInformation.getConnection()
 
+      const executeBody = authEnabled
+        ? { sql: tab.editableSql, connectionId: activeConnection?.id, source: activeConnection?.source, type: activeConnection?.type }
+        : { sql: tab.editableSql, connection: activeConnection };
+
       const response = await fetch("/api/query/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sql: tab.editableSql,
-          connection: activeConnection,
-        }),
+        body: JSON.stringify(executeBody),
       })
 
       if (!response.ok) {
@@ -568,9 +571,7 @@ export default function QueryPage() {
       lastModified: new Date().toISOString(),
     }
 
-    const existingReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
-    existingReports.push(report)
-    localStorage.setItem("saved_reports", JSON.stringify(existingReports))
+    connectionInformation.saveReport(report)
 
     toast({
       title: "Report Saved",

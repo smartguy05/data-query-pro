@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai";
 import { checkRateLimit, getOpenAIKey } from "@/utils/rate-limiter";
 import { uploadSchemaToOpenAI } from "@/lib/openai/schema-upload";
+import { getAuthContext } from '@/lib/auth/require-auth';
 
 // SQL dialect-specific hints for different database types
 const dialectHints: Record<string, string> = {
@@ -39,6 +40,7 @@ const dialectHints: Record<string, string> = {
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await getAuthContext(request);
     console.log("Starting query generation...");
 
     // Check rate limit first

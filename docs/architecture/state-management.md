@@ -1,16 +1,24 @@
 # State Management
 
-DataQuery Pro uses React Context with localStorage persistence for all application state. This document covers the state architecture and data flow.
+DataQuery Pro uses React Context backed by a pluggable `StorageProvider` for all application state. This document covers the state architecture and data flow.
 
 ## Overview
 
 The application uses a single context provider (`DatabaseConnectionOptions`) that manages:
-- Database connections
+- Database connections (including server-managed connections)
 - Current active connection
 - Schema data per connection
+- Saved reports
 - Connection status
 
-All data persists to localStorage for client-side storage.
+### Storage Modes
+
+| Mode | Provider | Backing Store | When Active |
+|------|----------|---------------|-------------|
+| Default | `LocalStorageProvider` | Browser localStorage | Auth disabled (no OIDC env vars) |
+| Auth | `ApiStorageProvider` | PostgreSQL via `/api/data/*` | Auth enabled (OIDC configured) |
+
+The provider is selected at startup based on the `/api/config/auth-status` response.
 
 ## DatabaseContext Provider
 
@@ -37,8 +45,12 @@ const [isInitialized, setIsInitialized] = useState(false);
 | `deleteConnection(id)` | Remove connection |
 | `importConnections(conns)` | Bulk import connections |
 | `setCurrentConnection(conn)` | Set active connection |
+| `refreshConnections()` | Re-fetch all connections and schemas from storage |
 | `getSchema(id?)` | Get schema for connection |
 | `setSchema(schema)` | Save/update schema |
+| `saveReport(report)` | Save a new report |
+| `updateReport(report)` | Update existing report |
+| `deleteReport(id)` | Delete a report |
 
 ### Usage Pattern
 
@@ -215,41 +227,56 @@ interface Schema {
 
 ## Reports Storage
 
-Reports are stored separately in localStorage, not in the context:
+Reports are managed through the context and StorageProvider:
 
 ```typescript
-// Reading reports
-const reports = JSON.parse(localStorage.getItem('saved_reports') || '[]');
+const { reports, saveReport, updateReport, deleteReport } = useDatabaseOptions();
 
-// Filtering by connection
+// Reports are filtered by active connection in the SavedReports component
 const connectionReports = reports.filter(r => r.connectionId === connectionId);
 
-// Saving reports
-localStorage.setItem('saved_reports', JSON.stringify(updatedReports));
+// Copy report to another connection
+const copy = { ...report, id: newId, connectionId: targetConnectionId };
+await saveReport(copy);
 ```
+
+Reports are tied to a specific connection via `connectionId`. When a connection is deleted, its reports are automatically cascade-deleted (via FK constraint in migration 003).
 
 ## Suggestions Caching
 
-AI suggestions are cached per connection:
+AI suggestions are cached per connection through the StorageProvider:
 
 ```typescript
-// Key pattern
+// Default mode: localStorage key pattern
 const key = `suggestions_${connectionId}`;
 
-// Save suggestions
-localStorage.setItem(key, JSON.stringify(suggestions));
-
-// Load suggestions
-const cached = JSON.parse(localStorage.getItem(key) || '[]');
+// Auth mode: stored in suggestions_cache table via /api/data/suggestions/[connectionId]
 ```
+
+## Content Loading Gate
+
+The `ContentLoadingGate` component (in `app/layout.tsx`) prevents page content from rendering until the context is initialized, avoiding a flash of empty/default state:
+
+```typescript
+// ContentLoadingGate shows a spinner until isInitialized is true
+// Excluded paths: /landing, /auth/login
+```
+
+## Server Connection Visibility
+
+In auth mode, server connections have special visibility rules:
+- **Admins** see all server connections (regardless of schema status)
+- **Non-admin users** only see server connections that have a schema uploaded
+- Schemas are shared for server connections — admin-uploaded schemas are visible to all assigned users
 
 ## SSR Considerations
 
-Because the app relies on localStorage, it won't work in SSR contexts. The context handles this by:
+The context handles SSR by:
 
 1. Using `useState` with empty defaults
-2. Loading from localStorage in `useEffect` (client-side only)
+2. Loading from StorageProvider in `useEffect` (client-side only)
 3. Setting `isInitialized` flag after load
+4. `ContentLoadingGate` prevents premature rendering
 
 Components should check `isInitialized` or use conditional rendering to avoid hydration mismatches.
 
