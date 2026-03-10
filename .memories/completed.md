@@ -98,3 +98,7 @@
 - Fixed outdated references to "PostgreSQL only" throughout docs
 - Added TRUSTED_PROXIES env var documentation
 - Created .memories files (completed.md, todos.md, notes.md)
+
+## Schema UX Improvements (2026-03-04)
+- Per-table AI description generation: sends one table per API request instead of batches of 10, shows table name and count in progress button
+- Sample data preview: new `/api/schema/sample-data` route returns top 10 rows for a table, "Sample Data" button on each table card in schema explorer with cached data and toggle visibility

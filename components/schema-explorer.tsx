@@ -59,13 +59,18 @@ export function SchemaExplorer() {
   const [processMessage, setProcessMessage] = useState("");
   const [processId, setProcessId] = useState<string | null>(null);
 
-  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentBatch: 0, totalBatches: 0 });
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentTableName: "" });
 
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const [isUpdatingSchema, setIsUpdatingSchema] = useState(false);
   const [showUpdateConfirmation, setShowUpdateConfirmation] = useState(false);
+
+  const [sampleData, setSampleData] = useState<Record<string, { columns: string[]; rows: string[][] }>>({});
+  const [sampleDataLoading, setSampleDataLoading] = useState<Record<string, boolean>>({});
+  const [sampleDataError, setSampleDataError] = useState<Record<string, string | null>>({});
+  const [sampleDataVisible, setSampleDataVisible] = useState<Set<string>>(new Set());
   const [pendingSchemaUpdate, setPendingSchemaUpdate] = useState<Schema | null>(null);
   const [showDiscardAllConfirmation, setShowDiscardAllConfirmation] = useState(false);
 
@@ -262,93 +267,66 @@ export function SchemaExplorer() {
     )
 
     setGeneratingDescriptions(true)
-    setBatchProgress({ current: 0, total: tablesNeedingDescriptions.length, currentBatch: 0, totalBatches: 0 })
+    const total = tablesNeedingDescriptions.length
+    setBatchProgress({ current: 0, total, currentTableName: "" })
 
     try {
-      // Process tables in batches of 10
-      const batchSize = 10
-      const tableBatches = []
-      for (let i = 0; i < tablesNeedingDescriptions.length; i += batchSize) {
-        tableBatches.push(tablesNeedingDescriptions.slice(i, i + batchSize))
-      }
-
-      setBatchProgress((prev) => ({ ...prev, totalBatches: tableBatches.length }))
       const updatedSchema = { ...connectionInformation.currentSchema }
+      let completedCount = 0
+      let failedCount = 0
+      const concurrency = 3
 
-      for (let batchIndex = 0; batchIndex < tableBatches.length; batchIndex++) {
-        console.log(`Processing batch ${batchIndex + 1}/${tableBatches.length}`)
-
-        setBatchProgress((prev) => ({
-          ...prev,
-          currentBatch: batchIndex + 1,
-          current: batchIndex * batchSize,
-        }))
-
-        const batchSchema = {
-          tables: tableBatches[batchIndex],
-        }
-
+      const processTable = async (table: (typeof tablesNeedingDescriptions)[number]) => {
         try {
           const response = await fetchWithAuth("/api/schema/generate-descriptions", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              schema: batchSchema,
+              schema: { tables: [table] },
               databaseDescription,
-              batchInfo: {
-                current: batchIndex + 1,
-                total: tableBatches.length,
-                tableNames: tableBatches[batchIndex].map((t) => t.name),
-              },
             }),
           })
 
           if (response.ok) {
             const data = await response.json()
-            console.log(`Batch ${batchIndex + 1} completed successfully`)
-
-            // Update the schema with the batch results
-            data.schema.tables.forEach((updatedTable: any) => {
+            const updatedTable = data.schema.tables[0]
+            if (updatedTable) {
               const tableIndex = updatedSchema.tables.findIndex((t) => t.name === updatedTable.name)
               if (tableIndex !== -1) {
                 updatedSchema.tables[tableIndex] = updatedTable
               }
-            })
-
-            // Update the UI with progress
-            connectionInformation.setSchema(updatedSchema);
-            setBatchProgress((prev) => ({
-              ...prev,
-              current: (batchIndex + 1) * batchSize,
-            }));
+            }
           } else {
-            const errorText = await response.text();
-            console.error(`Failed to process batch ${batchIndex + 1}:`, errorText);
-            throw new Error(`Batch ${batchIndex + 1} failed: ${response.status} ${response.statusText}`);
+            const errorText = await response.text()
+            console.warn(`Failed to generate description for ${table.name}:`, errorText)
+            failedCount++
           }
-        } catch (batchError) {
-          console.error(`Error processing batch ${batchIndex + 1}:`, batchError);
-          alert(`Failed to process batch ${batchIndex + 1}. Check console for details.`);
-          break;
+        } catch (tableError) {
+          console.warn(`Error generating description for ${table.name}:`, tableError)
+          failedCount++
         }
 
-        // Small delay between batches to prevent rate limiting
-        if (batchIndex < tableBatches.length - 1) {
-          console.log(`Waiting 1 second before next batch...`);
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
+        completedCount++
+        setBatchProgress({ current: completedCount, total, currentTableName: table.name })
+        connectionInformation.setSchema({ ...updatedSchema })
       }
 
-      setBatchProgress((prev) => ({ ...prev, current: tablesNeedingDescriptions.length }))
+      // Process tables with limited concurrency
+      for (let i = 0; i < total; i += concurrency) {
+        const chunk = tablesNeedingDescriptions.slice(i, i + concurrency)
+        console.log(`Processing tables ${i + 1}-${Math.min(i + concurrency, total)}/${total}: ${chunk.map(t => t.name).join(", ")}`)
+        await Promise.all(chunk.map(processTable))
+      }
 
-      const skippedCount = connectionInformation.currentSchema.tables.length - tablesNeedingDescriptions.length
-      const message =
-        skippedCount > 0
-          ? `AI descriptions generated for ${tablesNeedingDescriptions.length} tables (${skippedCount} already had descriptions)`
-          : `AI descriptions generated for all ${tablesNeedingDescriptions.length} tables`
+      setBatchProgress({ current: total, total, currentTableName: "" })
 
+      const skippedCount = connectionInformation.currentSchema.tables.length - total
+      const parts = []
+      parts.push(`${total - failedCount} tables processed`)
+      if (skippedCount > 0) parts.push(`${skippedCount} already had descriptions`)
+      if (failedCount > 0) parts.push(`${failedCount} failed`)
+
+      const message = `AI descriptions: ${parts.join(", ")}`
       console.log(`AI generation completed: ${message}`)
       alert(message)
     } catch (error) {
@@ -356,7 +334,57 @@ export function SchemaExplorer() {
       alert(`Failed to generate AI descriptions: ${error}`)
     } finally {
       setGeneratingDescriptions(false)
-      setBatchProgress({ current: 0, total: 0, currentBatch: 0, totalBatches: 0 })
+      setBatchProgress({ current: 0, total: 0, currentTableName: "" })
+    }
+  }
+
+  const fetchSampleData = async (tableName: string) => {
+    // If already loaded, just toggle visibility
+    if (sampleData[tableName]) {
+      setSampleDataVisible((prev) => {
+        const next = new Set(prev)
+        if (next.has(tableName)) {
+          next.delete(tableName)
+        } else {
+          next.add(tableName)
+        }
+        return next
+      })
+      return
+    }
+
+    const connection = connectionInformation.currentConnection
+    if (!connection) return
+
+    // Auto-expand the table
+    setExpandedTables((prev) => new Set(prev).add(tableName))
+
+    setSampleDataLoading((prev) => ({ ...prev, [tableName]: true }))
+    setSampleDataError((prev) => ({ ...prev, [tableName]: null }))
+
+    try {
+      const body = authEnabled
+        ? { connectionId: connection.id, source: connection.source, type: connection.type, tableName }
+        : { connection, tableName }
+
+      const response = await fetch("/api/schema/sample-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || `Request failed: ${response.status}`)
+      }
+
+      const data = await response.json()
+      setSampleData((prev) => ({ ...prev, [tableName]: { columns: data.columns, rows: data.rows } }))
+      setSampleDataVisible((prev) => new Set(prev).add(tableName))
+    } catch (err) {
+      setSampleDataError((prev) => ({ ...prev, [tableName]: err instanceof Error ? err.message : "Failed to fetch sample data" }))
+    } finally {
+      setSampleDataLoading((prev) => ({ ...prev, [tableName]: false }))
     }
   }
 
@@ -848,8 +876,9 @@ export function SchemaExplorer() {
             {generatingDescriptions ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin mr-1" />
-                Generating... ({batchProgress.currentBatch}/{batchProgress.totalBatches} batches, {batchProgress.current}/
-                {batchProgress.total} tables)
+                {batchProgress.currentTableName
+                  ? `Generating... ${batchProgress.currentTableName} (${batchProgress.current + 1}/${batchProgress.total})`
+                  : `Generating... (${batchProgress.current}/${batchProgress.total})`}
               </>
             ) : (
               <>
@@ -929,6 +958,20 @@ export function SchemaExplorer() {
                       title={table.hidden ? "Show in queries" : "Hide from queries"}
                     >
                       {table.hidden ? "Show" : "Hide"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      title={sampleDataVisible.has(table.name) ? "Hide sample data" : "Show sample data (top 10 rows)"}
+                      onClick={() => fetchSampleData(table.name)}
+                      disabled={sampleDataLoading[table.name]}
+                    >
+                      {sampleDataLoading[table.name] ? (
+                        <RefreshCw className="w-4 h-4 animate-spin mr-1" />
+                      ) : (
+                        <Eye className="w-4 h-4 mr-1" />
+                      )}
+                      {sampleDataVisible.has(table.name) ? "Hide Data" : "Sample Data"}
                     </Button>
                     <Button
                       variant="ghost"
@@ -1105,6 +1148,48 @@ export function SchemaExplorer() {
                       ))}
                     </TableBody>
                   </Table>
+
+                  {sampleDataError[table.name] && (
+                    <Alert variant="destructive" className="mt-4">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>{sampleDataError[table.name]}</AlertDescription>
+                    </Alert>
+                  )}
+
+                  {sampleDataVisible.has(table.name) && sampleData[table.name] && (
+                    <div className="mt-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Database className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">Sample Data (Top 10 Rows)</span>
+                      </div>
+                      {sampleData[table.name].rows.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No data in this table</p>
+                      ) : (
+                        <div className="overflow-x-auto max-h-[400px] overflow-y-auto border rounded">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                {sampleData[table.name].columns.map((col) => (
+                                  <TableHead key={col} className="text-xs whitespace-nowrap">{col}</TableHead>
+                                ))}
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {sampleData[table.name].rows.map((row, rowIdx) => (
+                                <TableRow key={rowIdx}>
+                                  {row.map((cell, cellIdx) => (
+                                    <TableCell key={cellIdx} className="text-xs whitespace-nowrap max-w-[200px] truncate" title={cell}>
+                                      {cell}
+                                    </TableCell>
+                                  ))}
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               )}
             </Card>
