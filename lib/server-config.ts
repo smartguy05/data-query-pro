@@ -1,6 +1,7 @@
 import { readFile } from "fs/promises";
 import { join } from "path";
 import { isAuthEnabled } from "@/lib/auth/config";
+import type { SavedReport } from "@/models/saved-report.interface";
 
 /**
  * Reads the server config file and returns the raw config data.
@@ -38,6 +39,34 @@ export async function getServerConfig(): Promise<{
       savedReports: config.savedReports,
       currentDbConnection: config.currentDbConnection,
     };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Reads the server reports config file (config/reports.json) and returns the reports array.
+ * When auth is enabled, returns null (server reports are not supported in auth mode, same as connections).
+ * Tolerates both a bare top-level array and a { reports: [...] } wrapper.
+ */
+export async function getServerReports(): Promise<SavedReport[] | null> {
+  // When auth is enabled, server config files are not used (DB-managed instead)
+  if (isAuthEnabled()) return null;
+
+  try {
+    const configPath = join(process.cwd(), "config", "reports.json");
+    const fileContent = await readFile(configPath, "utf-8");
+    const config = JSON.parse(fileContent);
+
+    if (Array.isArray(config)) {
+      return config;
+    } else if (config.reports && Array.isArray(config.reports)) {
+      return config.reports;
+    }
+    return null;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return null;

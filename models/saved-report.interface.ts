@@ -31,4 +31,7 @@ export interface SavedReport {
 
   // Future: visualization settings
   isFavorite?: boolean;
+
+  // Origin of the report: "local" (user-created) or "server" (loaded from config/reports.json, read-only)
+  source?: "local" | "server";
 }

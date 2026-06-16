@@ -4,6 +4,7 @@ import type { SavedReport } from '@/models/saved-report.interface';
 export class LocalStorageProvider implements StorageProvider {
   private serverConnections: DatabaseConnection[] = [];
   private serverSchemas: Schema[] = [];
+  private serverReports: SavedReport[] = [];
   private initialized = false;
 
   async initialize(): Promise<void> {
@@ -35,6 +36,20 @@ export class LocalStorageProvider implements StorageProvider {
       }
     } catch (error) {
       console.error('Failed to load server config:', error);
+    }
+
+    // Load shared reports from config/reports.json (always-present, read-only).
+    // These are merged fresh on every load and never persisted to localStorage.
+    try {
+      const reportsResponse = await fetch('/api/config/reports');
+      if (reportsResponse.ok) {
+        const reportsData = await reportsResponse.json();
+        if (reportsData.success && Array.isArray(reportsData.reports)) {
+          this.serverReports = reportsData.reports;
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load server reports config:', error);
     }
 
     this.initialized = true;
@@ -207,10 +222,20 @@ export class LocalStorageProvider implements StorageProvider {
   }
 
   async getReports(): Promise<SavedReport[]> {
-    return JSON.parse(localStorage.getItem('saved_reports') || '[]');
+    await this.initialize();
+    const localReports: SavedReport[] = JSON.parse(
+      localStorage.getItem('saved_reports') || '[]'
+    ).map((r: SavedReport) => ({ ...r, source: r.source || ('local' as const) }));
+
+    // Server reports take precedence over any local report with the same id.
+    const serverReportIds = new Set(this.serverReports.map(r => r.id));
+    const localOnlyReports = localReports.filter(r => !serverReportIds.has(r.id));
+    return [...this.serverReports, ...localOnlyReports];
   }
 
   async saveReport(report: SavedReport): Promise<void> {
+    // Never persist server reports to localStorage.
+    if (report.source === 'server') return;
     const reports: SavedReport[] = JSON.parse(
       localStorage.getItem('saved_reports') || '[]'
     );
@@ -219,6 +244,8 @@ export class LocalStorageProvider implements StorageProvider {
   }
 
   async updateReport(report: SavedReport): Promise<void> {
+    // Server reports are read-only.
+    if (report.source === 'server') return;
     const reports: SavedReport[] = JSON.parse(
       localStorage.getItem('saved_reports') || '[]'
     );
@@ -227,6 +254,8 @@ export class LocalStorageProvider implements StorageProvider {
   }
 
   async deleteReport(id: string): Promise<void> {
+    // Server reports cannot be deleted; only local reports are stored here, so
+    // filtering by id is naturally a no-op for server reports.
     const reports: SavedReport[] = JSON.parse(
       localStorage.getItem('saved_reports') || '[]'
     );

@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { FileText, Calendar, Trash2, MoreHorizontal, Eye, AlertTriangle, Play, Edit, Copy, Star, Database, ArrowRightLeft } from "lucide-react"
+import { FileText, Calendar, Trash2, MoreHorizontal, Eye, AlertTriangle, Play, Edit, Copy, Star, Database, ArrowRightLeft, Lock } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -301,7 +301,9 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredReports.map((report) => (
+            {filteredReports.map((report) => {
+              const isServer = report.source === "server"
+              return (
               <Card key={report.id} className="hover:shadow-md transition-shadow">
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
@@ -312,20 +314,22 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
                       </CardDescription>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleFavorite(report.id)}
-                        className="hover:bg-transparent"
-                      >
-                        <Star
-                          className={`h-4 w-4 ${
-                            report.isFavorite
-                              ? "fill-amber-500 text-amber-500"
-                              : "text-muted-foreground"
-                          }`}
-                        />
-                      </Button>
+                      {!isServer && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => toggleFavorite(report.id)}
+                          className="hover:bg-transparent"
+                        >
+                          <Star
+                            className={`h-4 w-4 ${
+                              report.isFavorite
+                                ? "fill-amber-500 text-amber-500"
+                                : "text-muted-foreground"
+                            }`}
+                          />
+                        </Button>
+                      )}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="sm">
@@ -341,10 +345,12 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
                             <Play className="h-4 w-4 mr-2" />
                             Run Query
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => editReport(report)}>
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit Report
-                          </DropdownMenuItem>
+                          {!isServer && (
+                            <DropdownMenuItem onClick={() => editReport(report)}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Edit Report
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem onClick={() => cloneReport(report)}>
                             <Copy className="h-4 w-4 mr-2" />
                             Clone Report
@@ -355,14 +361,18 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
                               Copy to Connection
                             </DropdownMenuItem>
                           )}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-red-600"
-                            onClick={() => deleteReport(report.id)}
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
+                          {!isServer && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-red-600"
+                                onClick={() => deleteReport(report.id)}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
@@ -385,6 +395,12 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
                         return conn ? (conn.name || conn.database) : "Unknown"
                       })()}
                     </Badge>
+                    {isServer && (
+                      <Badge variant="secondary" className="gap-1">
+                        <Lock className="h-3 w-3" />
+                        Server Config
+                      </Badge>
+                    )}
                   </div>
 
                   <div className="space-y-1 text-sm text-muted-foreground">
@@ -419,7 +435,8 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

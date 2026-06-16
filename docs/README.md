@@ -35,6 +35,7 @@ it maps every route, feature, and component to its source path and doc.
 - [Adding Database Support](./guides/adding-database-support.md) - Extending for new databases
 - [OpenAI Integration](./guides/openai-integration.md) - AI features and vector stores
 - [Common Tasks](./guides/common-tasks.md) - Frequent development workflows
+- [Claude Design System](./guides/design-system.md) - The component library synced to claude.ai/design, and how to re-sync
 
 ### Reference & Testing
 - [File Map](./reference/file-map.md) - Feature/route/component → source path → doc

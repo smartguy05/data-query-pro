@@ -9,6 +9,7 @@ How-to guides for setting up, extending, and integrating DataQuery Pro.
 | [Adding Database Support](./adding-database-support.md) | Extending the adapter system for a new database type |
 | [OpenAI Integration](./openai-integration.md) | Responses API usage, vector stores, descriptions, suggestions, cost |
 | [Common Tasks](./common-tasks.md) | Frequent dev workflows (add page/endpoint/component/model, debug, lint) |
+| [Claude Design System](./design-system.md) | The UI library synced to claude.ai/design (DataQuery Pro UI), what's carded, and how to re-sync |
 
 ## Related
 - [Documentation Index](../README.md)
