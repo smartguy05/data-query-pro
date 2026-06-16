@@ -313,6 +313,42 @@ Polls introspection status (alternative to WebSocket).
 
 ---
 
+## POST /api/schema/sample-data
+
+**Location:** `app/api/schema/sample-data/route.ts`
+
+Returns the first 10 rows of a table for the **data preview** feature. Works in both
+modes (resolves credentials via `validateConnection()`).
+
+### Request
+
+```typescript
+{
+  "tableName": "users",            // required; validated against /^[a-zA-Z0-9_\-. ]+$/
+  // auth mode:
+  "connectionId": "...", "source": "local" | "server", "type": "postgresql",
+  // default mode:
+  "connection": { "host": "...", "port": "...", ... }
+}
+```
+
+### Response
+
+```typescript
+{
+  "columns": ["id", "name", ...],
+  "rows": [["1", "Ada", ...], ...],   // values stringified; NULL → "NULL"
+  "rowCount": 10
+}
+```
+
+### Behavior
+- The table name is escaped via the adapter's `escapeIdentifier()`.
+- Uses `SELECT TOP 10 *` on SQL Server, `SELECT * ... LIMIT 10` elsewhere.
+- Errors are sanitized (`sanitizeDbError`) to avoid leaking credentials.
+
+---
+
 ## Schema Flow Diagram
 
 ```

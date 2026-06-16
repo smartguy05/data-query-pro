@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
     const sanitized = sanitizeDbError(error)
 
     return NextResponse.json(
-      { error: sanitized.message, code: sanitized.code },
+      { error: sanitized.message, code: sanitized.code, detail: sanitized.detail },
       { status: sanitized.isUserError ? 400 : 500 }
     )
   }

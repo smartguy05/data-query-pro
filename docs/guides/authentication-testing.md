@@ -21,7 +21,7 @@ bash scripts/setup-authentik.sh
 # 3. Copy the output env vars into .env.local
 
 # 4. Start the dev server
-npm run dev
+pnpm dev
 ```
 
 ## What Gets Created

@@ -18,14 +18,18 @@ DataQuery Pro uses Next.js API routes for server-side operations. All routes are
 | `/api/schema/update-description` | POST | Update single description | [Schema Endpoints](./schema-endpoints.md) |
 | `/api/schema/start-introspection` | POST | Start background introspection | [Schema Endpoints](./schema-endpoints.md) |
 | `/api/schema/status` | GET | Poll introspection status | [Schema Endpoints](./schema-endpoints.md) |
+| `/api/schema/sample-data` | POST | Fetch first 10 rows of a table (data preview) | [Schema Endpoints](./schema-endpoints.md) |
 | `/api/dashboard/suggestions` | POST | Generate metric suggestions | [Dashboard Endpoints](./dashboard-endpoints.md) |
 | `/api/chart/generate` | POST | Generate chart config | [Dashboard Endpoints](./dashboard-endpoints.md) |
-| `/api/connection/test` | POST | Test database connectivity | - |
-| `/api/config/connections` | GET | Get server-configured connections | - |
-| `/api/config/rate-limit-status` | GET | Check rate limit status | - |
-| `/api/config/auth-status` | GET | Check if auth is enabled | - |
+| `/api/connection/test` | POST | Test database connectivity | [Data Endpoints](./data-endpoints.md#connection-test) |
+| `/api/config/connections` | GET | Get server-configured connections | [Data Endpoints](./data-endpoints.md#config-endpoints-apiconfig) |
+| `/api/config/rate-limit-status` | GET | Check rate limit status | [Data Endpoints](./data-endpoints.md#config-endpoints-apiconfig) |
+| `/api/config/auth-status` | GET | Check if auth is enabled | [Data Endpoints](./data-endpoints.md#config-endpoints-apiconfig) |
+| `/api/auth/[...nextauth]` | GET/POST | Auth.js v5 OIDC handler | [Data Endpoints](./data-endpoints.md#auth-endpoint) |
 
 ### Authenticated CRUD Endpoints (auth mode only)
+
+> Full request/response details: [Auth-Mode Data, Admin & Sharing Endpoints](./data-endpoints.md).
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/api/data/connections` | GET, POST | List/create user connections |
@@ -106,7 +110,17 @@ The `validateConnection()` function in `lib/database/connection-validator.ts` ha
 
 Endpoints using OpenAI require:
 1. `OPENAI_API_KEY` environment variable
-2. `OPENAI_MODEL` environment variable (defaults to model specified)
+2. `OPENAI_MODEL` environment variable — behavior varies per endpoint:
+
+| Endpoint | `OPENAI_MODEL` fallback |
+|----------|-------------------------|
+| `/api/query/generate` | **none — required** |
+| `/api/query/enhance` | **none — required** |
+| `/api/query/revise` | **none — required** |
+| `/api/query/followup` | `gpt-5.1` |
+| `/api/dashboard/suggestions` | `gpt-5` |
+| `/api/schema/generate-descriptions` | `gpt-5` |
+| `/api/chart/generate` | `gpt-5-mini` |
 
 OpenAI endpoints use the **Responses API** (not Chat Completions):
 
@@ -161,7 +175,12 @@ Manage database schema:
 AI suggestions and analytics:
 - [Dashboard Endpoints](./dashboard-endpoints.md)
 
+### Data, Admin & Sharing (auth mode)
+User CRUD, admin server connections, and sharing:
+- [Data Endpoints](./data-endpoints.md)
+
 ## Related Documentation
 - [Architecture Overview](../architecture/overview.md) - System design
+- [Auth & Data Layer](../architecture/auth-and-data-layer.md) - Auth, repositories, encryption
 - [OpenAI Integration](../guides/openai-integration.md) - AI details
 - [Models Overview](../models/overview.md) - TypeScript interfaces

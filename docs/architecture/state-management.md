@@ -78,7 +78,6 @@ function MyComponent() {
 | `databaseConnections` | `DatabaseConnection[]` | All saved connections |
 | `currentDbConnection` | `DatabaseConnection` | Currently active connection |
 | `connectionSchemas` | `Schema[]` | All schemas by connection |
-| `schema_{connectionId}` | `Schema` | Individual schema cache (legacy) |
 | `suggestions_{connectionId}` | `Suggestion[]` | Cached AI suggestions |
 | `saved_reports` | `SavedReport[]` | All saved reports |
 | `dismissed_notifications` | `string[]` | Dismissed notification IDs |

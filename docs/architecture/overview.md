@@ -238,6 +238,8 @@ layout.tsx
 4. Credentials resolved server-side from app DB (never trusted from client)
 5. Admin features: server connection CRUD, user/group assignments
 ```
+See [Auth & Data Layer](./auth-and-data-layer.md) for the full picture (repositories,
+encryption, migrations, credential resolution).
 
 ### Server Connection Lifecycle
 ```
@@ -250,5 +252,6 @@ layout.tsx
 
 ## Related Documentation
 - [State Management](./state-management.md) - Detailed context documentation
+- [Auth & Data Layer](./auth-and-data-layer.md) - Auth, repositories, encryption, migrations
 - [API Overview](../api/overview.md) - All API endpoints
 - [Getting Started](../guides/getting-started.md) - Setup guide

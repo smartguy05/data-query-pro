@@ -174,7 +174,7 @@ hooks/               # Custom React hooks
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `OPENAI_API_KEY` | Yes | OpenAI API key for AI features |
-| `OPENAI_MODEL` | No | Model name (defaults to gpt-5) |
+| `OPENAI_MODEL` | For query gen | Model name. **Required by `/api/query/generate`, `/enhance`, `/revise`** (no fallback). Other AI endpoints fall back to a default if unset — see [API Overview](../api/overview.md#openai-api-integration). |
 | `DEMO_RATE_LIMIT` | No | API requests per IP per 24h (empty = unlimited) |
 | `AUTH_OIDC_ISSUER` | For auth | OIDC issuer URL (enables auth mode) |
 | `AUTH_OIDC_CLIENT_ID` | For auth | OIDC client ID |

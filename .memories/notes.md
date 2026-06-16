@@ -5,6 +5,7 @@
 - All API routes that call OpenAI check rate limits first, accept user keys via `x-user-openai-key` header
 - Server connections (from config/databases.json) have passwords stripped before sending to client; server-side operations use `getServerConnectionCredentials()` to get full credentials
 - Error messages from databases are sanitized via `utils/error-sanitizer.ts` to prevent credential leaks
+  - As of bug-fixes branch: user/query-logic errors (column/table not found, syntax, constraints) now surface the **raw DB message** (which names the offending column/table) via `normalizeDbDetail()` + a `detail` field on `SanitizedError`. Only connection/auth/unknown errors stay generic. Safe because users query their own DB and already see the schema; also feeds the auto-revise flow. Patterns added for SQLite (`no such column/table`) and SQL Server (`invalid column name`/`invalid object name`/`ambiguous column`).
 
 ## Common Issues
 - Vector stores can expire/be deleted on OpenAI side - handle 404 errors gracefully, auto-reupload schema

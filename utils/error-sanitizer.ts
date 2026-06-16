@@ -13,6 +13,12 @@ export interface SanitizedError {
   code?: string;
   /** Whether this is a user error (4xx) vs server error (5xx) */
   isUserError: boolean;
+  /**
+   * The specific, user-safe detail from the database (e.g. which column or
+   * table). Only populated for query-logic errors (user errors), never for
+   * connection/auth errors which may contain credentials or host info.
+   */
+  detail?: string;
 }
 
 /**
@@ -48,6 +54,38 @@ const SAFE_ERROR_PATTERNS: {
     pattern: /table[^"]*"?[\w]+"?[^"]*doesn't exist/i,
     message: 'Table not found in database',
     code: 'TABLE_NOT_FOUND',
+    isUserError: true,
+  },
+  // SQLite
+  {
+    pattern: /no such column/i,
+    message: 'Column not found in table',
+    code: 'COLUMN_NOT_FOUND',
+    isUserError: true,
+  },
+  {
+    pattern: /no such table/i,
+    message: 'Table not found in database',
+    code: 'TABLE_NOT_FOUND',
+    isUserError: true,
+  },
+  // SQL Server
+  {
+    pattern: /invalid column name/i,
+    message: 'Column not found in table',
+    code: 'COLUMN_NOT_FOUND',
+    isUserError: true,
+  },
+  {
+    pattern: /invalid object name/i,
+    message: 'Table not found in database',
+    code: 'TABLE_NOT_FOUND',
+    isUserError: true,
+  },
+  {
+    pattern: /ambiguous column/i,
+    message: 'Ambiguous column reference',
+    code: 'AMBIGUOUS_COLUMN',
     isUserError: true,
   },
 
@@ -169,7 +207,41 @@ const SAFE_ERROR_PATTERNS: {
 ];
 
 /**
+ * Cleans up a raw database driver message for display to the user.
+ *
+ * The raw message already names the offending column/table/constraint, which is
+ * exactly what the user needs. We only normalize whitespace, strip noisy
+ * prefixes some drivers add, and cap the length to keep the UI tidy.
+ */
+function normalizeDbDetail(rawMessage: string): string {
+  let detail = rawMessage
+    .replace(/\s+/g, ' ')
+    .trim()
+    // Drop common driver prefixes (e.g. "error: ", "ER_BAD_FIELD_ERROR: ")
+    .replace(/^(error|err|[A-Z][A-Z0-9_]+):\s*/i, '')
+    .trim();
+
+  // Capitalize the first letter for a tidier message.
+  if (detail.length > 0) {
+    detail = detail.charAt(0).toUpperCase() + detail.slice(1);
+  }
+
+  const MAX_LENGTH = 500;
+  if (detail.length > MAX_LENGTH) {
+    detail = `${detail.slice(0, MAX_LENGTH)}…`;
+  }
+
+  return detail;
+}
+
+/**
  * Sanitizes a database error for safe client exposure.
+ *
+ * For query-logic errors (user errors) the real driver message — which names
+ * the specific column, table, constraint, etc. — is surfaced, since the user is
+ * querying their own database and already sees its full schema. Connection,
+ * authentication, and unrecognized errors stay generic because they may contain
+ * credentials or host details.
  *
  * @param error - The error to sanitize
  * @returns A sanitized error with a safe message
@@ -192,6 +264,16 @@ export function sanitizeDbError(error: unknown): SanitizedError {
     if (pattern.test(errorMessage)) {
       // Log the full error server-side for debugging
       console.error(`[DB_ERROR] ${code}:`, errorMessage);
+
+      // For user errors (bad column/table/syntax/constraint in the query), the
+      // raw message safely names the offending identifier and is far more
+      // helpful than the generic label — surface it to the user and the
+      // auto-revise flow. Server-side errors stay generic.
+      if (isUserError) {
+        const detail = normalizeDbDetail(errorMessage);
+        return { message: detail || message, code, isUserError, detail };
+      }
+
       return { message, code, isUserError };
     }
   }

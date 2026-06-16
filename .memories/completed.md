@@ -102,3 +102,13 @@
 ## Schema UX Improvements (2026-03-04)
 - Per-table AI description generation: sends one table per API request instead of batches of 10, shows table name and count in progress button
 - Sample data preview: new `/api/schema/sample-data` route returns top 10 rows for a table, "Sample Data" button on each table card in schema explorer with cached data and toggle visibility
+
+## Bug Fixes & QoL (2026-06-16)
+- More helpful DB error messages: `utils/error-sanitizer.ts` now surfaces the raw driver message (naming the offending column/table/constraint) for user/query-logic errors, instead of the generic "Column not found in table". Added `detail` field to `SanitizedError` + `normalizeDbDetail()` helper. Connection/auth/unknown errors stay generic to avoid credential leaks. Added column/table-not-found patterns for SQLite and SQL Server (previously fell through to generic). Execute route passes `detail` through in the response.
+
+## Documentation Refresh & Reorganization (2026-06-16)
+- Fixed stale facts: per-endpoint `OPENAI_MODEL` defaults (generate/enhance/revise have no fallback), `npm`→`pnpm` in guides, removed non-existent `schema_{connectionId}` localStorage key.
+- Closed coverage gaps: documented Admin/Landing/Auth-login pages; added missing components; new `docs/api/data-endpoints.md` (auth-mode data/admin/sharing/config/auth/connection-test); added `/api/schema/sample-data`; new `docs/architecture/auth-and-data-layer.md`.
+- Restructure: split `docs/testing-plan.md` → `docs/testing/` (README + phase-1..4); split `components/features.md` → new `components/infrastructure.md`; added `docs/reference/file-map.md` (feature/route/component → source → doc) + `reference/README.md` + `guides/README.md` indexes; updated `docs/README.md` nav.
+- Synced root `README.md` and `CLAUDE.md` doc tables (fixed broken testing-plan link). Verified: all docs <500 lines, all relative + anchor links resolve.
+- Note: `app/auth/error`, `app/api/setup/init`, `app/setup`, `app/users` do NOT exist (code-reality audit corrected); only `app/auth/login` exists.

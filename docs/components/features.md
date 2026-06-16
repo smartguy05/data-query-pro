@@ -60,6 +60,26 @@ const toggleHidden = (tableName: string, columnName?: string) => {
 };
 ```
 
+### SchemaUpdateModal
+**File:** `components/schema-update-modal.tsx`
+
+Modal that summarizes detected schema changes (new tables, new/modified columns)
+after re-introspection and asks the user to confirm applying the update.
+
+**Props:**
+```typescript
+interface SchemaUpdateModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  schema: Schema | null;        // schema with isNew/isModified flags
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+```
+
+Counts are derived from `isNew` / `isModified` flags on tables and columns
+(see [Schema change detection](./pages.md#schema-page)).
+
 ---
 
 ## Query Components
@@ -277,6 +297,10 @@ interface SavedReportsProps {
 
 ## Dashboard Components
 
+> **Note:** Several dashboard components below render **hardcoded demo data**, not
+> live query results. They exist to showcase the dashboard layout. Treat them as
+> placeholder UI until wired to real data.
+
 ### ExecutiveMetrics
 **File:** `components/executive-metrics.tsx`
 
@@ -300,6 +324,19 @@ Shows mock recent reports with type badges, timestamps, and download options.
 **File:** `components/performance-chart.tsx`
 
 Mock 6-month revenue/customers/orders trend visualization with manual bar chart rendering.
+
+### ScheduledReports
+**File:** `components/scheduled-reports.tsx`
+
+Demo UI listing scheduled report deliveries (frequency, next run, recipients, format)
+with active/pause toggles. Uses a hardcoded `scheduledReports` array — no scheduling
+backend exists yet.
+
+### ReportTemplates
+**File:** `components/report-templates.tsx`
+
+Demo gallery of report template cards (Executive Summary, Sales Performance, etc.)
+with category and query-count badges. Uses a hardcoded `templates` array.
 
 ---
 
@@ -333,103 +370,8 @@ Dialog for asking follow-up questions about query results.
 
 ---
 
-## Infrastructure Components
-
-### ErrorBoundary
-**File:** `components/error-boundary.tsx`
-
-React class component that catches JavaScript errors in child components.
-
-**Features:**
-- Fallback UI with error message
-- Reset button to recover
-- Optional custom fallback component
-- `withErrorBoundary` HOC for wrapping components
-
-**Usage:**
-```tsx
-<ErrorBoundary>
-  <ComponentThatMightError />
-</ErrorBoundary>
-
-// Or with HOC
-const SafeComponent = withErrorBoundary(MyComponent);
-```
-
-### OpenAIApiProvider
-**File:** `components/openai-api-provider.tsx`
-
-Context provider for OpenAI API key management.
-
-**Features:**
-- Stores key in sessionStorage (not localStorage)
-- Syncs between tabs via storage events
-- Provides: `setApiKey`, `clearApiKey`, `getAuthHeaders`
-- Exports `useOpenAIApiContext` hook
-
-### ApiKeyDialog
-**File:** `components/api-key-dialog.tsx`
-
-Dialog for users to enter their OpenAI API key to bypass rate limits.
-
-**Features:**
-- Key validation (must start with "sk-")
-- Reset time information display
-- Rate limit bypass explanation
-
-### ApiKeyIndicator
-**File:** `components/api-key-indicator.tsx`
-
-Navigation indicator showing OpenAI API key status.
-
-**Features:**
-- Green checkmark if key configured
-- Yellow alert if using demo (rate limited)
-- Popover menu for key management
-- Only renders when rate limiting is enabled
-
----
-
-## Navigation
-
-### Navigation
-**File:** `components/navigation.tsx`
-
-Top navigation bar.
-
-**Features:**
-- Route links with active state (blue highlight)
-- Theme toggle (dark/light)
-- API key status indicator (when rate limiting enabled)
-- Mobile responsive with collapsible menu
-- Skips rendering on /landing page
-
-**Usage:**
-```tsx
-// In layout or page
-<Navigation />
-```
-
----
-
-## Theme Components
-
-### ThemeProvider
-**File:** `components/theme-provider.tsx`
-
-Wrapper for next-themes.
-
-**Usage:**
-```tsx
-<ThemeProvider attribute="class" defaultTheme="system">
-  {children}
-</ThemeProvider>
-```
-
-### ThemeToggle
-**File:** `components/theme-toggle.tsx`
-
-Toggle button for dark/light mode.
+> **Infrastructure, navigation, theme, auth, sharing, and modal components** are
+> documented separately in [Infrastructure Components](./infrastructure.md).
 
 ---
 
@@ -473,5 +415,6 @@ Toggle button for dark/light mode.
 
 ## Related Documentation
 - [Components Overview](./overview.md) - Component categories
+- [Infrastructure Components](./infrastructure.md) - Providers, navigation, theme, auth, modals
 - [Page Components](./pages.md) - App pages
 - [Models Overview](../models/overview.md) - TypeScript interfaces
