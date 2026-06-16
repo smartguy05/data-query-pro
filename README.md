@@ -373,15 +373,17 @@ Comprehensive developer documentation is available in the [docs](./docs) folder:
 | Topic | Link |
 |-------|------|
 | Documentation Index | [docs/README.md](./docs/README.md) |
+| File Map (where things live) | [docs/reference/file-map.md](./docs/reference/file-map.md) |
 | Architecture Overview | [docs/architecture/overview.md](./docs/architecture/overview.md) |
 | State Management | [docs/architecture/state-management.md](./docs/architecture/state-management.md) |
+| Auth & Data Layer | [docs/architecture/auth-and-data-layer.md](./docs/architecture/auth-and-data-layer.md) |
 | API Reference | [docs/api/overview.md](./docs/api/overview.md) |
 | Component Guide | [docs/components/overview.md](./docs/components/overview.md) |
 | Data Models | [docs/models/overview.md](./docs/models/overview.md) |
 | Getting Started Guide | [docs/guides/getting-started.md](./docs/guides/getting-started.md) |
 | Authentication Testing | [docs/guides/authentication-testing.md](./docs/guides/authentication-testing.md) |
 | OpenAI Integration | [docs/guides/openai-integration.md](./docs/guides/openai-integration.md) |
-| Testing Plan | [docs/testing-plan.md](./docs/testing-plan.md) |
+| Testing Plan | [docs/testing/README.md](./docs/testing/README.md) |
 
 ---
 
@@ -418,7 +420,7 @@ Create a `.env.local` file with:
 
 ```bash
 OPENAI_API_KEY=sk-...    # Required for AI features
-OPENAI_MODEL=gpt-5       # Model for query generation (optional)
+OPENAI_MODEL=gpt-5       # Required by query generation (no fallback); other AI endpoints default per-route
 DEMO_RATE_LIMIT=         # Optional: limit API requests per IP per 24h (empty = unlimited)
 TRUSTED_PROXIES=         # Optional: comma-separated trusted proxy IPs for rate limiting
 ```

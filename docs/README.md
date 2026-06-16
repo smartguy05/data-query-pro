@@ -4,30 +4,41 @@ This documentation provides comprehensive developer guidance for the DataQuery P
 
 ## Quick Navigation
 
+**Looking for where something lives?** Start with the [File Map](./reference/file-map.md) —
+it maps every route, feature, and component to its source path and doc.
+
 ### Architecture
 - [Architecture Overview](./architecture/overview.md) - System design and component relationships
 - [State Management](./architecture/state-management.md) - React Context, StorageProvider, and data flow
+- [Auth & Data Layer](./architecture/auth-and-data-layer.md) - OIDC auth, app DB, repositories, encryption
 
 ### API Reference
 - [API Overview](./api/overview.md) - All endpoints and patterns
 - [Query Endpoints](./api/query-endpoints.md) - SQL generation and execution
 - [Schema Endpoints](./api/schema-endpoints.md) - Database introspection and management
 - [Dashboard Endpoints](./api/dashboard-endpoints.md) - Suggestions and metrics
+- [Data Endpoints](./api/data-endpoints.md) - Auth-mode data, admin, sharing, config
 
 ### Components
 - [Components Overview](./components/overview.md) - Component hierarchy and responsibilities
 - [Page Components](./components/pages.md) - App router pages
 - [Feature Components](./components/features.md) - Reusable feature components
+- [Infrastructure Components](./components/infrastructure.md) - Providers, navigation, theme, auth, modals
 
 ### Data Models
 - [Models Overview](./models/overview.md) - All TypeScript interfaces
 
 ### Developer Guides
+[Guides index](./guides/README.md)
 - [Getting Started](./guides/getting-started.md) - Setup and configuration
 - [Authentication Testing](./guides/authentication-testing.md) - Local Authentik setup for OIDC testing
 - [Adding Database Support](./guides/adding-database-support.md) - Extending for new databases
 - [OpenAI Integration](./guides/openai-integration.md) - AI features and vector stores
 - [Common Tasks](./guides/common-tasks.md) - Frequent development workflows
+
+### Reference & Testing
+- [File Map](./reference/file-map.md) - Feature/route/component → source path → doc
+- [Testing Plan](./testing/README.md) - Phased Playwright MCP test plan
 
 ## Key Concepts
 

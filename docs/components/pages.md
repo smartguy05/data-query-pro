@@ -291,36 +291,92 @@ const handleExport = () => {
 
 ---
 
+## Admin Page
+
+**Route:** `/admin`
+**File:** `app/admin/page.tsx`
+
+Admin-only panel for managing **server connections** and their assignments.
+Available in auth mode; `useAuth()` gates access by `isAdmin`.
+
+### Features
+- Create / edit / delete server connections (stored in the app DB, credentials encrypted)
+- Assign connections to individual users or to OIDC groups
+- Search users by email/name when assigning
+- View existing assignments per connection
+
+### Data Flow
+- Connections: `/api/admin/server-connections` (+ `/[id]`)
+- Assignments: `/api/admin/server-connections/[id]/assign` and `/assignments`
+- User search: `/api/sharing/users/search`
+
+See [Auth-mode endpoints](../api/data-endpoints.md#admin-endpoints-apiadmin) and
+[Auth & Data Layer](../architecture/auth-and-data-layer.md).
+
+---
+
+## Landing Page
+
+**Route:** `/landing`
+**File:** `app/landing/page.tsx`
+
+Public marketing/showcase page (features, screenshots, links). Has its own layout
+(`app/landing/layout.tsx`) with SEO metadata and renders without the app `Navigation`.
+It is an "ungated" route — the [ContentLoadingGate](./infrastructure.md#contentloadinggate)
+does not wait for database context here.
+
+---
+
+## Auth Login Page
+
+**Route:** `/auth/login`
+**File:** `app/auth/login/page.tsx`
+
+Sign-in page shown in auth mode.
+
+- On mount, checks `/api/config/auth-status`; if auth is disabled, redirects to `/`.
+- Sign-in button dynamically imports `next-auth/react` and calls
+  `signIn("authentik", { callbackUrl: "/" })`.
+
+> `app/setup/` and `app/users/` directories exist but currently contain no pages.
+
+---
+
 ## Layout Component
 
 **File:** `app/layout.tsx`
 
-Root layout wrapping all pages.
+Root layout wrapping all pages. Provider nesting (outermost → innermost):
 
 ```tsx
-export default function RootLayout({ children }) {
-  return (
-    <html lang="en" suppressHydrationWarning>
-      <body>
-        <ThemeProvider attribute="class" defaultTheme="system">
-          <DatabaseConnectionOptions>
-            {children}
-          </DatabaseConnectionOptions>
-          <Toaster />
-        </ThemeProvider>
-      </body>
-    </html>
-  );
-}
+<ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
+  <AuthProvider>
+    <OpenAIApiProvider>
+      <DatabaseConnectionOptions>
+        <Navigation />
+        <main>
+          <ErrorBoundary>
+            <ContentLoadingGate>{children}</ContentLoadingGate>
+          </ErrorBoundary>
+        </main>
+        <DataMigrationDialog />
+        <Toaster />
+      </DatabaseConnectionOptions>
+    </OpenAIApiProvider>
+  </AuthProvider>
+</ThemeProvider>
 ```
 
 ### Provider Order
-1. **ThemeProvider** - Dark/light mode (no transition)
-2. **OpenAIApiProvider** - User API key management
-3. **DatabaseConnectionOptions** - Application state
-4. **Navigation** - Top navigation bar
-5. **ErrorBoundary** - Error catching wrapper
-6. **Toaster** - Toast notifications
+1. **ThemeProvider** - Dark/light mode (`defaultTheme="dark"`, system disabled, no transition)
+2. **AuthProvider** - Conditional next-auth `SessionProvider` (auth mode only)
+3. **OpenAIApiProvider** - User API key (BYOK) management
+4. **DatabaseConnectionOptions** - Application state
+5. **Navigation** - Top navigation bar (hidden on `/landing`)
+6. **ErrorBoundary** → **ContentLoadingGate** - Error catching + init gate around page content
+7. **DataMigrationDialog** + **Toaster** - First-login import prompt and toast notifications
+
+See [Infrastructure Components](./infrastructure.md) for each provider.
 
 ---
 

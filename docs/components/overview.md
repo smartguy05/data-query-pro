@@ -158,6 +158,7 @@ Detailed documentation: [Page Components](./pages.md)
 | Reports | `/reports` | `app/reports/page.tsx` |
 | Admin | `/admin` | `app/admin/page.tsx` |
 | Landing | `/landing` | `app/landing/page.tsx` |
+| Auth Login | `/auth/login` | `app/auth/login/page.tsx` |
 
 ---
 
@@ -185,22 +186,26 @@ Detailed documentation: [Feature Components](./features.md)
 - `quick-actions.tsx` - Quick action buttons (New Query, Reports, etc.)
 - `recent-reports.tsx` - Recent reports display
 - `performance-chart.tsx` - Mock performance visualization
+- `scheduled-reports.tsx` - Demo scheduled-delivery UI (hardcoded data)
+- `report-templates.tsx` - Demo report template gallery (hardcoded data)
 
 ### Query Components
 - `query-tab-content.tsx` - Individual query tab with SQL, results, actions
 - `followup-dialog.tsx` - Follow-up question dialog with row limit selector
 
-### Auth & Admin Components
-- `auth-provider.tsx` - SessionProvider wrapper (renders conditionally based on auth status)
-- `content-loading-gate.tsx` - Loading gate until context is initialized (prevents flash of empty state)
+### Infrastructure & Cross-Cutting Components
+
+Detailed documentation: [Infrastructure Components](./infrastructure.md)
+
+- `auth-provider.tsx` - Conditional next-auth SessionProvider
+- `content-loading-gate.tsx` - Loading gate until context is initialized
 - `data-migration-dialog.tsx` - Import localStorage data on first authenticated login
 - `share-dialog.tsx` - Share connections/reports with other users
-
-### Infrastructure Components
+- `confirmation-modal.tsx` - Generic confirm/cancel dialog
 - `error-boundary.tsx` - React error boundary with fallback UI
-- `openai-api-provider.tsx` - OpenAI API key context provider
-- `api-key-dialog.tsx` - Dialog for entering OpenAI API key
-- `api-key-indicator.tsx` - Navigation indicator showing API key status
+- `openai-api-provider.tsx` - OpenAI API key (BYOK) context provider
+- `api-key-dialog.tsx` / `api-key-indicator.tsx` - BYOK key entry and status indicator
+- `navigation.tsx`, `theme-provider.tsx`, `theme-toggle.tsx` - Navigation and theming
 
 ---
 
@@ -225,20 +230,6 @@ Adding new shadcn components:
 ```bash
 npx shadcn@latest add [component-name]
 ```
-
----
-
-## Theme Components
-
-### ThemeProvider
-**File:** `components/theme-provider.tsx`
-
-Wrapper for next-themes providing dark/light mode.
-
-### ThemeToggle
-**File:** `components/theme-toggle.tsx`
-
-Button to toggle between dark and light themes.
 
 ---
 
@@ -303,4 +294,5 @@ function MyComponent() {
 ## Related Documentation
 - [Page Components](./pages.md) - App router pages
 - [Feature Components](./features.md) - Feature implementations
+- [Infrastructure Components](./infrastructure.md) - Providers, navigation, theme, auth, modals
 - [State Management](../architecture/state-management.md) - Context usage

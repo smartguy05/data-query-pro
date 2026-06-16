@@ -236,11 +236,13 @@ instrumentation.ts           # Next.js 15 startup hook (runs DB migrations)
 
 docs/                        # Developer documentation
 ├── README.md                # Documentation index
-├── architecture/            # System design docs
-├── api/                     # API endpoint docs
-├── components/              # Component docs
+├── architecture/            # System design docs (overview, state, auth-and-data-layer)
+├── api/                     # API endpoint docs (incl. data-endpoints for auth mode)
+├── components/              # Component docs (overview, pages, features, infrastructure)
 ├── models/                  # Data model docs
-└── guides/                  # How-to guides
+├── guides/                  # How-to guides (+ README index)
+├── reference/               # File map: where features/routes/components live
+└── testing/                 # Phased test plan (README + phase-1..4)
 
 config/                      # Server configuration
 ├── README.md                # Config documentation
@@ -474,7 +476,7 @@ const {
 
 ## Testing
 
-A comprehensive testing plan is available at [docs/testing-plan.md](./docs/testing-plan.md). The plan covers:
+A comprehensive testing plan is available at [docs/testing/README.md](./docs/testing/README.md). The plan covers:
 
 - **Phase 1**: Baseline feature tests (all pages and functionality)
 - **Phase 2**: Server configuration tests (`config/databases.json`)
@@ -504,14 +506,18 @@ Connection: `localhost:5432`, database: `cloudmetrics`, user: `demo`, password: 
 
 | Topic | Documentation |
 |-------|---------------|
+| File Map (where things live) | [docs/reference/file-map.md](./docs/reference/file-map.md) |
 | System Architecture | [docs/architecture/overview.md](./docs/architecture/overview.md) |
 | State Management | [docs/architecture/state-management.md](./docs/architecture/state-management.md) |
+| Auth & Data Layer | [docs/architecture/auth-and-data-layer.md](./docs/architecture/auth-and-data-layer.md) |
 | API Endpoints | [docs/api/overview.md](./docs/api/overview.md) |
+| Auth-Mode Endpoints (data/admin/sharing) | [docs/api/data-endpoints.md](./docs/api/data-endpoints.md) |
 | Components | [docs/components/overview.md](./docs/components/overview.md) |
+| Infrastructure Components | [docs/components/infrastructure.md](./docs/components/infrastructure.md) |
 | Data Models | [docs/models/overview.md](./docs/models/overview.md) |
 | Getting Started | [docs/guides/getting-started.md](./docs/guides/getting-started.md) |
 | Authentication Testing | [docs/guides/authentication-testing.md](./docs/guides/authentication-testing.md) |
 | OpenAI Integration | [docs/guides/openai-integration.md](./docs/guides/openai-integration.md) |
 | Adding Database Support | [docs/guides/adding-database-support.md](./docs/guides/adding-database-support.md) |
 | Common Tasks | [docs/guides/common-tasks.md](./docs/guides/common-tasks.md) |
-| Testing Plan | [docs/testing-plan.md](./docs/testing-plan.md) |
+| Testing Plan | [docs/testing/README.md](./docs/testing/README.md) |

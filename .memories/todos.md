@@ -13,8 +13,8 @@
 - [ ] Add connection/report sharing UI to database and reports pages
 
 ## Low Priority / Tech Debt
-- [ ] Remove mock/static dashboard components (executive-metrics, performance-chart, recent-reports) once real data is used
-- [ ] Add automated tests (Playwright test plan exists at docs/testing-plan.md)
+- [ ] Remove mock/static dashboard components (executive-metrics, performance-chart, recent-reports, scheduled-reports, report-templates) once real data is used
+- [ ] Add automated tests (Playwright test plan at docs/testing/)
 - [ ] Add "composed" chart type support (currently shows unimplemented alert)
 - [ ] Consider WebSocket for real-time introspection instead of polling
 - [ ] Performance documentation (not yet documented)

@@ -329,10 +329,10 @@ console.log('Context state:', context)
 
 ```bash
 # Run linter
-npm run lint
+pnpm lint
 
 # Auto-fix lint issues
-npm run lint -- --fix
+pnpm lint -- --fix
 ```
 
 ---
