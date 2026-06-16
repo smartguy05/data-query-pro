@@ -1,0 +1,40 @@
+{
+  "version": "1.0",
+  "reports": [
+    {
+      "id": "shared-report-monthly-revenue",
+      "connectionId": "shared-analytics-db",
+      "name": "Monthly Revenue Summary",
+      "description": "Total revenue grouped by month for the current year",
+      "naturalLanguageQuery": "Show total revenue by month for this year",
+      "sql": "SELECT date_trunc('month', created_at) AS month, SUM(amount) AS revenue FROM orders WHERE created_at >= date_trunc('year', now()) GROUP BY 1 ORDER BY 1",
+      "explanation": "Aggregates order amounts by month for the current calendar year.",
+      "warnings": [],
+      "confidence": 0.95,
+      "parameters": [],
+      "createdAt": "2024-01-01T00:00:00Z",
+      "lastModified": "2024-01-01T00:00:00Z"
+    },
+    {
+      "id": "shared-report-top-customers",
+      "connectionId": "shared-analytics-db",
+      "name": "Top Customers by Spend",
+      "description": "Highest-spending customers, limited by a parameter",
+      "naturalLanguageQuery": "Who are the top spending customers?",
+      "sql": "SELECT customer_id, SUM(amount) AS total_spend FROM orders GROUP BY customer_id ORDER BY total_spend DESC LIMIT {{limit}}",
+      "explanation": "Ranks customers by total order amount. Use the limit parameter to control how many rows return.",
+      "warnings": [],
+      "confidence": 0.9,
+      "parameters": [
+        {
+          "name": "limit",
+          "type": "number",
+          "label": "Number of customers",
+          "defaultValue": 10
+        }
+      ],
+      "createdAt": "2024-01-01T00:00:00Z",
+      "lastModified": "2024-01-01T00:00:00Z"
+    }
+  ]
+}

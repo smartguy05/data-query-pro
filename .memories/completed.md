@@ -112,3 +112,11 @@
 - Restructure: split `docs/testing-plan.md` → `docs/testing/` (README + phase-1..4); split `components/features.md` → new `components/infrastructure.md`; added `docs/reference/file-map.md` (feature/route/component → source → doc) + `reference/README.md` + `guides/README.md` indexes; updated `docs/README.md` nav.
 - Synced root `README.md` and `CLAUDE.md` doc tables (fixed broken testing-plan link). Verified: all docs <500 lines, all relative + anchor links resolve.
 - Note: `app/auth/error`, `app/api/setup/init`, `app/setup`, `app/users` do NOT exist (code-reality audit corrected); only `app/auth/login` exists.
+
+## Export Reports + config/reports.json (2026-06-16)
+- New selective report export on Reports page: `components/export-reports-dialog.tsx` (db→reports checkbox tree, selecting a db selects all its reports, Select All/None). Button added to `app/reports/page.tsx` header. Downloads `{ version, exportDate, reports }` (source field stripped) as `reports-export-YYYY-MM-DD.json` — drop-in usable as config/reports.json.
+- New shared-reports config: `config/reports.json` loaded like databases.json. `getServerReports()` in `lib/server-config.ts` (null on auth, tolerates `{reports:[]}` or bare array), new `app/api/config/reports/route.ts` (marks each `source:"server"`), `LocalStorageProvider` adds `serverReports` field, fetches `/api/config/reports` in `initialize()`, merges fresh in `getReports()` (server wins by id, never persisted to localStorage). Write methods (`saveReport`/`updateReport`) no-op on `source:"server"`.
+- Server reports are read-only in UI (`components/saved-reports.tsx`): "Server Config" badge (Lock icon), Edit/Delete/favorite hidden; Clone & Copy-to-Connection still allowed (create local copies). Report `connectionId` must match a databases.json connection id to resolve.
+- Added `source?: "local"|"server"` to `SavedReport` (`models/saved-report.interface.ts`). Added `config/reports.json.example` + "Shared Reports" section in `config/README.md`.
+- Verified: `npm run build` clean (new route present); `/api/config/reports` returns empty when no file, loads + stamps source:server for both `{reports:[]}` and bare-array formats. Non-auth-mode only (same as databases.json).
+- Note: legacy `savedReports` field inside databases.json still seeds-once (untouched for back-compat); reports.json is the always-present path.

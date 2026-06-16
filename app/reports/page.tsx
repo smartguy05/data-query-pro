@@ -7,14 +7,16 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Plus } from "lucide-react"
+import { Search, Plus, Download } from "lucide-react"
 import { SavedReports } from "@/components/saved-reports"
+import { ExportReportsDialog } from "@/components/export-reports-dialog"
 import { useDatabaseOptions } from "@/lib/database-connection-options"
 import { useToast } from "@/hooks/use-toast"
 
 export default function ReportsPage() {
   const router = useRouter()
   const [searchTerm, setSearchTerm] = useState("")
+  const [showExportDialog, setShowExportDialog] = useState(false)
   const connectionInfo = useDatabaseOptions()
   const { toast } = useToast()
 
@@ -27,13 +29,23 @@ export default function ReportsPage() {
             <h1 className="text-3xl font-bold text-foreground">Saved Reports</h1>
             <p className="text-muted-foreground">View and run your saved queries</p>
           </div>
-          <Button
-            className="bg-blue-600 hover:bg-blue-700"
-            onClick={() => router.push("/query")}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            New Query
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowExportDialog(true)}
+              disabled={connectionInfo.reports.length === 0}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export Reports
+            </Button>
+            <Button
+              className="bg-blue-600 hover:bg-blue-700"
+              onClick={() => router.push("/query")}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              New Query
+            </Button>
+          </div>
         </div>
 
         {/* Connection Selector */}
@@ -87,6 +99,8 @@ export default function ReportsPage() {
         {/* Saved Reports */}
         <SavedReports searchTerm={searchTerm} />
       </div>
+
+      <ExportReportsDialog open={showExportDialog} onOpenChange={setShowExportDialog} />
     </div>
   )
 }
