@@ -7,8 +7,15 @@ import type { DatabaseContextType } from '@/models/database-context-type.interfa
 import type { SavedReport } from '@/models/saved-report.interface';
 import type { QueryHistoryEntry } from '@/models/query-history.interface';
 import type { QueryAccuracyStats } from '@/models/query-accuracy.interface';
+import type { QueryCorrection } from '@/models/query-correction.interface';
 import { LocalStorageProvider } from '@/lib/storage/local-storage-provider';
 import { ApiStorageProvider } from '@/lib/storage/api-storage-provider';
+import {
+    addQueryCorrection as addLocalCorrection,
+    getCorrectionsForFingerprint as getLocalCorrections,
+    updateQueryCorrection as updateLocalCorrection,
+    deleteQueryCorrection as deleteLocalCorrection,
+} from '@/utils/query-corrections';
 
 const DatabaseContext = createContext<DatabaseContextType | undefined>(undefined);
 
@@ -467,6 +474,37 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
         applyAccuracyDelta(0, (newSuccess ? 1 : 0) - (oldSuccess ? 1 : 0));
     }, [applyAccuracyDelta]);
 
+    // Learned query corrections. Recording is fire-and-forget (like query history)
+    // so it can never block or break query execution. Reads/edits go through the
+    // storage provider (localStorage when no auth, pooled Postgres when auth enabled);
+    // when no provider is active (auth enabled but signed out) we fall back to the
+    // device-local util so corrections are never silently lost.
+    const recordQueryCorrection = useCallback((entry: QueryCorrection) => {
+        const storage = storageRef.current;
+        const write = storage
+            ? storage.addQueryCorrection(entry)
+            : Promise.resolve(addLocalCorrection(entry));
+        Promise.resolve(write).catch(() => { /* never surface correction errors to the query flow */ });
+    }, []);
+
+    const getCorrectionsForFingerprint = useCallback(async (fingerprint: string): Promise<QueryCorrection[]> => {
+        const storage = storageRef.current;
+        if (storage) return storage.getCorrectionsForFingerprint(fingerprint);
+        return getLocalCorrections(fingerprint);
+    }, []);
+
+    const updateQueryCorrection = useCallback(async (id: string, patch: Partial<QueryCorrection>) => {
+        const storage = storageRef.current;
+        if (storage) { await storage.updateQueryCorrection(id, patch); return; }
+        updateLocalCorrection(id, patch);
+    }, []);
+
+    const deleteQueryCorrection = useCallback(async (id: string) => {
+        const storage = storageRef.current;
+        if (storage) { await storage.deleteQueryCorrection(id); return; }
+        deleteLocalCorrection(id);
+    }, []);
+
     return (
         <DatabaseContext.Provider value={{
             setConnectionStatus,
@@ -499,6 +537,10 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             queryAccuracy,
             recordQueryOutcome,
             overrideQueryOutcome,
+            recordQueryCorrection,
+            getCorrectionsForFingerprint,
+            updateQueryCorrection,
+            deleteQueryCorrection,
     }}>
     {children}
     </DatabaseContext.Provider>

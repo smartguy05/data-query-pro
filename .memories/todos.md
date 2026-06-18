@@ -7,8 +7,8 @@
 - [x] Query accuracy stat — implemented 2026-06-18 (global per-user; counts AI-generated + follow-up executions, every attempt; thumbs override either direction; local + synced-when-auth via StorageProvider; migration 004 + query-accuracy-repository + /api/data/query-accuracy; dashboard card hidden < 5 queries)
 
 ## Medium Priority
-- [ ] Report scheduling (Roadmap item)
-- [ ] Team collaboration features (Roadmap item)
+- [ ] Team collaboration features (Roadmap item) — partial: learning-feature Phase 2 ships team-wide shared query corrections (auth mode), 2026-06-18. See completed.md "Learning Feature Phase 2".
+- [x] Learning feature Phase 2 — sync corrections to Postgres, team-wide pool keyed by schema fingerprint, author/admin curation page (/learning). Done 2026-06-18. Examples intentionally stay device-local.
 - [x] Move credentials out of localStorage for production security (done: encrypted in PostgreSQL when auth enabled)
 - [x] Add proper authentication/authorization for production use (done: Authentik OIDC via Auth.js v5)
 - [ ] Test Authentik integration end-to-end with a real Authentik instance

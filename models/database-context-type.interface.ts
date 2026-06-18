@@ -3,6 +3,7 @@ import type { Schema } from './schema.interface';
 import type { SavedReport } from './saved-report.interface';
 import type { QueryHistoryEntry } from './query-history.interface';
 import type { QueryAccuracyStats } from './query-accuracy.interface';
+import type { QueryCorrection } from './query-correction.interface';
 
 export interface DatabaseContextType {
     importConnections: (connections: DatabaseConnection[]) => void;
@@ -47,4 +48,12 @@ export interface DatabaseContextType {
     queryAccuracy: QueryAccuracyStats;
     recordQueryOutcome: (success: boolean) => void;
     overrideQueryOutcome: (oldSuccess: boolean, newSuccess: boolean) => void;
+
+    // Learned query corrections (failed->revised pairs). Device-local by default;
+    // pooled team-wide by schema fingerprint when auth is enabled. Recording is
+    // fire-and-forget so it can never break the query-execution flow.
+    recordQueryCorrection: (entry: QueryCorrection) => void;
+    getCorrectionsForFingerprint: (fingerprint: string) => Promise<QueryCorrection[]>;
+    updateQueryCorrection: (id: string, patch: Partial<QueryCorrection>) => Promise<void>;
+    deleteQueryCorrection: (id: string) => Promise<void>;
 }

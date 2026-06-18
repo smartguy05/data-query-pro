@@ -4,6 +4,7 @@ import type { Schema } from '@/models/schema.interface';
 import type { SavedReport } from '@/models/saved-report.interface';
 import type { QueryHistoryEntry } from '@/models/query-history.interface';
 import type { QueryAccuracyStats } from '@/models/query-accuracy.interface';
+import type { QueryCorrection } from '@/models/query-correction.interface';
 import { HISTORY, STORAGE_KEYS } from '@/lib/constants';
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
@@ -181,6 +182,38 @@ export class ApiStorageProvider implements StorageProvider {
     await apiFetch('/api/data/query-accuracy', {
       method: 'PUT',
       body: JSON.stringify({ totalDelta, successfulDelta }),
+    });
+  }
+
+  // Corrections are pooled team-wide in Postgres, keyed by schema fingerprint.
+  async getCorrectionsForFingerprint(fingerprint: string): Promise<QueryCorrection[]> {
+    if (!fingerprint) return [];
+    try {
+      return await apiFetch<QueryCorrection[]>(
+        `/api/data/corrections?fingerprint=${encodeURIComponent(fingerprint)}`
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  async addQueryCorrection(entry: QueryCorrection): Promise<void> {
+    await apiFetch('/api/data/corrections', {
+      method: 'POST',
+      body: JSON.stringify(entry),
+    });
+  }
+
+  async updateQueryCorrection(id: string, patch: Partial<QueryCorrection>): Promise<void> {
+    await apiFetch(`/api/data/corrections/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  async deleteQueryCorrection(id: string): Promise<void> {
+    await apiFetch(`/api/data/corrections/${id}`, {
+      method: 'DELETE',
     });
   }
 

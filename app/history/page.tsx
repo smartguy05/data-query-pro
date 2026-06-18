@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -180,6 +181,43 @@ export default function HistoryPage() {
             Clear History
           </Button>
         </div>
+
+        {/* Connection Selector */}
+        {connectionInfo.connections.length > 1 && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-4">
+                <Label htmlFor="history-connection-select" className="text-sm font-medium whitespace-nowrap">
+                  Active Connection:
+                </Label>
+                <Select
+                  value={connectionInfo.currentConnection?.id || ""}
+                  onValueChange={(connectionId) => {
+                    const connection = connectionInfo.connections.find(c => c.id === connectionId)
+                    if (connection) {
+                      connectionInfo.setCurrentConnection(connection)
+                      toast({
+                        title: "Connection Changed",
+                        description: `Switched to ${connection.name || connection.database}`,
+                      })
+                    }
+                  }}
+                >
+                  <SelectTrigger id="history-connection-select" className="w-full max-w-md">
+                    <SelectValue placeholder="Select a database connection" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {connectionInfo.connections.map((conn) => (
+                      <SelectItem key={conn.id} value={conn.id}>
+                        {conn.name || conn.database} ({conn.host})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">

@@ -138,6 +138,12 @@ export const HISTORY = {
 export const CORRECTIONS = {
   /** Maximum number of correction entries kept per browser (ring buffer, newest first) */
   MAX_ENTRIES: 50,
+
+  /**
+   * Max corrections fetched from the team-wide pool per schema fingerprint (auth mode)
+   * before relevance-scoring. Bounds work as the shared pool grows; newest first.
+   */
+  MAX_POOL_FETCH: 200,
 } as const;
 
 // ============================================================================

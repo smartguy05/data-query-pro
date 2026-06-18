@@ -35,7 +35,6 @@ import { ApiKeyDialog } from "@/components/api-key-dialog"
 import { useAuth } from "@/hooks/use-auth"
 import { computeSchemaFingerprint } from "@/utils/schema-fingerprint"
 import { scoreByQuestion, topN } from "@/utils/example-relevance"
-import { addQueryCorrection, getCorrectionsForFingerprint } from "@/utils/query-corrections"
 import { AI } from "@/lib/constants"
 
 export default function QueryPage() {
@@ -263,7 +262,8 @@ export default function QueryPage() {
         .map(h => ({ question: h.question as string, sql: h.sql }))
       const examples = topN(scoreByQuestion(question, exampleCandidates), AI.MAX_FEW_SHOT)
 
-      const correctionCandidates = getCorrectionsForFingerprint(fingerprint).map(c => ({
+      const storedCorrections = await connectionInformation.getCorrectionsForFingerprint(fingerprint)
+      const correctionCandidates = storedCorrections.map(c => ({
         question: c.question,
         sql: c.goodSql, // score against the corrected SQL
         badSql: c.badSql,
@@ -544,7 +544,7 @@ export default function QueryPage() {
       // for this schema avoid the same mistake (esp. wrong tables/columns).
       if (result.sql && result.sql !== tab.editableSql) {
         const schema = connectionInformation.getSchema()
-        addQueryCorrection({
+        connectionInformation.recordQueryCorrection({
           id: `qc_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
           schemaFingerprint: computeSchemaFingerprint(schema),
           question: tab.question || undefined,

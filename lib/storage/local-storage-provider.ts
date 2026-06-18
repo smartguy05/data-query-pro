@@ -4,6 +4,13 @@ import type { Schema } from '@/models/schema.interface';
 import type { SavedReport } from '@/models/saved-report.interface';
 import type { QueryHistoryEntry } from '@/models/query-history.interface';
 import type { QueryAccuracyStats } from '@/models/query-accuracy.interface';
+import type { QueryCorrection } from '@/models/query-correction.interface';
+import {
+  getCorrectionsForFingerprint as localGetCorrections,
+  addQueryCorrection as localAddCorrection,
+  updateQueryCorrection as localUpdateCorrection,
+  deleteQueryCorrection as localDeleteCorrection,
+} from '@/utils/query-corrections';
 import { HISTORY, STORAGE_KEYS } from '@/lib/constants';
 
 export class LocalStorageProvider implements StorageProvider {
@@ -336,6 +343,23 @@ export class LocalStorageProvider implements StorageProvider {
       ),
     };
     localStorage.setItem(STORAGE_KEYS.QUERY_ACCURACY, JSON.stringify(next));
+  }
+
+  // Corrections are device-local here; the util layer owns the ring-buffer storage.
+  async getCorrectionsForFingerprint(fingerprint: string): Promise<QueryCorrection[]> {
+    return localGetCorrections(fingerprint);
+  }
+
+  async addQueryCorrection(entry: QueryCorrection): Promise<void> {
+    localAddCorrection(entry);
+  }
+
+  async updateQueryCorrection(id: string, patch: Partial<QueryCorrection>): Promise<void> {
+    localUpdateCorrection(id, patch);
+  }
+
+  async deleteQueryCorrection(id: string): Promise<void> {
+    localDeleteCorrection(id);
   }
 
   async getDismissedNotifications(): Promise<string[]> {

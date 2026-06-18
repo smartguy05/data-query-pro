@@ -33,3 +33,27 @@ export function getCorrectionsForFingerprint(fingerprint: string): QueryCorrecti
   if (!fingerprint) return [];
   return getQueryCorrections().filter((c) => c.schemaFingerprint === fingerprint);
 }
+
+/** Edit a stored correction in place by id (curation). Best-effort; never throws. */
+export function updateQueryCorrection(id: string, patch: Partial<QueryCorrection>): void {
+  if (typeof window === "undefined") return;
+  try {
+    const next = getQueryCorrections().map((c) =>
+      c.id === id ? { ...c, ...patch, id: c.id } : c
+    );
+    localStorage.setItem(STORAGE_KEYS.QUERY_CORRECTIONS, JSON.stringify(next));
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Remove a stored correction by id (curation). Best-effort; never throws. */
+export function deleteQueryCorrection(id: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const next = getQueryCorrections().filter((c) => c.id !== id);
+    localStorage.setItem(STORAGE_KEYS.QUERY_CORRECTIONS, JSON.stringify(next));
+  } catch {
+    /* best-effort */
+  }
+}

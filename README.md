@@ -511,8 +511,7 @@ The app automatically runs migrations on startup to create the required tables.
 ## Roadmap
 
 - [x] ~~Support additional database types (MySQL, SQLite, MSSQL)~~ - **Completed!**
-- [ ] Enhanced chart creation and customization
-- [ ] Report scheduling
+- [x] Enhanced chart creation and customization
 - [x] ~~Team collaboration features~~ - **Completed!** (Authentik SSO, per-user data, sharing, admin panel)
 - [x] ~~Query history and favorites~~ - **Completed!** (report favorites + device-local query history at `/history`)
 
