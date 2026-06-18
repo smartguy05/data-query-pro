@@ -24,6 +24,7 @@ export class SQLServerAdapter extends BaseDatabaseAdapter {
     });
 
     this.config = config;
+    this.readOnly = !!config.readOnly;
     this.connected = true;
   }
 
@@ -39,6 +40,20 @@ export class SQLServerAdapter extends BaseDatabaseAdapter {
   async executeRawQuery(sqlQuery: string): Promise<Record<string, unknown>[]> {
     if (!this.pool) {
       throw new Error('Not connected to SQL Server');
+    }
+    if (this.readOnly) {
+      // T-SQL has no true read-only transaction mode, so wrap the query in a
+      // transaction and ALWAYS roll back — this discards any DML the AST validator
+      // missed. NOTE: some DDL (CREATE/DROP/TRUNCATE) auto-commits and cannot be
+      // rolled back in SQL Server; the AST validator is the primary defense there.
+      const tx = new sql.Transaction(this.pool);
+      await tx.begin();
+      try {
+        const result = await new sql.Request(tx).query(sqlQuery);
+        return result.recordset as Record<string, unknown>[];
+      } finally {
+        await tx.rollback();
+      }
     }
     const result = await this.pool.request().query(sqlQuery);
     return result.recordset as Record<string, unknown>[];

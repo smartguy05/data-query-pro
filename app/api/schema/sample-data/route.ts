@@ -38,6 +38,9 @@ export async function POST(request: NextRequest) {
 
     const { adapter, config } = validationResult
 
+    // Sample-data only ever runs a generated SELECT — enforce read-only too.
+    config.readOnly = true
+
     try {
       await adapter.connect(config)
 

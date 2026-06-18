@@ -18,6 +18,12 @@ export interface AdapterConnectionConfig {
   ssl?: boolean | { rejectUnauthorized: boolean };
   // SQLite-specific
   filepath?: string;
+  // When true, the adapter must execute queries in a read-only context so that
+  // even a statement that slips past the SQL validator cannot mutate data.
+  // SQLite enforces this at connect time; pg/mysql/mssql wrap execution in a
+  // read-only / always-rolled-back transaction. Internal callers that need
+  // writes (e.g. schema introspection) leave this unset.
+  readOnly?: boolean;
 }
 
 // Query execution result

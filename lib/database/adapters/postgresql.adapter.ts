@@ -29,6 +29,7 @@ export class PostgreSQLAdapter extends BaseDatabaseAdapter {
     // Test connection with a simple query
     await this.client`SELECT 1`;
     this.config = config;
+    this.readOnly = !!config.readOnly;
     this.connected = true;
   }
 
@@ -44,6 +45,13 @@ export class PostgreSQLAdapter extends BaseDatabaseAdapter {
   async executeRawQuery(sql: string): Promise<Record<string, unknown>[]> {
     if (!this.client) {
       throw new Error('Not connected to PostgreSQL');
+    }
+    if (this.readOnly) {
+      // Wrap in a READ ONLY transaction: any write (including via functions)
+      // fails with "cannot execute ... in a read-only transaction". Committing
+      // a read-only transaction is harmless.
+      const result = await this.client.begin('read only', (tx) => tx.unsafe(sql));
+      return result as unknown as Record<string, unknown>[];
     }
     // Use tagged template literal for safe execution of static queries
     const result = await this.client.unsafe(sql);

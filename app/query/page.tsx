@@ -33,6 +33,10 @@ import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
 import { useOpenAIKey } from "@/hooks/use-openai-key"
 import { ApiKeyDialog } from "@/components/api-key-dialog"
 import { useAuth } from "@/hooks/use-auth"
+import { computeSchemaFingerprint } from "@/utils/schema-fingerprint"
+import { scoreByQuestion, topN } from "@/utils/example-relevance"
+import { addQueryCorrection, getCorrectionsForFingerprint } from "@/utils/query-corrections"
+import { AI } from "@/lib/constants"
 
 export default function QueryPage() {
   const searchParams = useSearchParams()
@@ -239,6 +243,42 @@ export default function QueryPage() {
     generateOriginalSQL()
   }
 
+  // Assemble the "learn from previous queries" context from device-local data:
+  // relevance-matched successful examples (same DB type) + failed->revised
+  // corrections for this schema fingerprint. Best-effort; never throws.
+  const buildLearningContext = async (
+    question: string,
+    connection: DatabaseConnection,
+    schema: ReturnType<typeof connectionInformation.getSchema>
+  ): Promise<{
+    examples: { question: string; sql: string }[]
+    corrections: { question?: string; badSql: string; error: string; goodSql: string }[]
+  }> => {
+    try {
+      const fingerprint = computeSchemaFingerprint(schema)
+
+      const history = await connectionInformation.getQueryHistory().catch(() => [])
+      const exampleCandidates = history
+        .filter(h => h.success && h.question && h.sql && h.databaseType === connection.type)
+        .map(h => ({ question: h.question as string, sql: h.sql }))
+      const examples = topN(scoreByQuestion(question, exampleCandidates), AI.MAX_FEW_SHOT)
+
+      const correctionCandidates = getCorrectionsForFingerprint(fingerprint).map(c => ({
+        question: c.question,
+        sql: c.goodSql, // score against the corrected SQL
+        badSql: c.badSql,
+        error: c.error,
+        goodSql: c.goodSql,
+      }))
+      const corrections = topN(scoreByQuestion(question, correctionCandidates), AI.MAX_CORRECTIONS)
+        .map(c => ({ question: c.question, badSql: c.badSql, error: c.error, goodSql: c.goodSql }))
+
+      return { examples, corrections }
+    } catch {
+      return { examples: [], corrections: [] }
+    }
+  }
+
   // Generate SQL for original query
   const generateOriginalSQL = async () => {
     if (!naturalQuery.trim()) return
@@ -254,6 +294,11 @@ export default function QueryPage() {
 
       const schema = connectionInformation.getSchema()
 
+      // Learn from previous queries: assemble relevance-matched few-shot examples
+      // (from successful history of the same DB type) and anti-mistake corrections
+      // (failed->revised pairs for this schema fingerprint) to send to the server.
+      const learning = await buildLearningContext(naturalQuery, connection, schema)
+
       const response = await fetchWithAuth("/api/query/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -262,7 +307,9 @@ export default function QueryPage() {
           vectorStoreId: connection.vectorStoreId,
           databaseType: connection.type,
           schemaData: schema,
-          existingFileId: connection.schemaFileId
+          existingFileId: connection.schemaFileId,
+          examples: learning.examples,
+          corrections: learning.corrections,
         }),
       })
 
@@ -370,9 +417,14 @@ export default function QueryPage() {
     try {
       const activeConnection = connectionInformation.getConnection()
 
+      // question + querySource feed the server-side audit log (lib/query-log.ts).
+      const auditFields = {
+        question: tab.question || undefined,
+        querySource: tab.type === 'followup' ? 'followup' : 'generated',
+      }
       const executeBody = authEnabled
-        ? { sql: tab.editableSql, connectionId: activeConnection?.id, source: activeConnection?.source, type: activeConnection?.type }
-        : { sql: tab.editableSql, connection: activeConnection };
+        ? { sql: tab.editableSql, connectionId: activeConnection?.id, source: activeConnection?.source, type: activeConnection?.type, ...auditFields }
+        : { sql: tab.editableSql, connection: activeConnection, ...auditFields };
 
       const response = await fetch("/api/query/execute", {
         method: "POST",
@@ -487,6 +539,22 @@ export default function QueryPage() {
       }
 
       const result = await response.json()
+
+      // Learn from this fix: record the failed->revised pair so future generations
+      // for this schema avoid the same mistake (esp. wrong tables/columns).
+      if (result.sql && result.sql !== tab.editableSql) {
+        const schema = connectionInformation.getSchema()
+        addQueryCorrection({
+          id: `qc_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+          schemaFingerprint: computeSchemaFingerprint(schema),
+          question: tab.question || undefined,
+          badSql: tab.editableSql,
+          error: tab.executionError,
+          goodSql: result.sql,
+          databaseType: connection?.type,
+          createdAt: new Date().toISOString(),
+        })
+      }
 
       // Update the tab with the revised SQL and clear the error
       updateTab(tabId, {

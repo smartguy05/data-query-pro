@@ -18,6 +18,9 @@ export abstract class BaseDatabaseAdapter implements IDatabaseAdapter {
 
   protected connected: boolean = false;
   protected config: AdapterConnectionConfig | null = null;
+  // Set from config.readOnly in each adapter's connect(); when true, executeRawQuery
+  // runs the query in a read-only transaction (defense-in-depth behind the AST validator).
+  protected readOnly: boolean = false;
 
   // Abstract methods that each adapter must implement
   abstract connect(config: AdapterConnectionConfig): Promise<void>;
