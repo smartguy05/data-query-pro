@@ -103,6 +103,24 @@
 - Per-table AI description generation: sends one table per API request instead of batches of 10, shows table name and count in progress button
 - Sample data preview: new `/api/schema/sample-data` route returns top 10 rows for a table, "Sample Data" button on each table card in schema explorer with cached data and toggle visibility
 
+## Copy Schema Descriptions Between Connections (2026-06-18)
+- New feature: copy table/column descriptions from one connection's schema to another (same DB across dev/staging/prod). Purely client-side; no API route/migration.
+- `utils/copy-descriptions.ts`: pure `copyDescriptions(target, source, {mode, includeAiDescriptions, includeVisibility})` → `{schema, stats}`. Name-matches tables/columns (Map pattern like `compare-schemas.ts`), deep-clones target (no mutation). `mode`: 'fill-empty' (only blanks) | 'overwrite'. Copies `description` always, `aiDescription` if includeAiDescriptions, mirrors `hidden` if includeVisibility. Unmatched target tables/columns left untouched + counted.
+- `components/copy-descriptions-dialog.tsx`: source-connection Select (only connections with a saved schema, excluding target), fill-empty/overwrite RadioGroup, AI-descriptions + visibility Switches (default on), live preview stats, Apply. Empty-state Alert if no other connection has a schema.
+- `components/schema-explorer.tsx`: "Copy Descriptions" toolbar button (ClipboardCopy icon) + `showCopyDialog` state + `handleApplyCopiedDescriptions` (calls `setSchema`, `setHasUnsavedChanges(true)`, toast reminding to Save to OpenAI). Reuses existing save/re-upload flow — no changes to `saveChangesToOpenAI`.
+
+## Query History + Mock-Component Cleanup (2026-06-18)
+- New **Query History** feature (device-local, localStorage in both auth & no-auth modes — intentionally NOT synced to app DB).
+  - Model: `models/query-history.interface.ts` (`QueryHistoryEntry`).
+  - Constants: `STORAGE_KEYS.QUERY_HISTORY = "query_history"`, `HISTORY.MAX_ENTRIES = 200` (ring buffer, newest first) in `lib/constants.ts`.
+  - StorageProvider: added `getQueryHistory`/`addQueryHistory`/`deleteQueryHistory`/`clearQueryHistory` to interface + both `LocalStorageProvider` and `ApiStorageProvider` (ApiStorageProvider backs history with localStorage too — see comment).
+  - Context (`lib/database-connection-options.tsx` + `models/database-context-type.interface.ts`): `recordQueryHistory` (fire-and-forget, never throws into query flow), `getQueryHistory`, `deleteQueryHistory`, `clearQueryHistory`.
+  - Capture point: `app/query/page.tsx` `executeTabQuery` records **successful executions only** via `recordHistory()` helper (failures not kept). `source` = 'followup' for follow-up tabs else 'generated'.
+  - Each entry leads with the plain-English natural-language prompt (`question`) as a prominent headline, then metadata, then SQL (updated 2026-06-18 per user feedback).
+  - New page `app/history/page.tsx`: list (newest first), search (SQL/question/connection), "this connection only" toggle, per-entry Re-run (reuses `/query?sql=...&autoExecute=true` + sets active connection), Save as report (reuses `SaveReportDialog`), Copy SQL, Delete, Clear all (AlertDialog confirm). Relative timestamps.
+  - Nav: added "History" link in `components/navigation.tsx` (History icon) — appears in desktop + mobile (shared array).
+- Tech debt: deleted 3 unused mock components (`recent-reports.tsx`, `scheduled-reports.tsx`, `report-templates.tsx`). `executive-metrics.tsx` + `performance-chart.tsx` LEFT (carded in design-sync) per user decision.
+
 ## Bug Fixes & QoL (2026-06-16)
 - More helpful DB error messages: `utils/error-sanitizer.ts` now surfaces the raw driver message (naming the offending column/table/constraint) for user/query-logic errors, instead of the generic "Column not found in table". Added `detail` field to `SanitizedError` + `normalizeDbDetail()` helper. Connection/auth/unknown errors stay generic to avoid credential leaks. Added column/table-not-found patterns for SQLite and SQL Server (previously fell through to generic). Execute route passes `detail` through in the response.
 

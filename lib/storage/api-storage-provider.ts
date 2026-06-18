@@ -1,5 +1,7 @@
 import type { StorageProvider } from './storage-provider';
 import type { SavedReport } from '@/models/saved-report.interface';
+import type { QueryHistoryEntry } from '@/models/query-history.interface';
+import { HISTORY, STORAGE_KEYS } from '@/lib/constants';
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -119,6 +121,34 @@ export class ApiStorageProvider implements StorageProvider {
     await apiFetch(`/api/data/reports/${id}`, {
       method: 'DELETE',
     });
+  }
+
+  // Query history is intentionally device-local (not synced to the app DB), so even in
+  // auth mode it is stored in the browser's localStorage rather than via an API route.
+  async getQueryHistory(): Promise<QueryHistoryEntry[]> {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEYS.QUERY_HISTORY) || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  async addQueryHistory(entry: QueryHistoryEntry): Promise<void> {
+    const existing = await this.getQueryHistory();
+    const next = [entry, ...existing].slice(0, HISTORY.MAX_ENTRIES);
+    localStorage.setItem(STORAGE_KEYS.QUERY_HISTORY, JSON.stringify(next));
+  }
+
+  async deleteQueryHistory(id: string): Promise<void> {
+    const existing = await this.getQueryHistory();
+    localStorage.setItem(
+      STORAGE_KEYS.QUERY_HISTORY,
+      JSON.stringify(existing.filter(e => e.id !== id))
+    );
+  }
+
+  async clearQueryHistory(): Promise<void> {
+    localStorage.removeItem(STORAGE_KEYS.QUERY_HISTORY);
   }
 
   async getSuggestions(connectionId: string): Promise<unknown[] | null> {

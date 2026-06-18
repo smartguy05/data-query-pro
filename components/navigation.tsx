@@ -5,7 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { BarChart3, Database, FileText, Search, Menu, X, LogOut, Shield, User } from "lucide-react"
+import { BarChart3, Database, FileText, Search, Menu, X, LogOut, Shield, User, History } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { ApiKeyIndicator } from "@/components/api-key-indicator"
 import { useAuth } from "@/hooks/use-auth"
@@ -22,6 +22,7 @@ const navigation = [
   { name: "Database", href: "/database", icon: Database },
   { name: "Schema", href: "/schema", icon: Search },
   { name: "Query", href: "/query", icon: Search },
+  { name: "History", href: "/history", icon: History },
   { name: "Reports", href: "/reports", icon: FileText },
 ]
 

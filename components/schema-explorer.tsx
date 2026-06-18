@@ -11,6 +11,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ConfirmationModal } from "@/components/confirmation-modal"
 import { SchemaUpdateModal } from "@/components/schema-update-modal"
+import { CopyDescriptionsDialog } from "@/components/copy-descriptions-dialog"
+import type { CopyDescriptionsStats } from "@/utils/copy-descriptions"
 import {
   Database,
   TableIcon,
@@ -26,7 +28,8 @@ import {
   ChevronRight,
   Trash,
   Eye,
-  EyeOff
+  EyeOff,
+  ClipboardCopy
 } from "lucide-react"
 import {useDatabaseOptions} from "@/lib/database-connection-options";
 import { useToast } from "@/hooks/use-toast";
@@ -73,6 +76,7 @@ export function SchemaExplorer() {
   const [sampleDataVisible, setSampleDataVisible] = useState<Set<string>>(new Set());
   const [pendingSchemaUpdate, setPendingSchemaUpdate] = useState<Schema | null>(null);
   const [showDiscardAllConfirmation, setShowDiscardAllConfirmation] = useState(false);
+  const [showCopyDialog, setShowCopyDialog] = useState(false);
 
   useEffect(() => {
     if (connectionInformation.isInitialized) {
@@ -679,6 +683,21 @@ export function SchemaExplorer() {
     });
   }
 
+  const handleApplyCopiedDescriptions = (newSchema: Schema, stats: CopyDescriptionsStats) => {
+    connectionInformation.setSchema(newSchema);
+    setHasUnsavedChanges(true);
+
+    const copied = stats.tableDescriptionsCopied + stats.columnDescriptionsCopied;
+    const parts = [`${copied} descriptions copied`];
+    if (stats.visibilityChanged > 0) parts.push(`${stats.visibilityChanged} visibility flags updated`);
+    if (stats.tablesUnmatched > 0) parts.push(`${stats.tablesUnmatched} tables had no match`);
+
+    toast({
+      title: "Descriptions copied",
+      description: `${parts.join(", ")}. Click "Save to OpenAI" to apply them to query generation.`,
+    });
+  }
+
   const discardTableChanges = (tableName: string) => {
     if (!connectionInformation.currentSchema) return;
 
@@ -841,6 +860,15 @@ export function SchemaExplorer() {
                 Update Schema
               </>
             )}
+          </Button>
+          <Button
+            onClick={() => setShowCopyDialog(true)}
+            variant="outline"
+            className="flex items-center gap-2"
+            title="Copy descriptions from another connection's schema"
+          >
+            <ClipboardCopy className="w-4 h-4" />
+            Copy Descriptions
           </Button>
           {hasUnsavedChanges && (
             <>
@@ -1294,6 +1322,13 @@ export function SchemaExplorer() {
           schema={pendingSchemaUpdate}
           onConfirm={confirmSchemaUpdate}
           onCancel={cancelSchemaUpdate}
+      />
+
+      <CopyDescriptionsDialog
+          open={showCopyDialog}
+          onOpenChange={setShowCopyDialog}
+          targetSchema={connectionInformation.currentSchema}
+          onApply={handleApplyCopiedDescriptions}
       />
 
       <ConfirmationModal

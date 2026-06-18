@@ -514,7 +514,7 @@ The app automatically runs migrations on startup to create the required tables.
 - [ ] Enhanced chart creation and customization
 - [ ] Report scheduling
 - [x] ~~Team collaboration features~~ - **Completed!** (Authentik SSO, per-user data, sharing, admin panel)
-- [ ] Query history and favorites
+- [x] ~~Query history and favorites~~ - **Completed!** (report favorites + device-local query history at `/history`)
 
 ---
 

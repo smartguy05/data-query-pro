@@ -362,6 +362,8 @@ export default function QueryPage() {
         executionError: undefined
       })
 
+      recordHistory(tab, activeConnection, { rowCount: result.rowCount, executionTimeMs: result.executionTime })
+
       toast({
         title: "Query Executed Successfully",
         description: `Returned ${result.rowCount} rows in ${result.executionTime}ms`,
@@ -378,6 +380,28 @@ export default function QueryPage() {
         variant: "destructive",
       })
     }
+  }
+
+  // Record a successfully executed query to device-local history (failures are not kept).
+  // Fire-and-forget — never throws into the execution flow.
+  const recordHistory = (
+    tab: QueryTab,
+    connection: DatabaseConnection | undefined,
+    outcome: { rowCount?: number; executionTimeMs?: number }
+  ) => {
+    if (!tab.editableSql || !connection) return
+    connectionInformation.recordQueryHistory({
+      id: `qh_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      connectionId: connection.id,
+      connectionName: connection.name || connection.database,
+      databaseType: connection.type,
+      question: tab.question || undefined,
+      sql: tab.editableSql,
+      source: tab.type === 'followup' ? 'followup' : 'generated',
+      success: true,
+      executedAt: new Date().toISOString(),
+      ...outcome,
+    })
   }
 
   // Revise SQL for a specific tab after execution error

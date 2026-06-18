@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect, useRef } from 'react';
 import type { StorageProvider } from '@/lib/storage/storage-provider';
 import type { SavedReport } from '@/models/saved-report.interface';
+import type { QueryHistoryEntry } from '@/models/query-history.interface';
 import { LocalStorageProvider } from '@/lib/storage/local-storage-provider';
 import { ApiStorageProvider } from '@/lib/storage/api-storage-provider';
 
@@ -383,6 +384,45 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
         setAllReports(prev => prev.filter(r => r.id !== id));
     }, []);
 
+    // Query history (device-local). Recording is fire-and-forget so it can never
+    // block or break the query-execution flow.
+    const recordQueryHistory = useCallback((entry: QueryHistoryEntry) => {
+        const storage = storageRef.current;
+        const write = storage
+            ? storage.addQueryHistory(entry)
+            : (async () => {
+                const stored = JSON.parse(localStorage.getItem("query_history") || "[]") as QueryHistoryEntry[];
+                localStorage.setItem("query_history", JSON.stringify([entry, ...stored].slice(0, 200)));
+            })();
+        Promise.resolve(write).catch(() => { /* never surface history errors to the query flow */ });
+    }, []);
+
+    const getQueryHistory = useCallback(async (): Promise<QueryHistoryEntry[]> => {
+        if (storageRef.current) return storageRef.current.getQueryHistory();
+        try {
+            return JSON.parse(localStorage.getItem("query_history") || "[]") as QueryHistoryEntry[];
+        } catch {
+            return [];
+        }
+    }, []);
+
+    const deleteQueryHistory = useCallback(async (id: string) => {
+        if (storageRef.current) {
+            await storageRef.current.deleteQueryHistory(id);
+        } else {
+            const stored = JSON.parse(localStorage.getItem("query_history") || "[]") as QueryHistoryEntry[];
+            localStorage.setItem("query_history", JSON.stringify(stored.filter(e => e.id !== id)));
+        }
+    }, []);
+
+    const clearQueryHistory = useCallback(async () => {
+        if (storageRef.current) {
+            await storageRef.current.clearQueryHistory();
+        } else {
+            localStorage.removeItem("query_history");
+        }
+    }, []);
+
     return (
         <DatabaseContext.Provider value={{
             setConnectionStatus,
@@ -408,6 +448,10 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             saveReport: saveReportCtx,
             updateReport: updateReportCtx,
             deleteReport: deleteReportCtx,
+            recordQueryHistory,
+            getQueryHistory,
+            deleteQueryHistory,
+            clearQueryHistory,
     }}>
     {children}
     </DatabaseContext.Provider>

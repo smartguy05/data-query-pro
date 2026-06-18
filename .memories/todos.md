@@ -2,7 +2,7 @@
 
 ## High Priority
 - [ ] Enhanced chart creation and customization (Roadmap item)
-- [ ] Query history and favorites (Roadmap item)
+- [x] Query history and favorites (Roadmap item) — favorites already done; query history added 2026-06-18 (device-local, /history page)
 
 ## Medium Priority
 - [ ] Report scheduling (Roadmap item)
@@ -13,7 +13,7 @@
 - [ ] Add connection/report sharing UI to database and reports pages
 
 ## Low Priority / Tech Debt
-- [ ] Remove mock/static dashboard components (executive-metrics, performance-chart, recent-reports, scheduled-reports, report-templates) once real data is used
+- [~] Remove mock/static dashboard components: recent-reports, scheduled-reports, report-templates DELETED 2026-06-18. executive-metrics + performance-chart LEFT IN PLACE (carded in Claude Design system: .design-sync/config.json + previews + ds-bundle). To remove later: drop from config.json componentSrcMap, delete previews + ds-bundle dirs, re-run /design-sync.
 - [ ] Add automated tests (Playwright test plan at docs/testing/)
 - [ ] Add "composed" chart type support (currently shows unimplemented alert)
 - [ ] Consider WebSocket for real-time introspection instead of polling

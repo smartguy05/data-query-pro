@@ -96,6 +96,9 @@ export const STORAGE_KEYS = {
   /** Saved reports */
   SAVED_REPORTS: "saved_reports",
 
+  /** Executed-query history (device-local, capped) */
+  QUERY_HISTORY: "query_history",
+
   /** Dismissed notification IDs */
   DISMISSED_NOTIFICATIONS: "dismissed_notifications",
 
@@ -106,6 +109,15 @@ export const STORAGE_KEYS = {
 // Helper to get suggestions key for a specific connection
 export const getSuggestionsKey = (connectionId: string) =>
   `suggestions_${connectionId}`;
+
+// ============================================================================
+// Query History
+// ============================================================================
+
+export const HISTORY = {
+  /** Maximum number of query-history entries kept per browser (ring buffer, newest first) */
+  MAX_ENTRIES: 200,
+} as const;
 
 // ============================================================================
 // API Rate Limits

@@ -71,6 +71,7 @@ app/                          # Next.js 15 App Router
 ├── layout.tsx               # Root layout with providers
 ├── database/page.tsx        # Database connection management
 ├── query/page.tsx           # Natural language query interface
+├── history/page.tsx         # Query history (device-local executed queries)
 ├── schema/page.tsx          # Schema explorer with AI descriptions
 ├── reports/page.tsx         # Reports management (with connection selector)
 ├── admin/page.tsx           # Admin panel: server connections & assignments
@@ -211,6 +212,7 @@ models/                      # TypeScript interfaces
 ├── database-table.interface.ts
 ├── column.interface.ts
 ├── saved-report.interface.ts  # Report and parameter interfaces
+├── query-history.interface.ts # QueryHistoryEntry (device-local query history)
 ├── chart-config.interface.ts
 ├── database-context-type.interface.ts
 ├── connection-form-data.interface.ts # Form data for connections
@@ -304,6 +306,7 @@ config/                      # Server configuration
 - AI descriptions are generated for tables and columns to improve query accuracy
 - Tables/columns can be marked `hidden` to exclude from OpenAI uploads
 - Schema change detection marks new/modified items after re-introspection
+- **Copy descriptions between connections**: "Copy Descriptions" button in the schema explorer copies table/column descriptions (and optionally AI descriptions + hidden flags) from another connection's schema, matching by name (same DB across dev/staging/prod). Client-side only (`utils/copy-descriptions.ts` + `components/copy-descriptions-dialog.tsx`); applies via `setSchema` and is pushed to OpenAI via the normal "Save to OpenAI" flow
 - **Important**: Schema must be uploaded to OpenAI (creates file + vector store) before queries can be generated
 
 ### Query Generation
@@ -364,6 +367,13 @@ config/                      # Server configuration
 - Parameter types: `text`, `number`, `date`, `datetime`, `boolean`
 - Reports can be exported/imported as JSON
 
+### Query History
+- Every **successful** query (ad-hoc, report-run, follow-up) is recorded at the single execution choke point (`executeTabQuery` in `app/query/page.tsx`); failed executions are not kept
+- Each entry leads with the plain-English natural-language prompt (when present), then SQL + metadata
+- **Device-local by design**: stored in localStorage (`query_history` key) in BOTH auth and no-auth modes; never synced to the app DB. Capped ring buffer (`HISTORY.MAX_ENTRIES`, newest first)
+- Recording is fire-and-forget via context `recordQueryHistory` — a history write can never break query execution
+- `/history` page: search, "this connection only" filter, Re-run (`/query?sql=...&autoExecute=true`), Save as report, Copy SQL, Delete, Clear all
+
 ### localStorage Keys
 | Key | Description |
 |-----|-------------|
@@ -371,6 +381,7 @@ config/                      # Server configuration
 | `currentDbConnection` | Currently active connection |
 | `connectionSchemas` | Array of schemas per connection |
 | `saved_reports` | All saved reports |
+| `query_history` | Executed-query history (device-local, capped at HISTORY.MAX_ENTRIES) |
 | `suggestions_{connectionId}` | Cached AI suggestions per connection |
 | `dismissed_notifications` | User dismissed notification IDs |
 

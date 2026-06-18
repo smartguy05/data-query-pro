@@ -58,6 +58,18 @@
 - **UNDEFINED_VALUE error**: Passing `undefined` to tagged template parameters throws `UNDEFINED_VALUE`. Always ensure values are defined or use `null` fallback.
 - **getToken() requires explicit secret**: `getToken({ req, secret: process.env.AUTH_SECRET })` — omitting secret causes 401s even with valid JWTs
 
+## Query History (2026-06-18)
+- Query history is **device-local by design**: stored in localStorage (`query_history` key) in BOTH auth and no-auth modes. NOT synced to the app DB (no migration/repo/route) — it's low-sensitivity convenience data and keeping it local avoids debt. `ApiStorageProvider.*QueryHistory` deliberately use localStorage, not `/api/data/*`.
+- Capped ring buffer: `HISTORY.MAX_ENTRIES = 200`, newest-first, oldest trimmed in `addQueryHistory`.
+- `recordQueryHistory` in context is fire-and-forget — wrapped so a history-write error can NEVER break query execution.
+- Capture happens once, at `executeTabQuery` in `app/query/page.tsx` (the single execution choke point) — covers ad-hoc + report-run + follow-up queries. **Successful executions only** (failures are not recorded; the catch block does NOT call recordHistory). History page filters legacy failed entries via `success !== false`.
+- Each history entry leads with the plain-English `question` (the natural-language prompt) as the prominent headline, then metadata, then SQL.
+- Re-run reuses the existing query-page URL mechanism: `/query?sql=<encoded>&autoExecute=true` (also sets the entry's connection active first).
+
+## TypeScript / Build Gotcha (important)
+- `next.config` sets `typescript.ignoreBuildErrors: true` AND `eslint.ignoreDuringBuilds: true`. `npx tsc --noEmit` reports HUNDREDS of pre-existing `TS2304 Cannot find name 'DatabaseConnection'/'SavedReport'` errors across the repo — these are BASELINE NOISE, not regressions. The model interfaces in `models/*.interface.ts` are referenced cross-file without imports and only "work" because type errors are ignored at build and erased at runtime. Don't try to "fix" these; verify with `next build` (runtime/bundle), not `tsc`.
+- `npm run build` intentionally does `rimraf node_modules && pnpm install && next build` — a bare `npx next build` can fail with `Cannot find module '.../jest-worker/processChild.js'` from an incomplete pnpm store. Use the npm script for a real build.
+
 ## Documentation Patterns
 - CLAUDE.md is the primary reference for Claude Code - keep project structure tree up to date
 - docs/ folder has detailed documentation organized by topic

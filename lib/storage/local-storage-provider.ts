@@ -1,5 +1,7 @@
 import type { StorageProvider } from './storage-provider';
 import type { SavedReport } from '@/models/saved-report.interface';
+import type { QueryHistoryEntry } from '@/models/query-history.interface';
+import { HISTORY, STORAGE_KEYS } from '@/lib/constants';
 
 export class LocalStorageProvider implements StorageProvider {
   private serverConnections: DatabaseConnection[] = [];
@@ -263,6 +265,33 @@ export class LocalStorageProvider implements StorageProvider {
       'saved_reports',
       JSON.stringify(reports.filter(r => r.id !== id))
     );
+  }
+
+  async getQueryHistory(): Promise<QueryHistoryEntry[]> {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEYS.QUERY_HISTORY) || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  async addQueryHistory(entry: QueryHistoryEntry): Promise<void> {
+    const existing = await this.getQueryHistory();
+    // Newest first, capped to a bounded ring buffer so localStorage never grows unbounded.
+    const next = [entry, ...existing].slice(0, HISTORY.MAX_ENTRIES);
+    localStorage.setItem(STORAGE_KEYS.QUERY_HISTORY, JSON.stringify(next));
+  }
+
+  async deleteQueryHistory(id: string): Promise<void> {
+    const existing = await this.getQueryHistory();
+    localStorage.setItem(
+      STORAGE_KEYS.QUERY_HISTORY,
+      JSON.stringify(existing.filter(e => e.id !== id))
+    );
+  }
+
+  async clearQueryHistory(): Promise<void> {
+    localStorage.removeItem(STORAGE_KEYS.QUERY_HISTORY);
   }
 
   async getSuggestions(connectionId: string): Promise<unknown[] | null> {

@@ -1,4 +1,5 @@
 import type { SavedReport } from '@/models/saved-report.interface';
+import type { QueryHistoryEntry } from '@/models/query-history.interface';
 
 export interface StorageProvider {
   getConnections(): Promise<DatabaseConnection[]>;
@@ -18,6 +19,12 @@ export interface StorageProvider {
   saveReport(report: SavedReport): Promise<void>;
   updateReport(report: SavedReport): Promise<void>;
   deleteReport(id: string): Promise<void>;
+
+  // Query history is device-local convenience data (localStorage in both modes).
+  getQueryHistory(): Promise<QueryHistoryEntry[]>;
+  addQueryHistory(entry: QueryHistoryEntry): Promise<void>;
+  deleteQueryHistory(id: string): Promise<void>;
+  clearQueryHistory(): Promise<void>;
 
   getSuggestions(connectionId: string): Promise<unknown[] | null>;
   setSuggestions(connectionId: string, suggestions: unknown[]): Promise<void>;

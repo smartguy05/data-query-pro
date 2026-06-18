@@ -31,4 +31,10 @@ interface DatabaseContextType {
     saveReport: (report: SavedReport) => Promise<void>;
     updateReport: (report: SavedReport) => Promise<void>;
     deleteReport: (id: string) => Promise<void>;
+
+    // Query history (device-local)
+    recordQueryHistory: (entry: QueryHistoryEntry) => void;
+    getQueryHistory: () => Promise<QueryHistoryEntry[]>;
+    deleteQueryHistory: (id: string) => Promise<void>;
+    clearQueryHistory: () => Promise<void>;
 }

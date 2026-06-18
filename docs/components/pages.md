@@ -118,6 +118,7 @@ Schema exploration and AI description generation.
 - Edit descriptions manually
 - Hide/show tables and columns
 - Schema change detection
+- **Copy descriptions from another connection** (`components/copy-descriptions-dialog.tsx` + `utils/copy-descriptions.ts`): name-matches tables/columns against a source connection's schema and copies `description` (and optionally `aiDescription` + `hidden` flags), in fill-empty or overwrite mode. Client-side; applied via `setSchema`, then pushed to OpenAI via the existing "Save to OpenAI" button. Ideal for the same DB across dev/staging/prod.
 
 ### Key Operations
 
@@ -231,6 +232,27 @@ const handleGenerate = async () => {
   setIsGenerating(false);
 };
 ```
+
+---
+
+## History Page
+
+**Route:** `/history`
+**File:** `app/history/page.tsx`
+
+Device-local history of every executed query.
+
+### Features
+- Lists all executed queries (ad-hoc, report-run, follow-up), newest first, with success/failure status, row count, execution time, source badge, and relative timestamp
+- Search by SQL, natural-language question, or connection name
+- "This connection only" toggle (filters to the active connection)
+- Per-entry actions: **Re-run** (sets the entry's connection active, then `/query?sql=...&autoExecute=true`), **Save as report** (reuses `SaveReportDialog`), **Copy SQL**, **Delete**
+- **Clear History** with confirmation dialog
+
+### History Storage
+- Stored in localStorage under `query_history` (device-local in **both** auth and no-auth modes — never synced to the app DB)
+- Capped ring buffer (`HISTORY.MAX_ENTRIES` in `lib/constants.ts`), newest first
+- Captured at the single execution choke point (`executeTabQuery` in `app/query/page.tsx`) via context `recordQueryHistory` (fire-and-forget — never breaks query execution)
 
 ---
 
