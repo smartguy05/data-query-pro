@@ -1,5 +1,8 @@
+import type { DatabaseConnection } from '@/models/database-connection.interface';
+import type { Schema } from '@/models/schema.interface';
 import type { SavedReport } from '@/models/saved-report.interface';
 import type { QueryHistoryEntry } from '@/models/query-history.interface';
+import type { QueryAccuracyStats } from '@/models/query-accuracy.interface';
 
 export interface StorageProvider {
   getConnections(): Promise<DatabaseConnection[]>;
@@ -28,6 +31,11 @@ export interface StorageProvider {
 
   getSuggestions(connectionId: string): Promise<unknown[] | null>;
   setSuggestions(connectionId: string, suggestions: unknown[]): Promise<void>;
+
+  // Query accuracy: a global per-user running tally. Mutated via deltas so the
+  // auth-mode update can be a single atomic SQL statement (no read-modify-write race).
+  getQueryAccuracy(): Promise<QueryAccuracyStats>;
+  applyQueryAccuracyDelta(totalDelta: number, successfulDelta: number): Promise<void>;
 
   getDismissedNotifications(): Promise<string[]>;
   dismissNotification(id: string): Promise<void>;

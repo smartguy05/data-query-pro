@@ -83,7 +83,7 @@ export async function createReport(
       ${report.id}, ${report.connectionId}, ${userId}, ${report.name},
       ${report.description || null}, ${report.naturalLanguageQuery},
       ${report.sql}, ${report.explanation}, ${sql.json(report.warnings || [])},
-      ${report.confidence}, ${sql.json(report.parameters || [])},
+      ${report.confidence}, ${sql.json((report.parameters || []) as unknown as Parameters<typeof sql.json>[0])},
       ${report.isFavorite || false}, ${report.createdAt},
       ${report.lastModified}, ${report.lastRun || null}
     )
@@ -118,7 +118,7 @@ export async function updateReport(
       explanation = COALESCE(${report.explanation ?? null}, explanation),
       warnings = COALESCE(${report.warnings ? sql.json(report.warnings) : null}, warnings),
       confidence = COALESCE(${report.confidence ?? null}, confidence),
-      parameters = COALESCE(${report.parameters ? sql.json(report.parameters) : null}, parameters),
+      parameters = COALESCE(${report.parameters ? sql.json(report.parameters as unknown as Parameters<typeof sql.json>[0]) : null}, parameters),
       is_favorite = COALESCE(${report.isFavorite ?? null}, is_favorite),
       last_modified = ${report.lastModified || new Date().toISOString()},
       last_run = ${report.lastRun || existing.last_run}

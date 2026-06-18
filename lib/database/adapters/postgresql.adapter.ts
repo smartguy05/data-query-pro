@@ -54,11 +54,13 @@ export class PostgreSQLAdapter extends BaseDatabaseAdapter {
     if (!this.client) {
       throw new Error('Not connected to PostgreSQL');
     }
-    // Use the postgres library's built-in parameterized query support
-    // Cast params to the expected type for the unsafe method
+    // Use the postgres library's built-in parameterized query support.
+    // postgres' ParameterOrJSON<never>[] generic is overly narrow for our
+    // dynamic params (and rejects `undefined`); cast through unknown to the
+    // concrete primitive union we actually pass.
     const result = await this.client.unsafe(
       query.sql,
-      query.params as (string | number | boolean | null | undefined)[]
+      query.params as unknown as (string | number | boolean | null)[]
     );
     return result as Record<string, unknown>[];
   }

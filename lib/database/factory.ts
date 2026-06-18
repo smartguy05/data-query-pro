@@ -7,7 +7,7 @@ import { SQLiteAdapter } from './adapters/sqlite.adapter';
 type AdapterConstructor = new () => IDatabaseAdapter;
 
 export class DatabaseAdapterFactory {
-  private static adapters: Map<DatabaseType, AdapterConstructor> = new Map([
+  private static adapters: Map<DatabaseType, AdapterConstructor> = new Map<DatabaseType, AdapterConstructor>([
     ['postgresql', PostgreSQLAdapter],
     ['mysql', MySQLAdapter],
     ['sqlserver', SQLServerAdapter],

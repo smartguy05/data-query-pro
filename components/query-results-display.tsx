@@ -769,7 +769,7 @@ export function QueryResultsDisplay({ data, initialChartConfig, onChartConfigCha
               <Alert>
                 <BarChart3 className="h-4 w-4" />
                 <AlertDescription>
-                  Click "Generate Chart" to create an AI-powered visualization of your query results.
+                  Click &quot;Generate Chart&quot; to create an AI-powered visualization of your query results.
                 </AlertDescription>
               </Alert>
             )}

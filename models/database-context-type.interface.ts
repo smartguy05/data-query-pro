@@ -1,5 +1,10 @@
+import type { DatabaseConnection } from './database-connection.interface';
+import type { Schema } from './schema.interface';
+import type { SavedReport } from './saved-report.interface';
+import type { QueryHistoryEntry } from './query-history.interface';
+import type { QueryAccuracyStats } from './query-accuracy.interface';
 
-interface DatabaseContextType {
+export interface DatabaseContextType {
     importConnections: (connections: DatabaseConnection[]) => void;
     getConnection: (id?: string | undefined) => DatabaseConnection | undefined;
     addConnection: (connection: DatabaseConnection) => void;
@@ -37,4 +42,9 @@ interface DatabaseContextType {
     getQueryHistory: () => Promise<QueryHistoryEntry[]>;
     deleteQueryHistory: (id: string) => Promise<void>;
     clearQueryHistory: () => Promise<void>;
+
+    // Query accuracy (global per-user; local by default, synced when auth enabled)
+    queryAccuracy: QueryAccuracyStats;
+    recordQueryOutcome: (success: boolean) => void;
+    overrideQueryOutcome: (oldSuccess: boolean, newSuccess: boolean) => void;
 }

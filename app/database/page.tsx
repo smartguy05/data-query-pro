@@ -2,6 +2,8 @@
 
 import type React from "react"
 
+import type { DatabaseConnection } from "@/models/database-connection.interface"
+import type { Schema } from "@/models/schema.interface"
 import { useState, useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { Button } from "@/components/ui/button"

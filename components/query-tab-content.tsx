@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Play, Save, AlertTriangle, Sparkles } from "lucide-react"
+import { Loader2, Play, Save, AlertTriangle, Sparkles, ThumbsUp, ThumbsDown } from "lucide-react"
 import { QueryResultsDisplay } from "@/components/query-results-display"
+import { cn } from "@/lib/utils"
 import type { ChartConfig } from "@/models/chart-config.interface"
 
 interface QueryTabContentProps {
@@ -17,6 +18,7 @@ interface QueryTabContentProps {
   onAskFollowUp: () => void
   onSaveReport: () => void
   onReviseQuery?: () => void
+  onVoteAccuracy?: (vote: 'up' | 'down') => void
   isExecuting: boolean
   isRevising?: boolean
   onChartConfigChange?: (config: ChartConfig | null) => void
@@ -30,6 +32,7 @@ export function QueryTabContent({
   onAskFollowUp,
   onSaveReport,
   onReviseQuery,
+  onVoteAccuracy,
   isExecuting,
   isRevising = false,
   onChartConfigChange,
@@ -212,6 +215,38 @@ export function QueryTabContent({
             </AlertDescription>
           </Alert>
         )}
+
+        {/* Accuracy feedback — override the auto verdict for this execution */}
+        {onVoteAccuracy && tab.accuracyBaselineSuccess !== undefined && (() => {
+          const effective = tab.accuracyVote
+            ? tab.accuracyVote === 'up'
+            : tab.accuracyBaselineSuccess
+          return (
+            <div className="flex items-center justify-end gap-2 text-sm text-muted-foreground">
+              <span>Was this query result correct?</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Mark query result as correct"
+                aria-pressed={effective}
+                onClick={() => onVoteAccuracy('up')}
+                className={cn("h-8 px-2", effective && "text-emerald-600")}
+              >
+                <ThumbsUp className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Mark query result as incorrect"
+                aria-pressed={!effective}
+                onClick={() => onVoteAccuracy('down')}
+                className={cn("h-8 px-2", !effective && "text-red-600")}
+              >
+                <ThumbsDown className="h-4 w-4" />
+              </Button>
+            </div>
+          )
+        })()}
 
         {/* Results Display */}
         {tab.executionResults && (

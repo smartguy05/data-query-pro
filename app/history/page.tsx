@@ -168,7 +168,7 @@ export default function HistoryPage() {
             </div>
             <div>
               <h1 className="text-3xl font-bold text-foreground">Query History</h1>
-              <p className="text-muted-foreground">Every query you've run, with one-click re-run</p>
+              <p className="text-muted-foreground">Every query you&apos;ve run, with one-click re-run</p>
             </div>
           </div>
           <Button

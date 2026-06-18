@@ -1,6 +1,9 @@
 import type { StorageProvider } from './storage-provider';
+import type { DatabaseConnection } from '@/models/database-connection.interface';
+import type { Schema } from '@/models/schema.interface';
 import type { SavedReport } from '@/models/saved-report.interface';
 import type { QueryHistoryEntry } from '@/models/query-history.interface';
+import type { QueryAccuracyStats } from '@/models/query-accuracy.interface';
 import { HISTORY, STORAGE_KEYS } from '@/lib/constants';
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
@@ -163,6 +166,21 @@ export class ApiStorageProvider implements StorageProvider {
     await apiFetch(`/api/data/suggestions/${connectionId}`, {
       method: 'PUT',
       body: JSON.stringify({ suggestions }),
+    });
+  }
+
+  async getQueryAccuracy(): Promise<QueryAccuracyStats> {
+    try {
+      return await apiFetch<QueryAccuracyStats>('/api/data/query-accuracy');
+    } catch {
+      return { total: 0, successful: 0 };
+    }
+  }
+
+  async applyQueryAccuracyDelta(totalDelta: number, successfulDelta: number): Promise<void> {
+    await apiFetch('/api/data/query-accuracy', {
+      method: 'PUT',
+      body: JSON.stringify({ totalDelta, successfulDelta }),
     });
   }
 

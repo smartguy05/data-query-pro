@@ -1,3 +1,7 @@
+import type { Schema } from "@/models/schema.interface"
+import type { DatabaseTable } from "@/models/database-table.interface"
+import type { Column } from "@/models/column.interface"
+
 /**
  * Compares two schemas and marks new and modified items
  * @param currentSchema - The existing schema in the system

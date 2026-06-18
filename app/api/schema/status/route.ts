@@ -9,7 +9,7 @@ declare global {
       status: "pending" | "processing" | "completed" | "error"
       progress: number
       message: string
-      result?: any
+      result?: unknown
       error?: string
       startTime: number
     }

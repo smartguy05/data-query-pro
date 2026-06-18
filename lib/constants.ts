@@ -99,6 +99,9 @@ export const STORAGE_KEYS = {
   /** Executed-query history (device-local, capped) */
   QUERY_HISTORY: "query_history",
 
+  /** Query accuracy counters (device-local when auth disabled) */
+  QUERY_ACCURACY: "query_accuracy",
+
   /** Dismissed notification IDs */
   DISMISSED_NOTIFICATIONS: "dismissed_notifications",
 
@@ -117,6 +120,15 @@ export const getSuggestionsKey = (connectionId: string) =>
 export const HISTORY = {
   /** Maximum number of query-history entries kept per browser (ring buffer, newest first) */
   MAX_ENTRIES: 200,
+} as const;
+
+// ============================================================================
+// Query Accuracy
+// ============================================================================
+
+export const ACCURACY = {
+  /** Minimum number of recorded queries before the dashboard accuracy stat is shown */
+  MIN_SAMPLE: 5,
 } as const;
 
 // ============================================================================

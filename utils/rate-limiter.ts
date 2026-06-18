@@ -41,9 +41,10 @@ export function getClientIP(request: NextRequest): string {
     }
   }
 
-  // Get the direct connection IP (if available via Next.js)
-  // This is the IP of whoever is directly connecting to us
-  const nextIP = request.ip;
+  // Get the direct connection IP. Next.js 15 removed `request.ip`, so on a
+  // standalone deployment we read the direct-client IP from `x-real-ip`, which
+  // reverse proxies conventionally set to the immediate peer.
+  const nextIP = request.headers.get("x-real-ip")?.trim();
   if (nextIP) {
     // Check if the direct connection is from a trusted proxy
     if (isTrustedProxy(nextIP)) {

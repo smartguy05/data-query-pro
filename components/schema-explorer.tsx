@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import type { Schema } from "@/models/schema.interface"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -82,6 +83,8 @@ export function SchemaExplorer() {
     if (connectionInformation.isInitialized) {
       checkConnectionAndLoadSchema();
     }
+    // checkConnectionAndLoadSchema is recreated each render; run only on init/connection change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionInformation.isInitialized, connectionInformation.currentConnection?.id])
 
   // Check if schema has unsaved change flags on load
@@ -93,6 +96,8 @@ export function SchemaExplorer() {
         setHasUnsavedChanges(true);
       }
     }
+    // hasUnsavedChanges is read only as a guard; this effect should react to schema changes only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionInformation.currentSchema])
 
   // Ensure loading states are correct when schema is loaded
@@ -105,6 +110,8 @@ export function SchemaExplorer() {
         setIsProcessing(false);
       }
     }
+    // loading/isProcessing are read only as guards; react to schema changes only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionInformation.currentSchema])
 
   useEffect(() => {
@@ -143,6 +150,9 @@ export function SchemaExplorer() {
 
       return () => clearInterval(pollInterval)
     }
+    // connectionInformation is a context object (new identity each render); polling
+    // should restart only when processId/isProcessing change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [processId, isProcessing]);
 
   // Navigation guard for unsaved changes
@@ -777,7 +787,7 @@ export function SchemaExplorer() {
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                This may take several minutes for large databases. You'll be notified when complete.
+                This may take several minutes for large databases. You&apos;ll be notified when complete.
               </p>
             </div>
           </div>

@@ -1,4 +1,6 @@
 import { getAppDb } from '../pool';
+import type { Schema } from '@/models/schema.interface';
+import type { DatabaseTable } from '@/models/database-table.interface';
 
 interface DbSchema {
   id: string;
@@ -56,7 +58,7 @@ export async function upsertSchema(
 
   await sql`
     INSERT INTO connection_schemas (connection_id, owner_id, schema_data)
-    VALUES (${schema.connectionId}, ${userId}, ${sql.json(schema.tables)})
+    VALUES (${schema.connectionId}, ${userId}, ${sql.json(schema.tables as unknown as Parameters<typeof sql.json>[0])})
     ON CONFLICT (connection_id, owner_id) DO UPDATE SET
       schema_data = EXCLUDED.schema_data
   `;

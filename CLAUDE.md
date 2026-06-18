@@ -170,7 +170,8 @@ lib/                         # Shared utilities
 │   ├── migrations/          # SQL migration files
 │   │   ├── 001_initial_schema.sql   # Core tables (users, connections, schemas, reports, etc.)
 │   │   ├── 002_server_connections.sql # Nullable owner_id, server connection support
-│   │   └── 003_cascade_connection_deletes.sql # FK cascades on schemas/reports/suggestions
+│   │   ├── 003_cascade_connection_deletes.sql # FK cascades on schemas/reports/suggestions
+│   │   └── 004_query_accuracy.sql   # Per-user query accuracy counters
 │   └── repositories/        # Data access layer
 │       ├── user-repository.ts
 │       ├── connection-repository.ts
@@ -374,6 +375,14 @@ config/                      # Server configuration
 - Recording is fire-and-forget via context `recordQueryHistory` — a history write can never break query execution
 - `/history` page: search, "this connection only" filter, Re-run (`/query?sql=...&autoExecute=true`), Save as report, Copy SQL, Delete, Clear all
 
+### Query Accuracy
+- Dashboard headline stat ("89% Query Accuracy") measuring how often AI-generated SQL executes without error
+- **What counts**: every execution through `executeTabQuery` (AI-generated queries + follow-ups). Each attempt counts independently; a failed-then-revised re-run is 1 failure + 1 success. Scope is **global** across all connections
+- **Storage**: a `{ total, successful }` counter mutated via a single delta primitive (`applyQueryAccuracyDelta`). Per-user, **local by default** (localStorage `query_accuracy`) and **synced to Postgres when auth is enabled** (table `query_accuracy_stats`, migration 004, repo `query-accuracy-repository.ts`, route `/api/data/query-accuracy`). Unlike query history, accuracy IS synced in auth mode
+- **Context API** (`database-connection-options.tsx`): `queryAccuracy` state, `recordQueryOutcome(success)` (called on every execution), `overrideQueryOutcome(old, new)` (manual thumbs). Both are fire-and-forget like `recordQueryHistory`
+- **Override**: thumbs up/down on the results area (`query-tab-content.tsx`) flips the auto verdict either direction; one vote per execution, toggleable (stored on the tab as `accuracyVote` over `accuracyBaselineSuccess`)
+- **Empty state**: dashboard card hidden until `total >= ACCURACY.MIN_SAMPLE` (5). No reset
+
 ### localStorage Keys
 | Key | Description |
 |-----|-------------|
@@ -382,6 +391,7 @@ config/                      # Server configuration
 | `connectionSchemas` | Array of schemas per connection |
 | `saved_reports` | All saved reports |
 | `query_history` | Executed-query history (device-local, capped at HISTORY.MAX_ENTRIES) |
+| `query_accuracy` | Query accuracy counters `{ total, successful }` (local when auth disabled; synced to Postgres when enabled) |
 | `suggestions_{connectionId}` | Cached AI suggestions per connection |
 | `dismissed_notifications` | User dismissed notification IDs |
 
@@ -541,6 +551,8 @@ Connection: `localhost:5432`, database: `cloudmetrics`, user: `demo`, password: 
 | Infrastructure Components | [docs/components/infrastructure.md](./docs/components/infrastructure.md) |
 | Data Models | [docs/models/overview.md](./docs/models/overview.md) |
 | Getting Started | [docs/guides/getting-started.md](./docs/guides/getting-started.md) |
+| Deployment (Docker Self-Host) | [docs/guides/deployment.md](./docs/guides/deployment.md) |
+| Performance | [docs/guides/performance.md](./docs/guides/performance.md) |
 | Authentication Testing | [docs/guides/authentication-testing.md](./docs/guides/authentication-testing.md) |
 | OpenAI Integration | [docs/guides/openai-integration.md](./docs/guides/openai-integration.md) |
 | Adding Database Support | [docs/guides/adding-database-support.md](./docs/guides/adding-database-support.md) |

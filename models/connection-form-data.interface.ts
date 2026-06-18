@@ -1,4 +1,4 @@
-interface ConnectionFormData {
+export interface ConnectionFormData {
     type: string
     name: string
     host: string

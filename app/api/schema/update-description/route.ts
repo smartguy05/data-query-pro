@@ -1,4 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
+import type { Column } from "@/models/column.interface"
+import type { DatabaseTable } from "@/models/database-table.interface"
 import { getAuthContext } from '@/lib/auth/require-auth'
 
 export async function POST(request: NextRequest) {
@@ -33,11 +35,11 @@ export async function POST(request: NextRequest) {
       throw new Error("No schema data found! Be sure to parse database schema before trying to upload.");
     }
     
-    const table = schemaData.tables.find((table) => table.name === tableName);
+    const table = schemaData.tables.find((table: DatabaseTable) => table.name === tableName);
     if (!table) {
       throw new Error("No table found for schema data!");
     }
-    const column = table.columns.find((column) => column.name === columnName);
+    const column = table.columns.find((column: Column) => column.name === columnName);
     if (!column) {
       throw new Error("No column found for schema data!");
     }

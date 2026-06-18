@@ -70,6 +70,9 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
         setReports(connectionInfo.reports)
       }
     }
+    // The specific connectionInfo fields read are listed; the whole context object
+    // is intentionally omitted (it changes identity every render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionInfo.isInitialized, connectionInfo.currentConnection?.id, connectionInfo.reports])
 
   const handleEditDialogClose = useCallback((open: boolean) => {

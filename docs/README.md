@@ -31,6 +31,8 @@ it maps every route, feature, and component to its source path and doc.
 ### Developer Guides
 [Guides index](./guides/README.md)
 - [Getting Started](./guides/getting-started.md) - Setup and configuration
+- [Deployment (Docker Self-Host)](./guides/deployment.md) - Docker Compose, production env vars, migrations, scaling caveats
+- [Performance](./guides/performance.md) - Tuning and scaling considerations
 - [Authentication Testing](./guides/authentication-testing.md) - Local Authentik setup for OIDC testing
 - [Adding Database Support](./guides/adding-database-support.md) - Extending for new databases
 - [OpenAI Integration](./guides/openai-integration.md) - AI features and vector stores

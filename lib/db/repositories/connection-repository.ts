@@ -1,5 +1,6 @@
 import { getAppDb } from '../pool';
 import { encryptPassword, decryptPassword } from '../encryption';
+import type { DatabaseConnection } from '@/models/database-connection.interface';
 
 interface DbConnection {
   id: string;
@@ -156,8 +157,8 @@ export async function updateConnection(
 
   if (!existing) return null;
 
-  // Build update values
-  const updates: Record<string, unknown> = {};
+  // Build update values (all column values are string-or-null in this table)
+  const updates: Record<string, string | null> = {};
   if (conn.name !== undefined) updates.name = conn.name;
   if (conn.type !== undefined) updates.type = conn.type;
   if (conn.host !== undefined) updates.host = conn.host;

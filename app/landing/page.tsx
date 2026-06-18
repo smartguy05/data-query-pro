@@ -487,7 +487,7 @@ export default function LandingPage() {
                   <div className="text-primary">cd data-query-pro</div>
                   <div className="text-primary">npm install</div>
                   <div className="mt-4"># Set up environment</div>
-                  <div className="text-primary">echo "OPENAI_API_KEY=your_key" &gt; .env.local</div>
+                  <div className="text-primary">echo &quot;OPENAI_API_KEY=your_key&quot; &gt; .env.local</div>
                   <div className="mt-4"># Run</div>
                   <div className="text-primary">npm run dev</div>
                 </div>

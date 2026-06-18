@@ -1,6 +1,6 @@
 import type { DatabaseType } from '@/lib/database';
 
-interface DatabaseConnection {
+export interface DatabaseConnection {
     id: string
     name: string
     type: DatabaseType

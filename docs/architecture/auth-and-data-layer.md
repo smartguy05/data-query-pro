@@ -71,6 +71,7 @@ notifications), so [the context](./state-management.md) is unaware of the backen
 | `001_initial_schema.sql` | Core tables (below) |
 | `002_server_connections.sql` | Nullable `owner_id` + `source` on `database_connections` (server connections) |
 | `003_cascade_connection_deletes.sql` | `ON DELETE CASCADE` on `connection_schemas`, `saved_reports`, `suggestions_cache` |
+| `004_query_accuracy.sql` | Per-user query accuracy counters (`query_accuracy_stats`) for the dashboard "% Query Accuracy" stat |
 
 ### Core Tables (migration 001)
 

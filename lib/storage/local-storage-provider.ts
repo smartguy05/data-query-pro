@@ -1,6 +1,9 @@
 import type { StorageProvider } from './storage-provider';
+import type { DatabaseConnection } from '@/models/database-connection.interface';
+import type { Schema } from '@/models/schema.interface';
 import type { SavedReport } from '@/models/saved-report.interface';
 import type { QueryHistoryEntry } from '@/models/query-history.interface';
+import type { QueryAccuracyStats } from '@/models/query-accuracy.interface';
 import { HISTORY, STORAGE_KEYS } from '@/lib/constants';
 
 export class LocalStorageProvider implements StorageProvider {
@@ -306,6 +309,33 @@ export class LocalStorageProvider implements StorageProvider {
 
   async setSuggestions(connectionId: string, suggestions: unknown[]): Promise<void> {
     localStorage.setItem(`suggestions_${connectionId}`, JSON.stringify(suggestions));
+  }
+
+  async getQueryAccuracy(): Promise<QueryAccuracyStats> {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.QUERY_ACCURACY);
+      if (!stored) return { total: 0, successful: 0 };
+      const parsed = JSON.parse(stored) as Partial<QueryAccuracyStats>;
+      return {
+        total: Math.max(0, Number(parsed.total) || 0),
+        successful: Math.max(0, Number(parsed.successful) || 0),
+      };
+    } catch {
+      return { total: 0, successful: 0 };
+    }
+  }
+
+  async applyQueryAccuracyDelta(totalDelta: number, successfulDelta: number): Promise<void> {
+    const current = await this.getQueryAccuracy();
+    const next: QueryAccuracyStats = {
+      total: Math.max(0, current.total + totalDelta),
+      // Never exceed total and never drop below zero.
+      successful: Math.min(
+        Math.max(0, current.total + totalDelta),
+        Math.max(0, current.successful + successfulDelta)
+      ),
+    };
+    localStorage.setItem(STORAGE_KEYS.QUERY_ACCURACY, JSON.stringify(next));
   }
 
   async getDismissedNotifications(): Promise<string[]> {

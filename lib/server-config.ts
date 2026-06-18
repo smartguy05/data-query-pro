@@ -1,6 +1,7 @@
 import { readFile } from "fs/promises";
 import { join } from "path";
 import { isAuthEnabled } from "@/lib/auth/config";
+import type { DatabaseConnection } from "@/models/database-connection.interface";
 import type { SavedReport } from "@/models/saved-report.interface";
 
 /**

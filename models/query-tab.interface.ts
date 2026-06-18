@@ -51,6 +51,12 @@ export interface QueryTab {
   executionError?: string;
   executionResults?: QueryExecutionResult;
 
+  // Query-accuracy override (results-area thumbs). `accuracyBaselineSuccess` is the
+  // auto verdict for the latest execution (true = ran without error); `accuracyVote`
+  // is the user's manual override of that verdict for this execution.
+  accuracyBaselineSuccess?: boolean;
+  accuracyVote?: 'up' | 'down';
+
   // Response type determined by AI
   responseType?: FollowUpResponseType;
 

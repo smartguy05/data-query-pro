@@ -61,8 +61,8 @@ export function useAuth(): AuthState {
               name: sess.user.name || null,
               image: sess.user.image || null,
             },
-            isAdmin: (sess as Record<string, unknown>).isAdmin === true,
-            groups: ((sess as Record<string, unknown>).groups as string[]) || [],
+            isAdmin: (sess as unknown as Record<string, unknown>).isAdmin === true,
+            groups: ((sess as unknown as Record<string, unknown>).groups as string[]) || [],
           })
         }
       } catch {

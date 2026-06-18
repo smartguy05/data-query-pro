@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import type { DatabaseConnection } from '@/models/database-connection.interface';
 import { getAuthContext } from '@/lib/auth/require-auth';
 import { successResponse, badRequest, unauthorized, notFound, internalError } from '@/lib/api/response';
 import * as connRepo from '@/lib/db/repositories/connection-repository';

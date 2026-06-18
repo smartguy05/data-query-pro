@@ -1,3 +1,7 @@
+import type { Schema } from "@/models/schema.interface"
+import type { DatabaseTable } from "@/models/database-table.interface"
+import type { Column } from "@/models/column.interface"
+
 /**
  * Copies table/column descriptions (and optionally AI descriptions + visibility flags) from a
  * source connection's schema into a target connection's schema, matching tables and columns by

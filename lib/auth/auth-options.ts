@@ -42,7 +42,7 @@ function getAuthOptions(): NextAuthConfig {
     callbacks: {
       async jwt({ token, profile, account }) {
         if (account && profile) {
-          token.sub = profile.sub;
+          token.sub = profile.sub ?? undefined;
           token.email = profile.email as string;
           token.name = (profile.name || profile.preferred_username) as string;
 
@@ -95,8 +95,8 @@ function getAuthOptions(): NextAuthConfig {
       async session({ session, token }) {
         if (session.user) {
           session.user.id = token.userId as string;
-          (session as Record<string, unknown>).isAdmin = token.isAdmin;
-          (session as Record<string, unknown>).groups = token.groups;
+          (session as unknown as Record<string, unknown>).isAdmin = token.isAdmin;
+          (session as unknown as Record<string, unknown>).groups = token.groups;
         }
         return session;
       },

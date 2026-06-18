@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
+import type { Schema } from "@/models/schema.interface"
 import {
   Dialog,
   DialogContent,
@@ -87,7 +88,7 @@ export function CopyDescriptionsDialog({
         <DialogHeader>
           <DialogTitle>Copy Schema Descriptions</DialogTitle>
           <DialogDescription>
-            Copy descriptions from another connection's schema into this one, matching tables and
+            Copy descriptions from another connection&apos;s schema into this one, matching tables and
             columns by name. Useful for the same database across environments.
           </DialogDescription>
         </DialogHeader>
@@ -137,7 +138,7 @@ export function CopyDescriptionsDialog({
                   <Label htmlFor="mode-overwrite" className="font-normal">
                     Overwrite existing
                     <span className="block text-xs text-muted-foreground">
-                      Replace matching descriptions with the source's.
+                      Replace matching descriptions with the source&apos;s.
                     </span>
                   </Label>
                 </div>

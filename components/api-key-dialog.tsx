@@ -85,7 +85,7 @@ export function ApiKeyDialog({
         <DialogHeader>
           <DialogTitle>Demo Limit Reached</DialogTitle>
           <DialogDescription>
-            You've reached the free demo limit for AI-powered features. To continue, you can either:
+            You&apos;ve reached the free demo limit for AI-powered features. To continue, you can either:
             <ul className="list-disc list-inside mt-2 space-y-1">
               <li>Wait for your rate limit to reset ({getResetTimeMessage()})</li>
               <li>Enter your own OpenAI API key to continue immediately</li>
@@ -122,14 +122,14 @@ export function ApiKeyDialog({
 
           <Alert>
             <AlertDescription className="text-sm">
-              <strong>Privacy Notice:</strong> Your API key is stored only in your browser's session
-              storage and is never sent to our servers for storage. It's included in API requests
+              <strong>Privacy Notice:</strong> Your API key is stored only in your browser&apos;s session
+              storage and is never sent to our servers for storage. It&apos;s included in API requests
               to authenticate directly with OpenAI, bypassing the rate limit.
             </AlertDescription>
           </Alert>
 
           <div className="text-sm text-muted-foreground">
-            Don't have an OpenAI API key?{" "}
+            Don&apos;t have an OpenAI API key?{" "}
             <a
               href="https://platform.openai.com/api-keys"
               target="_blank"

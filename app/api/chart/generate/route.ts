@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       let dataType = "text"
       if (nonNullValues.every((val) => !isNaN(Number(val)))) {
         dataType = "numeric"
-      } else if (nonNullValues.some((val) => !isNaN(Date.parse(val)))) {
+      } else if (nonNullValues.some((val) => !isNaN(Date.parse(String(val))))) {
         dataType = "date"
       }
 

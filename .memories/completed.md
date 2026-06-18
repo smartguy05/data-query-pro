@@ -15,7 +15,11 @@
 - Saved reports with parameterized queries ({{param}} syntax)
 - Report favorites, cloning, import/export
 - AI suggestions for metrics/reports based on schema
-- Chart generation (bar, line, pie, area, scatter) via Recharts
+- Chart generation (bar, line, pie, area, scatter, composed) via Recharts
+- Dashboard widgets: pin saved reports as KPI cards / trend chart (live query execution)
+- Query accuracy tracking: dashboard "% Query Accuracy" stat (global, per-user) measuring how often AI-generated/follow-up queries execute without error; thumbs up/down override on results area flips the verdict either way; counters in localStorage (auth off) / `query_accuracy_stats` Postgres table (auth on, migration 004); hidden until 5+ queries; added 2026-06-18
+- Chart customizer: manual per-type chart config editing, persisted to SavedReport.visualization
+- Docs sync: documented dashboard widgets, composed chart, chart customizer (features.md, overview.md, file-map.md)
 - Dark/light theme support
 - Server configuration via config/databases.json for team deployments
 - Rate limiting with BYOK (bring your own key) bypass
@@ -24,6 +28,16 @@
 - Landing page with features, screenshots, and installation instructions
 - Connection testing (real connectivity test with latency/version info)
 - Data export/import (backup/restore connections, schemas, reports)
+
+## Testing, Tooling & Docs (2026-06-18)
+- Vitest + Testing Library harness: vitest.config.ts (jsdom, "@/" alias, globals), setupTests.ts (jest-dom), `npm run test` / `test:watch` scripts
+- 86 tests across 7 files: tests/unit/{metric-status,substitute-params,error-sanitizer,compare-schemas,reshape-chart-config}.test.ts + tests/components/{executive-metrics,chart-customizer}.test.tsx
+- Extracted KPI logic to utils/metric-status.ts (formatMetricValue/computeStatus) from app/page.tsx for testability (only production-code change)
+- ESLint set up: .eslintrc.json (next/core-web-vitals) + eslint 8.57.1 + eslint-config-next 15.2.4; `npm run lint` now runs non-interactively. Fixed pre-existing react/no-unescaped-entities errors
+- New guides: docs/guides/performance.md (incl. WebSocket-deferral rationale) and docs/guides/deployment.md (Docker self-host); cross-linked from docs/README.md + CLAUDE.md
+- Tests/lint are unit-level only; Playwright E2E (docs/testing/) remains unimplemented
+- Group C model-types refactor (2026-06-18): all models/*.interface.ts now `export` their interfaces (were global ambient); added internal cross-imports + `import type` at ~22 usage sites. tsc clean (0, was 85). Global-ambient type pattern eliminated.
+- Pre-existing issues fixed (Group A+B): all 9 react-hooks/exhaustive-deps warnings silenced with documented eslint-disable directives (NOT by adding deps — would loop); ~20 localized tsc errors fixed: rate-limiter NextRequest.ip→x-real-ip (Next 15 removed .ip), tsconfig target ES6→ES2020 (fixes es2018 regex flag), repository sql.json() JSONValue casts, Session→unknown casts (use-auth/auth-options), implicit-any callback params annotated with global Column/DatabaseTable, postgres adapter/factory/migrate typing. Lint: 0/0; tests: 86 pass; tsc down to 85 (all Group C model-globals, deferred)
 
 ## Authentication & Multi-User Support (2026-02-05)
 - Optional Authentik OIDC authentication via Auth.js v5 (next-auth)

@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import type { Column } from "@/models/column.interface"
 import { validateConnection } from "@/lib/database/connection-validator"
 import { sanitizeDbError } from "@/utils/error-sanitizer"
 import { getAuthContext } from '@/lib/auth/require-auth'
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
         tables: result.tables.map((table) => ({
           ...table,
           aiDescription: table.aiDescription || `Table containing ${table.name} data`,
-          columns: table.columns.map((col) => ({
+          columns: table.columns.map((col: Column) => ({
             ...col,
             aiDescription: col.aiDescription || `${col.name} field of type ${col.type}`,
           })),

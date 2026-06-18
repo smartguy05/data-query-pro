@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import type { DatabaseConnection } from "@/models/database-connection.interface"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -140,6 +141,9 @@ export default function QueryPage() {
         executeTabQuery(tabId)
       }
     }
+    // executeTabQuery is recreated each render; this effect should only fire when
+    // tabs or init state change, so it is intentionally omitted from the deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs, connectionInformation.isInitialized])
 
   // Clear tabs when connection changes
@@ -150,6 +154,9 @@ export default function QueryPage() {
       // We don't store connectionId on tabs, so we'll reset on any connection change
       // This is handled by the user selecting a different connection
     }
+    // Intentionally runs only on connection change; the tabs.length read is
+    // incidental and should not re-trigger this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionInformation.currentConnection?.id])
 
   // Helper: Create original tab
@@ -382,10 +389,14 @@ export default function QueryPage() {
       updateTab(tabId, {
         isExecuting: false,
         executionResults: result,
-        executionError: undefined
+        executionError: undefined,
+        // New execution → fresh, votable attempt counted as a success.
+        accuracyBaselineSuccess: true,
+        accuracyVote: undefined,
       })
 
       recordHistory(tab, activeConnection, { rowCount: result.rowCount, executionTimeMs: result.executionTime })
+      connectionInformation.recordQueryOutcome(true)
 
       toast({
         title: "Query Executed Successfully",
@@ -395,14 +406,33 @@ export default function QueryPage() {
       const errorMessage = err instanceof Error ? err.message : "Failed to execute query"
       updateTab(tabId, {
         isExecuting: false,
-        executionError: errorMessage
+        executionError: errorMessage,
+        // New execution → fresh, votable attempt counted as a failure.
+        accuracyBaselineSuccess: false,
+        accuracyVote: undefined,
       })
+      connectionInformation.recordQueryOutcome(false)
       toast({
         title: "Query Execution Failed",
         description: errorMessage,
         variant: "destructive",
       })
     }
+  }
+
+  // Toggle the accuracy vote for a tab's latest execution and adjust the global tally.
+  // Effective verdict = vote ?? baseline; clicking the active thumb clears the vote.
+  const voteTabAccuracy = (tabId: string, vote: 'up' | 'down') => {
+    const tab = tabs.find(t => t.id === tabId)
+    if (!tab || tab.accuracyBaselineSuccess === undefined) return
+
+    const baseline = tab.accuracyBaselineSuccess
+    const oldEffective = tab.accuracyVote ? tab.accuracyVote === 'up' : baseline
+    const nextVote = tab.accuracyVote === vote ? undefined : vote
+    const newEffective = nextVote ? nextVote === 'up' : baseline
+
+    connectionInformation.overrideQueryOutcome(oldEffective, newEffective)
+    updateTab(tabId, { accuracyVote: nextVote })
   }
 
   // Record a successfully executed query to device-local history (failures are not kept).
@@ -802,6 +832,7 @@ export default function QueryPage() {
                       onAskFollowUp={() => openFollowUpDialog(tab.id)}
                       onSaveReport={() => openSaveDialog(tab.id)}
                       onReviseQuery={() => reviseTabQuery(tab.id)}
+                      onVoteAccuracy={(vote) => voteTabAccuracy(tab.id, vote)}
                       isExecuting={tab.isExecuting}
                       isRevising={revisingTabId === tab.id}
                       onChartConfigChange={(config) => updateTab(tab.id, { chartConfig: config ?? undefined })}

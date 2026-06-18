@@ -79,7 +79,7 @@ export function ParameterConfig({ parameters, onChange }: ParameterConfigProps) 
               <Input
                 id={`default-${index}`}
                 placeholder="Optional default value"
-                value={param.defaultValue || ''}
+                value={String(param.defaultValue || '')}
                 onChange={(e) => updateParameter(index, 'defaultValue', e.target.value)}
               />
             </div>

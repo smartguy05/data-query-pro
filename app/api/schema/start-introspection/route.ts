@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import type { Column } from "@/models/column.interface"
 import { DatabaseAdapterFactory, type AdapterConnectionConfig, type DatabaseType } from "@/lib/database"
 import { validateConnection } from "@/lib/database/connection-validator"
 import { getAuthContext } from '@/lib/auth/require-auth'
@@ -118,7 +119,7 @@ async function processSchemaInBackground(
         ...table,
         aiDescription: table.aiDescription || null,
         description: table.description || null,
-        columns: table.columns.map((col) => ({
+        columns: table.columns.map((col: Column) => ({
           ...col,
           aiDescription: col.aiDescription || null,
           description: col.description || null,
