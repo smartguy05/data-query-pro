@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Loader2, Play, Save, AlertTriangle, Sparkles } from "lucide-react"
 import { QueryResultsDisplay } from "@/components/query-results-display"
+import type { ChartConfig } from "@/models/chart-config.interface"
 
 interface QueryTabContentProps {
   tab: QueryTab
@@ -18,6 +19,8 @@ interface QueryTabContentProps {
   onReviseQuery?: () => void
   isExecuting: boolean
   isRevising?: boolean
+  onChartConfigChange?: (config: ChartConfig | null) => void
+  onSaveChart?: (config: ChartConfig) => void
 }
 
 export function QueryTabContent({
@@ -28,7 +31,9 @@ export function QueryTabContent({
   onSaveReport,
   onReviseQuery,
   isExecuting,
-  isRevising = false
+  isRevising = false,
+  onChartConfigChange,
+  onSaveChart
 }: QueryTabContentProps) {
   const resultsRef = useRef<HTMLDivElement>(null)
 
@@ -223,7 +228,12 @@ export function QueryTabContent({
               </Button>
             </div>
 
-            <QueryResultsDisplay data={tab.executionResults} />
+            <QueryResultsDisplay
+              data={tab.executionResults}
+              initialChartConfig={tab.chartConfig}
+              onChartConfigChange={onChartConfigChange}
+              onSaveChart={onSaveChart}
+            />
           </div>
         )}
       </div>

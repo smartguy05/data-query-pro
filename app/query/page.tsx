@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { QueryTab, QueryResult, RowLimitOption, FollowUpResponse } from "@/models/query-tab.interface"
+import type { ChartConfig } from "@/models/chart-config.interface"
 import { QueryTabContent } from "@/components/query-tab-content"
 import { FollowUpDialog } from "@/components/followup-dialog"
 import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
@@ -60,6 +61,10 @@ export default function QueryPage() {
   // Save report dialog
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [saveTabId, setSaveTabId] = useState<string | null>(null)
+
+  // When results came from running a saved report, track it so chart edits can persist back
+  const [currentReportId, setCurrentReportId] = useState<string | null>(null)
+  const seededVizRef = useRef<string | null>(null)
 
   // Clear confirmation dialog
   const [showClearConfirmation, setShowClearConfirmation] = useState(false)
@@ -98,6 +103,11 @@ export default function QueryPage() {
       setTabs([tab])
       setActiveTabId(tab.id)
 
+      // Track originating report (if any) so chart customizations can be saved back to it
+      const reportId = searchParams.get("reportId")
+      setCurrentReportId(reportId)
+      seededVizRef.current = null
+
       // Auto-execute if requested (e.g., from running a saved report)
       const autoExecute = searchParams.get("autoExecute")
       if (autoExecute === 'true') {
@@ -105,6 +115,19 @@ export default function QueryPage() {
       }
     }
   }, [searchParams])
+
+  // Seed the original tab's chart from the originating report's saved visualization
+  // (once reports have loaded), so the saved chart renders without an AI call.
+  useEffect(() => {
+    if (!currentReportId || seededVizRef.current === currentReportId) return
+    const report = connectionInformation.reports.find(r => r.id === currentReportId)
+    if (!report) return
+    seededVizRef.current = currentReportId
+    if (report.visualization) {
+      const original = tabs.find(t => t.type === 'original')
+      if (original) updateTab(original.id, { chartConfig: report.visualization })
+    }
+  }, [currentReportId, connectionInformation.reports, tabs])
 
   // Auto-execute query when tab is ready and context is initialized
   // (e.g., from running a saved report)
@@ -591,6 +614,7 @@ export default function QueryPage() {
       warnings: tab.queryResult.warnings,
       confidence: tab.queryResult.confidence,
       parameters: parameters.length > 0 ? parameters : undefined,
+      visualization: tab.chartConfig,
       createdAt: new Date().toISOString(),
       lastModified: new Date().toISOString(),
     }
@@ -600,6 +624,25 @@ export default function QueryPage() {
     toast({
       title: "Report Saved",
       description: `"${name}" has been saved successfully`,
+    })
+  }
+
+  // Persist a customized chart back onto the originating saved report
+  const saveChartToReport = (config: ChartConfig) => {
+    if (!currentReportId) return
+    const report = connectionInformation.reports.find(r => r.id === currentReportId)
+    if (!report) {
+      toast({
+        title: "Report Not Found",
+        description: "Could not find the report to update.",
+        variant: "destructive",
+      })
+      return
+    }
+    connectionInformation.updateReport({ ...report, visualization: config, lastModified: new Date().toISOString() })
+    toast({
+      title: "Chart Saved",
+      description: `This chart is now saved on "${report.name}"`,
     })
   }
 
@@ -761,6 +804,8 @@ export default function QueryPage() {
                       onReviseQuery={() => reviseTabQuery(tab.id)}
                       isExecuting={tab.isExecuting}
                       isRevising={revisingTabId === tab.id}
+                      onChartConfigChange={(config) => updateTab(tab.id, { chartConfig: config ?? undefined })}
+                      onSaveChart={currentReportId ? saveChartToReport : undefined}
                     />
                   </TabsContent>
                 ))}

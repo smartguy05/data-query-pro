@@ -33,6 +33,10 @@ export interface SavedReport {
   // Future: visualization settings
   isFavorite?: boolean;
 
+  // Optional: the report's saved chart. When set, re-running the report renders
+  // this chart immediately (no AI generation) and the dashboard chart widget uses it.
+  visualization?: ChartConfig;
+
   // Optional: pins this report to the dashboard as a KPI metric or trend chart
   dashboardWidget?: DashboardWidgetConfig;
 

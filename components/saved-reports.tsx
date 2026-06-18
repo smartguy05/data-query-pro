@@ -278,7 +278,8 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     const params = new URLSearchParams({
       suggestion: encodeURIComponent(report.naturalLanguageQuery),
       sql: encodeURIComponent(finalSql),
-      autoExecute: 'true'
+      autoExecute: 'true',
+      reportId: report.id
     })
     router.push(`/query?${params.toString()}`)
   }

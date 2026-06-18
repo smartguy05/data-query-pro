@@ -292,7 +292,8 @@ export default function ContextualDashboard() {
             setChartWidget(null)
           } else {
             const result = await runSql(sql)
-            let config = chartReport.dashboardWidget?.chartConfig
+            // Prefer the report's saved visualization, then the cached widget config, else generate
+            let config = chartReport.visualization ?? chartReport.dashboardWidget?.chartConfig
             if (!config) {
               const genRes = await fetchWithAuth("/api/chart/generate", {
                 method: "POST",
@@ -1263,7 +1264,8 @@ export default function ContextualDashboard() {
                     onClick={() => {
                       const params = new URLSearchParams({
                         suggestion: encodeURIComponent(report.naturalLanguageQuery),
-                        sql: encodeURIComponent(report.sql)
+                        sql: encodeURIComponent(report.sql),
+                        reportId: report.id
                       })
                       window.location.href = `/query?${params.toString()}`
                     }}

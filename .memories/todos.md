@@ -1,7 +1,7 @@
 # TODO / Remaining Tasks
 
 ## High Priority
-- [ ] Enhanced chart creation and customization (Roadmap item)
+- [x] Enhanced chart creation and customization (Roadmap item) — implemented 2026-06-18 (ChartCustomizer: type/columns/labels/toggles/colors + manual build; persisted to SavedReport.visualization; dashboard uses it)
 - [x] Query history and favorites (Roadmap item) — favorites already done; query history added 2026-06-18 (device-local, /history page)
 - [x] Dashboard widgets: pin saved reports as KPIs (ExecutiveMetrics) / trend charts (PerformanceChart) — wired into app/page.tsx State 5, real data via /api/query/execute, 2026-06-18
 
