@@ -16,7 +16,7 @@
 ## Low Priority / Tech Debt
 - [x] Mock/static dashboard components resolved: recent-reports, scheduled-reports, report-templates DELETED 2026-06-18. executive-metrics + performance-chart are NO LONGER mocks — wired to real pinned-report data 2026-06-18 (see completed.md "Dashboard Widgets"). Both are now prop-driven; design-sync previews still card them. If previews break after the prop change, re-run /design-sync to regenerate previews.
 - [ ] Add automated tests (Playwright test plan at docs/testing/)
-- [ ] Add "composed" chart type support (currently shows unimplemented alert)
+- [x] Add "composed" chart type support — implemented 2026-06-18 (mixed bars/lines/areas via Recharts ComposedChart; AI tool + UI menu + dashboard widget all wired)
 - [ ] Consider WebSocket for real-time introspection instead of polling
 - [ ] Performance documentation (not yet documented)
 - [ ] Deployment guide (minimal coverage in docs)

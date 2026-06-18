@@ -15,7 +15,7 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu"
-import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, ChevronLeft, ChevronRight, Loader2, Sparkles, LineChart, PieChart, AreaChart, ScatterChart, ExternalLink } from "lucide-react"
+import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, ChevronLeft, ChevronRight, Loader2, Sparkles, LineChart, PieChart, AreaChart, ScatterChart, ExternalLink, Activity } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ChartDisplay } from "@/components/chart-display"
 import { ChartConfig } from "@/models/chart-config.interface"
@@ -34,7 +34,7 @@ interface QueryResultsProps {
 }
 
 type SortDirection = "asc" | "desc" | null
-type ViewMode = "table" | "bar" | "line" | "pie" | "area" | "scatter"
+type ViewMode = "table" | "bar" | "line" | "pie" | "area" | "scatter" | "composed"
 
 export function QueryResultsDisplay({ data }: QueryResultsProps) {
   const [sortColumn, setSortColumn] = useState<number | null>(null)
@@ -429,6 +429,14 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
                       </div>
                     </SelectItem>
                   )}
+                  {generatedCharts.composed && (
+                    <SelectItem value="composed">
+                      <div className="flex items-center gap-2">
+                        <Activity className="h-4 w-4" />
+                        Composed Chart
+                      </div>
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             )}
@@ -489,6 +497,10 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
                   <DropdownMenuItem onClick={() => generateChart("scatter")}>
                     <ScatterChart className="h-4 w-4 mr-2" />
                     Scatter Plot
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => generateChart("composed")}>
+                    <Activity className="h-4 w-4 mr-2" />
+                    Composed Chart
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
