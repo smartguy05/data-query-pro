@@ -2,41 +2,30 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { TrendingUp, Target, AlertCircle, CheckCircle } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { TrendingUp, Target, AlertCircle, CheckCircle, X } from "lucide-react"
 
-const metrics = [
-  {
-    title: "Revenue Growth",
-    value: "12.5%",
-    target: "15%",
-    status: "on-track",
-    description: "Monthly recurring revenue growth",
-  },
-  {
-    title: "Customer Satisfaction",
-    value: "4.8/5",
-    target: "4.5/5",
-    status: "exceeding",
-    description: "Average customer rating",
-  },
-  {
-    title: "Market Share",
-    value: "23.4%",
-    target: "25%",
-    status: "behind",
-    description: "Industry market position",
-  },
-  {
-    title: "Operational Efficiency",
-    value: "87%",
-    target: "85%",
-    status: "exceeding",
-    description: "Process optimization score",
-  },
-]
+export type KpiStatus = "exceeding" | "on-track" | "behind" | "neutral"
 
-export function ExecutiveMetrics() {
-  const getStatusIcon = (status: string) => {
+export interface KpiMetric {
+  reportId: string
+  title: string
+  description?: string
+  value: string
+  target?: string
+  status: KpiStatus
+}
+
+export function ExecutiveMetrics({
+  metrics,
+  onRemove,
+}: {
+  metrics: KpiMetric[]
+  onRemove?: (reportId: string) => void
+}) {
+  if (!metrics || metrics.length === 0) return null
+
+  const getStatusIcon = (status: KpiStatus) => {
     switch (status) {
       case "exceeding":
         return <CheckCircle className="h-4 w-4 text-green-600" />
@@ -49,7 +38,7 @@ export function ExecutiveMetrics() {
     }
   }
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: KpiStatus) => {
     switch (status) {
       case "exceeding":
         return "bg-green-100 text-green-700 border-green-200"
@@ -79,15 +68,31 @@ export function ExecutiveMetrics() {
                 <h4 className="font-medium text-slate-900">{metric.title}</h4>
                 {getStatusIcon(metric.status)}
               </div>
-              <p className="text-sm text-slate-600">{metric.description}</p>
+              {metric.description && <p className="text-sm text-slate-600">{metric.description}</p>}
             </div>
-            <div className="text-right space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-bold text-slate-900">{metric.value}</span>
-                <Badge variant="outline" className={getStatusColor(metric.status)}>
-                  Target: {metric.target}
-                </Badge>
+            <div className="flex items-center gap-2">
+              <div className="text-right space-y-1">
+                <div className="flex items-center gap-2 justify-end">
+                  <span className="text-lg font-bold text-slate-900">{metric.value}</span>
+                  {metric.target && (
+                    <Badge variant="outline" className={getStatusColor(metric.status)}>
+                      Target: {metric.target}
+                    </Badge>
+                  )}
+                </div>
               </div>
+              {onRemove && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-slate-400 hover:text-slate-700"
+                  title="Remove from dashboard"
+                  aria-label={`Remove ${metric.title} from dashboard`}
+                  onClick={() => onRemove(metric.reportId)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           </div>
         ))}

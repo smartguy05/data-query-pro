@@ -38,6 +38,12 @@ import { Toaster } from "@/components/ui/toaster"
 import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
 import { useOpenAIKey } from "@/hooks/use-openai-key"
 import { ApiKeyDialog } from "@/components/api-key-dialog"
+import { useAuth } from "@/hooks/use-auth"
+import { ExecutiveMetrics, type KpiMetric, type KpiStatus } from "@/components/executive-metrics"
+import { PerformanceChart } from "@/components/performance-chart"
+import { substituteParams } from "@/utils/substitute-params"
+import type { ChartConfig } from "@/models/chart-config.interface"
+import type { DataRows } from "@/models/common-types"
 
 interface MetricSuggestion {
   title: string
@@ -61,6 +67,7 @@ export default function ContextualDashboard() {
   const { toast } = useToast()
   const { fetchWithAuth, showRateLimitDialog, resetTimeInfo, clearRateLimitError } = useOpenAIFetch()
   const { setApiKey } = useOpenAIKey()
+  const { authEnabled } = useAuth()
   const [hasConnection, setHasConnection] = useState(false)
   const [hasSchemaFile, setHasSchemaFile] = useState(false)
   const [hasSchema, setHasSchema] = useState(false)
@@ -74,6 +81,16 @@ export default function ContextualDashboard() {
   const [reportCount, setReportCount] = useState(0)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([])
+  const [kpiMetrics, setKpiMetrics] = useState<KpiMetric[]>([])
+  const [chartWidget, setChartWidget] = useState<{
+    reportId: string
+    config: ChartConfig
+    columns: string[]
+    rows: DataRows
+    title?: string
+    description?: string
+  } | null>(null)
+  const [loadingWidgets, setLoadingWidgets] = useState(false)
   const isLoadingSuggestionsRef = useRef(false)
 
   useEffect(() => {
@@ -139,6 +156,20 @@ export default function ContextualDashboard() {
     setDismissedNotifications(dismissed)
   }, [])
 
+  useEffect(() => {
+    // Load dashboard widgets (pinned-report KPIs + trend chart) once context is ready.
+    // Re-runs when the active connection or the reports list changes (e.g. after pinning).
+    if (!connectionOptions.isInitialized) return
+    const connection = connectionOptions.getConnection()
+    if (!connection) {
+      setKpiMetrics([])
+      setChartWidget(null)
+      return
+    }
+    loadDashboardWidgets(connection.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionOptions.isInitialized, connectionOptions.currentConnection?.id, connectionOptions.reports])
+
   const loadRecentReports = (connectionId: string) => {
     const allReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
     const connectionReports = allReports.filter(report => report.connectionId === connectionId)
@@ -159,7 +190,168 @@ export default function ContextualDashboard() {
     // Get top 3 most recent
     setRecentReports(sorted.slice(0, 3))
   }
-  
+
+  const formatMetricValue = (value: unknown, unit?: "number" | "currency" | "percent"): string => {
+    const num = typeof value === "number" ? value : Number(String(value ?? "").replace(/[^0-9.-]/g, ""))
+    if (Number.isNaN(num)) return String(value ?? "—")
+    switch (unit) {
+      case "currency":
+        return num.toLocaleString("en-US", { style: "currency", currency: "USD" })
+      case "percent":
+        return `${num.toLocaleString("en-US")}%`
+      default:
+        return num.toLocaleString("en-US")
+    }
+  }
+
+  const computeStatus = (value: number, target?: number, higherIsBetter: boolean = true): KpiStatus => {
+    if (target === undefined || Number.isNaN(value)) return "neutral"
+    let ratio: number
+    if (higherIsBetter) {
+      if (target === 0) return "neutral"
+      ratio = value / target
+    } else {
+      if (value === 0) return "exceeding"
+      ratio = target / value
+    }
+    if (ratio >= 1) return "exceeding"
+    if (ratio >= 0.9) return "on-track"
+    return "behind"
+  }
+
+  // Execute pinned-report widgets and populate the dashboard KPI strip + trend chart.
+  // Fire-and-forget: a failing widget query is isolated (Promise.allSettled) and never
+  // breaks the rest of the dashboard.
+  const loadDashboardWidgets = async (connectionId: string) => {
+    const connection = connectionOptions.getConnection(connectionId)
+    if (!connection) {
+      setKpiMetrics([])
+      setChartWidget(null)
+      return
+    }
+
+    const pinned = connectionOptions.reports.filter(
+      r => r.connectionId === connectionId && r.dashboardWidget
+    )
+    const metricReports = pinned.filter(r => r.dashboardWidget?.kind === "metric").slice(0, 4)
+    const chartReport = pinned.find(r => r.dashboardWidget?.kind === "chart")
+
+    if (metricReports.length === 0 && !chartReport) {
+      setKpiMetrics([])
+      setChartWidget(null)
+      return
+    }
+
+    const runSql = async (sql: string) => {
+      const body = authEnabled
+        ? { sql, connectionId: connection.id, source: connection.source, type: connection.type }
+        : { sql, connection }
+      const res = await fetch("/api/query/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error("Query execution failed")
+      return res.json() as Promise<{ columns: string[]; rows: DataRows; rowCount: number }>
+    }
+
+    setLoadingWidgets(true)
+    try {
+      // KPI metrics
+      const metricResults = await Promise.allSettled(
+        metricReports.map(async (report) => {
+          const sql = substituteParams(report.sql, report.parameters)
+          if (sql.includes("{{")) return null // unresolved required parameter — skip unattended
+          const result = await runSql(sql)
+          return { report, raw: result.rows?.[0]?.[0] }
+        })
+      )
+
+      const metrics: KpiMetric[] = []
+      for (const settled of metricResults) {
+        if (settled.status !== "fulfilled" || !settled.value) continue
+        const { report, raw } = settled.value
+        const cfg = report.dashboardWidget!
+        const numeric = typeof raw === "number" ? raw : Number(String(raw ?? "").replace(/[^0-9.-]/g, ""))
+        metrics.push({
+          reportId: report.id,
+          title: report.name,
+          description: report.description || undefined,
+          value: formatMetricValue(raw, cfg.unit),
+          target: cfg.target !== undefined ? formatMetricValue(cfg.target, cfg.unit) : undefined,
+          status: computeStatus(numeric, cfg.target, cfg.higherIsBetter),
+        })
+      }
+      setKpiMetrics(metrics)
+
+      // Trend chart
+      if (chartReport) {
+        try {
+          const sql = substituteParams(chartReport.sql, chartReport.parameters)
+          if (sql.includes("{{")) {
+            setChartWidget(null)
+          } else {
+            const result = await runSql(sql)
+            let config = chartReport.dashboardWidget?.chartConfig
+            if (!config) {
+              const genRes = await fetchWithAuth("/api/chart/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  columns: result.columns,
+                  rows: result.rows,
+                  rowCount: result.rowCount,
+                }),
+              })
+              if (genRes.ok) {
+                const genData = await genRes.json()
+                config = genData.config
+              }
+            }
+            if (config) {
+              setChartWidget({
+                reportId: chartReport.id,
+                config,
+                columns: result.columns,
+                rows: result.rows,
+                title: chartReport.name,
+                description: chartReport.description,
+              })
+            } else {
+              setChartWidget(null)
+            }
+          }
+        } catch {
+          setChartWidget(null)
+        }
+      } else {
+        setChartWidget(null)
+      }
+    } finally {
+      setLoadingWidgets(false)
+    }
+  }
+
+  // Unpin a report from the dashboard. Clears its dashboardWidget config and persists;
+  // the widget-loading effect re-runs on the reports change and refreshes the widgets.
+  const handleRemoveWidget = async (reportId: string) => {
+    const report = connectionOptions.reports.find(r => r.id === reportId)
+    if (!report) return
+
+    // Optimistically drop the widget so the UI updates immediately
+    setKpiMetrics(prev => prev.filter(m => m.reportId !== reportId))
+    setChartWidget(prev => (prev?.reportId === reportId ? null : prev))
+
+    const updated = { ...report }
+    delete updated.dashboardWidget
+    await connectionOptions.updateReport(updated)
+
+    toast({
+      title: "Removed from Dashboard",
+      description: `"${report.name}" is no longer pinned to the dashboard`,
+    })
+  }
+
   const regenerateSuggestions = async () => {
     setIsReGenerating(true);
     try {
@@ -988,6 +1180,18 @@ export default function ContextualDashboard() {
           </div>
         )}
 
+        {/* Executive Metrics (pinned-report KPIs) */}
+        {loadingWidgets && kpiMetrics.length === 0 ? (
+          <Card>
+            <CardContent className="p-6 flex items-center justify-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading dashboard metrics…</span>
+            </CardContent>
+          </Card>
+        ) : (
+          <ExecutiveMetrics metrics={kpiMetrics} onRemove={handleRemoveWidget} />
+        )}
+
         {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card className="border-l-4 border-l-blue-500 hover:shadow-lg hover:shadow-blue-500/10 transition-shadow">
@@ -1142,6 +1346,18 @@ export default function ContextualDashboard() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* Performance Chart (pinned-report trend) */}
+        {chartWidget && (
+          <PerformanceChart
+            config={chartWidget.config}
+            columns={chartWidget.columns}
+            rows={chartWidget.rows}
+            title={chartWidget.title}
+            description={chartWidget.description}
+            onRemove={() => handleRemoveWidget(chartWidget.reportId)}
+          />
         )}
 
         {/* Quick Actions */}

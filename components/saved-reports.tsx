@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { FileText, Calendar, Trash2, MoreHorizontal, Eye, AlertTriangle, Play, Edit, Copy, Star, Database, ArrowRightLeft, Lock } from "lucide-react"
+import { FileText, Calendar, Trash2, MoreHorizontal, Eye, AlertTriangle, Play, Edit, Copy, Star, Database, ArrowRightLeft, Lock, LayoutDashboard, PinOff } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +36,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ParameterInputDialog } from "./parameter-input-dialog"
 import { EditReportDialog } from "./edit-report-dialog"
+import { substituteParams } from "@/utils/substitute-params"
 
 interface SavedReportsProps {
   searchTerm: string
@@ -111,6 +112,30 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     toast({
       title: updated.isFavorite ? "Added to Favorites" : "Removed from Favorites",
       description: updated.isFavorite ? "This report is now a favorite" : "This report is no longer a favorite",
+    })
+  }
+
+  const setDashboardWidget = async (reportId: string, kind: "metric" | "chart" | null) => {
+    const report = connectionInfo.reports.find(r => r.id === reportId)
+    if (!report) return
+
+    const updated: SavedReport = { ...report }
+    if (kind === null) {
+      delete updated.dashboardWidget
+    } else {
+      // Preserve any existing metric/chart config when switching kind
+      updated.dashboardWidget = { ...report.dashboardWidget, kind }
+    }
+    await connectionInfo.updateReport(updated)
+
+    toast({
+      title: kind === null ? "Unpinned from Dashboard" : `Pinned as ${kind === "metric" ? "Metric" : "Chart"}`,
+      description:
+        kind === null
+          ? "This report no longer appears on the dashboard"
+          : kind === "metric"
+          ? "This report's first value will appear as a dashboard KPI"
+          : "This report will appear as a dashboard chart",
     })
   }
 
@@ -243,19 +268,7 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     }
 
     // Substitute parameter values in SQL
-    let finalSql = report.sql
-    if (report.parameters) {
-      report.parameters.forEach(param => {
-        const value = paramValues[param.name] || param.defaultValue || ''
-        // Replace {{parameter_name}} with the actual value
-        // Add quotes around text values, but not for numbers or booleans
-        let formattedValue = value
-        if (param.type === 'text' || param.type === 'date' || param.type === 'datetime') {
-          formattedValue = `'${value}'`
-        }
-        finalSql = finalSql.replace(new RegExp(`\\{\\{${param.name}\\}\\}`, 'g'), formattedValue)
-      })
-    }
+    const finalSql = substituteParams(report.sql, report.parameters, paramValues)
 
     // Update last run time
     connectionInfo.updateReport({ ...report, lastRun: new Date().toISOString() })
@@ -360,6 +373,33 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
                               <ArrowRightLeft className="h-4 w-4 mr-2" />
                               Copy to Connection
                             </DropdownMenuItem>
+                          )}
+                          {!isServer && (
+                            <>
+                              <DropdownMenuSeparator />
+                              {report.dashboardWidget?.kind === "metric" ? (
+                                <DropdownMenuItem onClick={() => setDashboardWidget(report.id, null)}>
+                                  <PinOff className="h-4 w-4 mr-2" />
+                                  Unpin Metric from Dashboard
+                                </DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem onClick={() => setDashboardWidget(report.id, "metric")}>
+                                  <LayoutDashboard className="h-4 w-4 mr-2" />
+                                  Pin as Dashboard Metric
+                                </DropdownMenuItem>
+                              )}
+                              {report.dashboardWidget?.kind === "chart" ? (
+                                <DropdownMenuItem onClick={() => setDashboardWidget(report.id, null)}>
+                                  <PinOff className="h-4 w-4 mr-2" />
+                                  Unpin Chart from Dashboard
+                                </DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem onClick={() => setDashboardWidget(report.id, "chart")}>
+                                  <LayoutDashboard className="h-4 w-4 mr-2" />
+                                  Pin as Dashboard Chart
+                                </DropdownMenuItem>
+                              )}
+                            </>
                           )}
                           {!isServer && (
                             <>

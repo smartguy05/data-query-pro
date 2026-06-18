@@ -3,6 +3,7 @@
 ## High Priority
 - [ ] Enhanced chart creation and customization (Roadmap item)
 - [x] Query history and favorites (Roadmap item) — favorites already done; query history added 2026-06-18 (device-local, /history page)
+- [x] Dashboard widgets: pin saved reports as KPIs (ExecutiveMetrics) / trend charts (PerformanceChart) — wired into app/page.tsx State 5, real data via /api/query/execute, 2026-06-18
 
 ## Medium Priority
 - [ ] Report scheduling (Roadmap item)
@@ -13,7 +14,7 @@
 - [ ] Add connection/report sharing UI to database and reports pages
 
 ## Low Priority / Tech Debt
-- [~] Remove mock/static dashboard components: recent-reports, scheduled-reports, report-templates DELETED 2026-06-18. executive-metrics + performance-chart LEFT IN PLACE (carded in Claude Design system: .design-sync/config.json + previews + ds-bundle). To remove later: drop from config.json componentSrcMap, delete previews + ds-bundle dirs, re-run /design-sync.
+- [x] Mock/static dashboard components resolved: recent-reports, scheduled-reports, report-templates DELETED 2026-06-18. executive-metrics + performance-chart are NO LONGER mocks — wired to real pinned-report data 2026-06-18 (see completed.md "Dashboard Widgets"). Both are now prop-driven; design-sync previews still card them. If previews break after the prop change, re-run /design-sync to regenerate previews.
 - [ ] Add automated tests (Playwright test plan at docs/testing/)
 - [ ] Add "composed" chart type support (currently shows unimplemented alert)
 - [ ] Consider WebSocket for real-time introspection instead of polling
