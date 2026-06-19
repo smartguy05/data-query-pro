@@ -420,7 +420,7 @@ Create a `.env.local` file with:
 
 ```bash
 OPENAI_API_KEY=sk-...    # Required for AI features
-OPENAI_MODEL=gpt-5       # Required by query generation (no fallback); other AI endpoints default per-route
+OPENAI_MODEL=gpt-5.4     # Required by query generation (no fallback); other AI endpoints default per-route
 DEMO_RATE_LIMIT=         # Optional: limit API requests per IP per 24h (empty = unlimited)
 TRUSTED_PROXIES=         # Optional: comma-separated trusted proxy IPs for rate limiting
 ```

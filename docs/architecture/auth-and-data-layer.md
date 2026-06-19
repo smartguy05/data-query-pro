@@ -72,6 +72,8 @@ notifications), so [the context](./state-management.md) is unaware of the backen
 | `002_server_connections.sql` | Nullable `owner_id` + `source` on `database_connections` (server connections) |
 | `003_cascade_connection_deletes.sql` | `ON DELETE CASCADE` on `connection_schemas`, `saved_reports`, `suggestions_cache` |
 | `004_query_accuracy.sql` | Per-user query accuracy counters (`query_accuracy_stats`) for the dashboard "% Query Accuracy" stat |
+| `005_query_log.sql` | Append-only audit log (`query_log`) of every executed query — one immutable row per attempt, **no FK** (survives user deletion), **never** stores credentials |
+| `006_query_corrections.sql` | Team-wide pool of learned query corrections (`query_corrections`), pooled by `schema_fingerprint`; `owner_id` is attribution-only with `ON DELETE SET NULL`, plus a dedup unique index |
 
 ### Core Tables (migration 001)
 
@@ -81,12 +83,13 @@ notifications), so [the context](./state-management.md) is unaware of the backen
 
 ### Repositories
 
-Data access lives in `lib/db/repositories/` — one module per concern. API routes import
-these rather than writing SQL inline:
+Data access lives in `lib/db/repositories/` — one module per concern (11 total). API routes
+import these rather than writing SQL inline:
 
 `user-repository`, `connection-repository`, `schema-repository`, `report-repository`,
 `suggestion-repository`, `preference-repository`, `notification-repository`,
-`sharing-repository`.
+`sharing-repository`, `query-accuracy-repository`, `query-log-repository`,
+`query-correction-repository`.
 
 ## Credential Encryption
 
@@ -120,6 +123,34 @@ default mode. See [API Overview → Connection credential formats](../api/overvi
   [ShareDialog](../components/infrastructure.md#sharedialog).
 - **First-login migration:** the [DataMigrationDialog](../components/infrastructure.md#datamigrationdialog)
   imports a user's localStorage data into their account via `/api/data/import-local`.
+
+## Team-Wide Query Corrections Pool
+
+In auth mode, learned query corrections (failed→revised SQL pairs) are **shared across the
+whole team** rather than scoped per user. The `query_corrections` table is pooled purely by
+`schema_fingerprint`, so every authenticated user querying a database with the same schema
+benefits from corrections any teammate captured.
+
+- **Repository:** `query-correction-repository.ts` — `getByFingerprint(fingerprint, limit)`
+  (newest-first, LEFT JOINs `users` for author attribution), `createCorrection(userId, c)`
+  (stamps `owner_id` server-side, `ON CONFLICT DO NOTHING` against the dedup index),
+  `updateCorrection` / `deleteCorrection` (gated to author-or-admin).
+- **Attribution:** `owner_id` references `users(id) ON DELETE SET NULL` — shared knowledge
+  survives user deletion, but only the author or an admin can curate an entry.
+- **Routes:** `/api/data/corrections` (`GET ?fingerprint=`, `POST`) and
+  `/api/data/corrections/[id]` (`PUT`, `DELETE`).
+- **Default (localStorage) mode:** the same shape is kept device-local per schema fingerprint
+  — see [State Management](./state-management.md).
+
+## Query Audit Log
+
+Every executed query is written to an append-only audit trail via `logQuery()`
+(`lib/query-log.ts`, fire-and-forget — a logging failure never breaks execution). Credentials
+are **never** logged.
+
+- **Auth / app-DB mode:** appends one immutable row to the `query_log` table (migration 005,
+  no FK) via `query-log-repository.ts` (`insertLog`).
+- **Default mode (no app DB):** falls back to `logs/query-log.jsonl` (`lib/query-log-file.ts`).
 
 ---
 

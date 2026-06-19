@@ -51,6 +51,15 @@ const [isInitialized, setIsInitialized] = useState(false);
 | `saveReport(report)` | Save a new report |
 | `updateReport(report)` | Update existing report |
 | `deleteReport(id)` | Delete a report |
+| `recordQueryHistory(entry)` | Record an executed query (fire-and-forget, device-local) |
+| `getQueryHistory()` / `deleteQueryHistory(id)` / `clearQueryHistory()` | Read/remove/clear query history |
+| `recordQueryOutcome(success)` | Increment global query-accuracy tally (fire-and-forget) |
+| `overrideQueryOutcome(oldSuccess, newSuccess)` | Flip a recorded accuracy verdict (manual thumbs) |
+| `recordQueryCorrection(entry)` | Capture a failed→revised correction (fire-and-forget) |
+| `getCorrectionsForFingerprint(fingerprint)` | Get learned corrections for a schema fingerprint |
+| `updateQueryCorrection(id, patch)` / `deleteQueryCorrection(id)` | Edit/delete a learned correction (Learning page) |
+
+The context also exposes `queryAccuracy` (a `{ total, successful }` `QueryAccuracyStats` value) alongside `recordQueryOutcome` / `overrideQueryOutcome`.
 
 ### Usage Pattern
 
@@ -80,6 +89,9 @@ function MyComponent() {
 | `connectionSchemas` | `Schema[]` | All schemas by connection |
 | `suggestions_{connectionId}` | `Suggestion[]` | Cached AI suggestions |
 | `saved_reports` | `SavedReport[]` | All saved reports |
+| `query_history` | `QueryHistoryEntry[]` | Executed-query history (device-local in both modes) |
+| `query_accuracy` | `QueryAccuracyStats` | Query accuracy counters `{ total, successful }` (local when auth disabled; synced to Postgres when enabled) |
+| `query_corrections` | `QueryCorrection[]` | Learned failed→revised corrections, device-local (auth-disabled mode); pooled team-wide in Postgres when auth enabled |
 | `dismissed_notifications` | `string[]` | Dismissed notification IDs |
 
 ## Data Flow Diagrams
@@ -251,6 +263,23 @@ const key = `suggestions_${connectionId}`;
 
 // Auth mode: stored in suggestions_cache table via /api/data/suggestions/[connectionId]
 ```
+
+## Learned Query Corrections
+
+Failed→revised query corrections are captured to improve future SQL generation. Unlike most state, corrections are keyed by **schema fingerprint** (not per-connection):
+
+```typescript
+const {
+  recordQueryCorrection,        // fire-and-forget capture
+  getCorrectionsForFingerprint, // read for the active schema fingerprint
+  updateQueryCorrection,
+  deleteQueryCorrection,
+} = useDatabaseOptions();
+```
+
+- **Default mode:** device-local in the `query_corrections` localStorage key (via `utils/query-corrections.ts`).
+- **Auth mode:** pooled team-wide in PostgreSQL by `schema_fingerprint` via `/api/data/corrections` (+ `/[id]`), backed by `query-correction-repository.ts` and migration `006_query_corrections.sql`.
+- The StorageProvider interface carries four correction methods: `getCorrectionsForFingerprint`, `addQueryCorrection`, `updateQueryCorrection`, `deleteQueryCorrection`. When no provider is active (auth enabled but signed out), the context falls back to the device-local util so corrections are never lost.
 
 ## Content Loading Gate
 

@@ -380,6 +380,46 @@ interface SavedReportsProps {
 }
 ```
 
+### ExportReportsDialog
+**File:** `components/export-reports-dialog.tsx`
+
+Dialog for exporting saved reports as a JSON file (the Reports page "Export
+Reports" action). Reports are grouped by connection (checking a connection toggles
+all its reports); reports whose connection no longer exists fall under an "Unknown
+connection" group so they can still be exported. The downloaded file
+(`reports-export-<date>.json`, shape `{ version, exportDate, reports }`) can be
+placed at `config/reports.json` to share reports with everyone using the app.
+
+**Props:**
+```typescript
+interface ExportReportsDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+```
+
+### ImportReportsDialog
+**File:** `components/import-reports-dialog.tsx`
+
+Dialog for importing reports from a JSON file (the Reports page "Import Reports"
+action — complements `ExportReportsDialog`). Accepts a reports export
+(`{ reports: [...] }`), a bare array, or a full database export
+(`{ savedReports: [...] }`). Parsed reports are classified into three buckets:
+those whose original connection exists (auto-imported), those whose connection is
+missing (the user picks a connection per report), and those already present (skipped
+by `id`). Imports run through the context `saveReport`, so it works in both
+localStorage and auth modes; runtime/sharing fields (`source`, `accessLevel`,
+`sharedByEmail`, `sharedByName`) are stripped so each report is created fresh and
+owned.
+
+**Props:**
+```typescript
+interface ImportReportsDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+```
+
 ---
 
 ## Dashboard Components

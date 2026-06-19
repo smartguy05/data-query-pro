@@ -52,6 +52,12 @@ CRUD for the current user's own resources, backed by `lib/db/repositories/`.
 | `PUT /api/data/preferences` | Update user preferences | |
 | `POST /api/data/notifications/dismiss` | Dismiss a notification | |
 | `POST /api/data/import-local` | Import localStorage data into the account | Used by the [DataMigrationDialog](../components/infrastructure.md#datamigrationdialog) on first login |
+| `GET /api/data/query-accuracy` | Get the user's query-accuracy counters | Returns `{ total, successful }` (repo `query-accuracy-repository.ts`) |
+| `PUT /api/data/query-accuracy` | Apply a delta to the counters | Body `{ totalDelta, successfulDelta }`; returns `{ updated: true }` |
+| `GET /api/data/corrections?fingerprint=` | List query corrections pooled team-wide for a schema fingerprint | Pooled purely by `schema_fingerprint`; capped at `CORRECTIONS.MAX_POOL_FETCH` (200) |
+| `POST /api/data/corrections` | Record a captured failed→revised correction into the shared pool | Requires `id`, `schemaFingerprint`, `badSql`, `goodSql`; returns `201`; dedup via `ON CONFLICT DO NOTHING` |
+| `PUT /api/data/corrections/[id]` | Edit a correction | Author or admin only; `404` if not found / not permitted |
+| `DELETE /api/data/corrections/[id]` | Delete a correction | Author or admin only; `404` if not found / not permitted |
 
 **Example — list connections:**
 ```http
@@ -108,6 +114,7 @@ Unauthenticated, read-only configuration probes used by the client to adapt its 
 |---------------|---------|----------|
 | `GET /api/config/auth-status` | Is auth mode enabled? | `{ "authEnabled": boolean }` |
 | `GET /api/config/connections` | Server-config connections from `config/databases.json` | List (read-only) |
+| `GET /api/config/reports` | Shared reports from `config/reports.json` | List (read-only); merged fresh on every load, marked `source: "server"` |
 | `GET /api/config/rate-limit-status` | Rate-limit configuration | Limit + whether BYOK is needed |
 
 > These return a raw JSON object (not the `successResponse` envelope).

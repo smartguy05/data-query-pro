@@ -4,6 +4,26 @@
 > **Historical (summarized)** — for full prose, see git history. Durable gotchas live in
 > [docs/reference/lessons-learned.md](../docs/reference/lessons-learned.md).
 
+## Documentation refresh — code-vs-docs audit (2026-06-19, branch more-improvements)
+- Audited all 22 doc files (CLAUDE.md + docs/**) against current code via a fan-out workflow
+  (one verify-and-edit agent per file) + a read-only cross-check pass (verdict: clean). 21 files
+  updated, +726/−112; lessons-learned.md was already accurate.
+- Caught docs up to recent work: /profile + /learning pages, nav restructure (3 top-level +
+  Data/Query dropdowns, Admin+Profile in user menu), learn-from-queries (few-shot + corrections,
+  schema-fingerprint), team-wide corrections pool (migration 006, repo, /api/data/corrections),
+  read-only execution + AST sql-validator (replaced regex blocklist), query audit log (migration
+  005, lib/query-log*.ts, JSONL fallback), import-reports dialog, chart customizer/visualization.
+  Fixed stale counts: migrations 001-004→001-006, repositories 8→11; added new models
+  (query-accuracy, query-correction) + new API routes to inventories.
+- Noted (not a bug): client learning caps AI.MAX_FEW_SHOT=4 / MAX_CORRECTIONS=2 vs server
+  buildLearningSections defensive slice 6/4 — client caps bound the payload, so docs cite those.
+- Followed up: standardized OPENAI_MODEL canonical default to **gpt-5.4** across docs + config
+  (.env.example, .env.production, docker-compose.yml `${OPENAI_MODEL:-gpt-5.4}`, README, CLAUDE.md,
+  docs/README, getting-started, testing, deployment, openai-integration). Deliberately NOT changed:
+  the per-route code fallback literals in route handlers (followup→gpt-5.1, suggestions/descriptions
+  →gpt-5, chart→gpt-5-mini) and the `docs/api/overview.md` table that documents them — those mirror
+  actual application code, which was out of the agreed "docs + config files" scope.
+
 ## Nav consolidation + Admin/Profile relocation + real Profile page (2026-06-19, branch more-improvements)
 - Crowded top nav (7 flat links) reduced to 3 top-level items. New shape: **Dashboard** (standalone) + **Data ▾** (Database, Schema) + **Query ▾** (Query, History, Learning, Reports).
 - Replaced flat `navigation` array with `standaloneLinks` + `navGroups` (+ `NavGroup` type) in `components/navigation.tsx`. Desktop uses Radix `DropdownMenu` (already imported for user menu); parent highlights via `isGroupActive(group)`. Added `ChevronDown` icon. Mobile keeps flat expanded list with uppercase group-label headers.

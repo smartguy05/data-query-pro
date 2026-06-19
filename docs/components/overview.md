@@ -34,23 +34,33 @@ layout.tsx
 ### Navigation
 **File:** `components/navigation.tsx`
 
-Top navigation bar with route links.
+Top navigation bar. Reduced to one standalone link plus two grouped dropdowns
+(`standaloneLinks` + `navGroups`, typed `NavGroup`, using a Radix `DropdownMenu`).
 
 ```typescript
-// Routes
+// Standalone
 - Dashboard (/)
+
+// "Data" dropdown
 - Database (/database)
 - Schema (/schema)
+
+// "Query" dropdown
 - Query (/query)
+- History (/history)
+- Learning (/learning)
 - Reports (/reports)
 ```
 
 Features:
-- Active route highlighting (blue indicator)
+- Active route highlighting (blue indicator); group trigger highlights when any child route is active
 - Theme toggle (dark/light mode)
 - API key status indicator (when rate limiting enabled)
-- Mobile responsive with collapsible menu
-- Skips rendering on /landing page
+- Mobile responsive with collapsible menu (groups rendered as labeled sections)
+- Skips rendering on /landing and /auth/login pages
+- When auth is enabled and signed in, a profile dropdown (avatar/name/email, Admin badge)
+  with **Profile** (`/profile`), **Admin** (`/admin`, only when `isAdmin`), and **Sign out**.
+  The Admin link lives here — it is no longer a top-level nav item.
 
 ### SchemaExplorer
 **File:** `components/schema-explorer.tsx`
@@ -159,7 +169,10 @@ Detailed documentation: [Page Components](./pages.md)
 | Database | `/database` | `app/database/page.tsx` |
 | Schema | `/schema` | `app/schema/page.tsx` |
 | Query | `/query` | `app/query/page.tsx` |
+| History | `/history` | `app/history/page.tsx` |
+| Learning | `/learning` | `app/learning/page.tsx` |
 | Reports | `/reports` | `app/reports/page.tsx` |
+| Profile | `/profile` | `app/profile/page.tsx` |
 | Admin | `/admin` | `app/admin/page.tsx` |
 | Landing | `/landing` | `app/landing/page.tsx` |
 | Auth Login | `/auth/login` | `app/auth/login/page.tsx` |
@@ -176,6 +189,8 @@ Detailed documentation: [Feature Components](./features.md)
 - `edit-report-dialog.tsx` - Edit dialog
 - `parameter-config.tsx` - Parameter setup
 - `parameter-input-dialog.tsx` - Parameter input
+- `export-reports-dialog.tsx` - Export reports to JSON / generate server-config `reports.json`
+- `import-reports-dialog.tsx` - Import reports from JSON (via context `saveReport`, both storage modes)
 
 ### Chart Components
 - `chart-display.tsx` - Main chart renderer

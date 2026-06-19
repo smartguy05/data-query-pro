@@ -10,14 +10,13 @@ Frequent development workflows and how to accomplish them.
 "use client"
 
 import { useDatabaseOptions } from "@/lib/database-connection-options"
-import Navigation from "@/components/navigation"
 
 export default function NewPage() {
   const { currentConnection } = useDatabaseOptions()
 
+  // Navigation is rendered once in app/layout.tsx — pages do NOT render it themselves
   return (
     <div className="min-h-screen bg-background">
-      <Navigation />
       <main className="container mx-auto p-6">
         <h1 className="text-2xl font-bold">New Page</h1>
         {/* Page content */}
@@ -28,13 +27,33 @@ export default function NewPage() {
 ```
 
 2. **Add to navigation:**
+
+The top nav (`components/navigation.tsx`) is no longer a single flat list. It is a
+`standaloneLinks` array plus a `navGroups` array of dropdown groups (Radix `DropdownMenu`).
+Add a standalone top-level link, or add an item to an existing group:
+
 ```tsx
-// components/navigation.tsx
-const navItems = [
-  // ... existing items
-  { href: "/new-page", label: "New Page" },
+// components/navigation.tsx — standalone top-level link
+const standaloneLinks = [
+  { name: "Dashboard", href: "/", icon: BarChart3 },
+  // { name: "New Page", href: "/new-page", icon: SomeIcon },
+]
+
+// ...or an item inside a dropdown group (e.g. the "Query" group)
+const navGroups = [
+  {
+    name: "Query",
+    icon: Search,
+    items: [
+      { name: "Query", href: "/query", icon: Search },
+      // { name: "New Page", href: "/new-page", icon: SomeIcon },
+    ],
+  },
 ]
 ```
+
+> Admin and Profile links live in the user/profile dropdown (Admin is gated on `isAdmin`),
+> not in the top nav.
 
 ## Adding a New API Endpoint
 
@@ -270,33 +289,35 @@ return (
 
 ## Testing Database Connections
 
-Currently simulated. To add real testing:
+Connection testing is real. `app/api/connection/test/route.ts` resolves credentials and a
+database adapter via `validateConnection()` (`lib/database/connection-validator.ts`), then calls
+`adapter.testConnection(config)` — which actually connects and runs a test query — returning
+latency and server version. Errors are sanitized via `sanitizeDbError()` to avoid leaking
+credentials. To add support for a new database type, implement `testConnection` on its adapter in
+`lib/database/adapters/` rather than special-casing this route:
 
 ```typescript
-// app/api/connection/test/route.ts
+// app/api/connection/test/route.ts (shape)
 export async function POST(request: NextRequest) {
+  const auth = await getAuthContext(request)
   const { connection } = await request.json()
 
-  try {
-    const sql = postgres({
-      host: connection.host,
-      port: Number.parseInt(connection.port),
-      database: connection.database,
-      username: connection.username,
-      password: connection.password,
-      connect_timeout: 5,
-    })
-
-    await sql`SELECT 1`
-    await sql.end()
-
-    return NextResponse.json({ success: true })
-  } catch (error) {
+  const validationResult = await validateConnection(connection, { authUserId: auth?.userId })
+  if (!validationResult.success) {
     return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 400 }
+      { success: false, error: validationResult.error },
+      { status: validationResult.statusCode }
     )
   }
+
+  const { adapter, config } = validationResult
+  const result = await adapter.testConnection(config)
+  return NextResponse.json({
+    success: result.success,
+    message: result.message,
+    latencyMs: result.latencyMs,
+    serverVersion: result.serverVersion,
+  })
 }
 ```
 

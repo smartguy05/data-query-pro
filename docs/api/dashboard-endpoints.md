@@ -30,17 +30,27 @@ interface SuggestionsRequest {
       "category": "Financial",
       "relevantTables": ["orders", "order_items"]
     }
-  ]
+  ],
+  "rateLimit": { "remaining": 9, "limit": 10 }
 }
 
-// Error - Vector store not found
+// Error - Rate limit exceeded (429)
+{
+  "error": "RATE_LIMIT_EXCEEDED",
+  "message": "Demo rate limit exceeded. Please provide your own OpenAI API key to continue.",
+  "limit": 10,
+  "remaining": 0,
+  "resetTime": 1234567890
+}
+
+// Error - Vector store not found (404)
 {
   "error": "VECTOR_STORE_NOT_FOUND",
   "details": "The vector store for this connection no longer exists...",
   "needsReupload": true
 }
 
-// Error - Other
+// Error - Other (500)
 {
   "error": "Failed to generate suggestions",
   "details": "Error message"
@@ -49,11 +59,12 @@ interface SuggestionsRequest {
 
 ### Behavior
 
-1. **Validate Input**: Check `connectionId` and `vectorStoreId` present
-2. **Check API Key**: Return error if `OPENAI_API_KEY` not set
-3. **Call OpenAI**: Use Responses API with `file_search` tool
-4. **Parse Response**: Extract JSON array of suggestions
-5. **Handle Vector Store 404**: Return special error for reupload flow
+1. **Check Rate Limit**: Return `429 RATE_LIMIT_EXCEEDED` when the demo limit is hit
+2. **Validate Input**: Check `connectionId` and `vectorStoreId` present
+3. **Check API Key**: Resolve user-provided key or `OPENAI_API_KEY`; return error if missing
+4. **Call OpenAI**: Use Responses API with `file_search` tool
+5. **Parse Response**: Extract JSON array of suggestions (falls back to `[]` on parse failure)
+6. **Handle Vector Store 404**: Return special error for reupload flow
 
 ### AI System Prompt
 
@@ -114,34 +125,47 @@ Generates chart configuration from query results.
 ### Request
 
 ```typescript
-interface ChartGenerateRequest {
-  columns: string[];      // Column names from query
-  rows: string[][];       // Query result data
-  query?: string;         // Original natural language query
+interface ChartGenerationRequest {
+  columns: string[];                 // Column names from query
+  rows: DataRows;                    // Query result data
+  rowCount: number;                  // Total number of rows
+  preferredChartType?: ChartType;    // Optional user-preferred chart type
 }
 ```
+
+See `models/chart-config.interface.ts` for the exact `ChartGenerationRequest` /
+`ChartGenerationResponse` / `ChartConfig` types.
 
 ### Response
 
 ```typescript
-// Success
+// Success — shape varies by chart type (see ChartConfig union)
 {
-  "chartConfig": {
-    "type": "bar" | "line" | "pie" | "area" | "scatter",
+  "config": {
+    "type": "bar",                  // bar | line | pie | area | scatter | composed
     "title": "Chart title",
-    "xAxis": "column_name",
-    "yAxis": "column_name",
-    "series": ["column1", "column2"],
-    "options": {
-      "stacked": boolean,
-      "showLegend": boolean
-    }
-  }
+    "description": "Optional explanation",
+    "xAxisColumn": "column_name",
+    "yAxisColumns": ["column1", "column2"],
+    "xAxisLabel": "...",
+    "yAxisLabel": "...",
+    "colors": ["#..."],
+    "stacked": false
+  },
+  "reasoning": "Why this chart type was chosen",
+  "rateLimit": { "remaining": 9, "limit": 10 }
 }
 
 // Error
-{ "error": "Unable to generate chart configuration" }
+{ "error": "Failed to generate chart configuration" }
 ```
+
+> **Note:** Uses OpenAI **Chat Completions** with function/tool calling (`CHART_TOOLS`),
+> not the Responses API. Each chart type maps to a distinct tool
+> (`create_bar_chart`, `create_line_chart`, `create_pie_chart`, `create_area_chart`,
+> `create_scatter_plot`, `create_composed_chart`); field names differ per type
+> (e.g. pie uses `nameColumn`/`valueColumn`, scatter uses `xAxisColumn`/`yAxisColumn`,
+> composed uses `bars`/`lines`/`areas`).
 
 ### Chart Type Selection
 
@@ -154,6 +178,7 @@ The AI selects chart type based on data characteristics:
 | Parts of whole | Pie chart |
 | Trends over time | Area chart |
 | Two numeric dimensions | Scatter plot |
+| Mixed series (e.g. totals + trend) | Composed chart (bars + lines + areas) |
 
 ### Example Usage
 
@@ -165,12 +190,13 @@ const chartResponse = await fetch('/api/chart/generate', {
   body: JSON.stringify({
     columns: result.columns,
     rows: result.rows,
-    query: "Monthly sales by region"
+    rowCount: result.rows.length,
+    preferredChartType: "bar" // optional
   })
 });
 
-const { chartConfig } = await chartResponse.json();
-// Use chartConfig to render chart component
+const { config, reasoning } = await chartResponse.json();
+// Use `config` to render the ChartDisplay component
 ```
 
 ---

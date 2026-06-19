@@ -85,7 +85,7 @@ Queries:        Natural language → OpenAI API → SQL → Database adapter →
 | `lib/auth/auth-options.ts` | Auth.js OIDC configuration |
 | `lib/auth/require-auth.ts` | `getAuthContext()` for API routes |
 | `lib/database/connection-validator.ts` | Credential resolution (DB or client) |
-| `lib/db/repositories/` | Data access layer (8 repositories) |
+| `lib/db/repositories/` | Data access layer (11 repositories) |
 | `app/api/query/generate/route.ts` | Natural language to SQL |
 | `app/api/query/execute/route.ts` | SQL execution |
 | `app/api/schema/introspect/route.ts` | Database introspection |
@@ -101,7 +101,7 @@ Queries:        Natural language → OpenAI API → SQL → Database adapter →
 ```bash
 # Required
 OPENAI_API_KEY=sk-...        # Required for AI features
-OPENAI_MODEL=gpt-5           # Model for query generation
+OPENAI_MODEL=gpt-5.4         # Model for query generation
 
 # Optional
 DEMO_RATE_LIMIT=             # API requests per IP per 24h (empty = unlimited)
@@ -130,6 +130,11 @@ APP_ENCRYPTION_KEY=          # 64-char hex (openssl rand -hex 32)
 - **Data Migration** - Auto-import localStorage data on first authenticated login
 - **Server Connections** - Admin-managed connections stored in DB, visible to assigned users after schema upload
 - **Copy Reports** - Copy reports across connections (dev/staging/prod workflows)
+- **Import/Export Reports** - Export reports to JSON and import them back via the Reports page (works in both localStorage and auth modes)
+- **Learning** - Learn from previous queries: captured query corrections (failed→revised) feed few-shot examples and avoid-these-mistakes prompt sections, pooled per schema fingerprint. Device-local by default; team-wide pooled in auth mode. Curation UI at `/learning`
+- **Read-Only Query Execution** - Query execution and schema sample-data run under per-dialect read-only enforcement (read-only transactions / rollback / connect-time readonly); validated by an AST-based read-only SQL validator (`lib/database/sql-validator.ts`)
+- **Query Audit Log** - Fire-and-forget audit log (`lib/query-log.ts`) writes to the app DB `query_log` table when enabled, else to `logs/query-log.jsonl`; never logs credentials
+- **Profile Page** - Account overview, usage stats (query accuracy, connections, reports), and admin/sign-out actions at `/profile`
 - **Landing Page** - Product showcase at `/landing` route
 - **Rate Limiting** - Optional IP-based rate limiting for demo deployments
 - **BYOK** - Users can provide their own OpenAI API key to bypass rate limits

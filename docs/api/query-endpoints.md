@@ -17,6 +17,8 @@ interface GenerateRequest {
   vectorStoreId: string;      // OpenAI vector store ID
   schemaData?: Schema;        // Optional: for auto-reupload
   existingFileId?: string;    // Optional: for cleanup
+  examples?: { question?: string; sql?: string }[];                        // Optional: proven few-shot examples (learning)
+  corrections?: { question?: string; badSql?: string; error?: string; goodSql?: string }[]; // Optional: failed→fixed corrections (learning)
 }
 ```
 
@@ -56,6 +58,23 @@ The AI is instructed to:
 - Use LIMIT for large result sets
 - Validate tables/columns exist in schema
 - Return JSON format only
+
+### Learning Prompt Sections ("Learn from previous queries")
+
+When the client sends `examples` and/or `corrections` (device-local query history,
+keyed by schema fingerprint), `buildLearningSections()` renders two optional,
+guarded sections into the system prompt:
+
+- **Proven examples for this schema** — past question/SQL pairs that ran successfully,
+  used as guidance for table/column names and query patterns.
+- **Known corrections — avoid these mistakes** — previously failed queries and their
+  corrected versions, so the model avoids repeating wrong table/column names.
+
+Both sections are omitted entirely when no history is supplied, so the base prompt is
+byte-identical with no learning data. Server-side the arrays are defensively capped
+(examples sliced to 6, corrections to 4); the client sends at most `AI.MAX_FEW_SHOT`
+(4) examples and `AI.MAX_CORRECTIONS` (2) corrections (`lib/constants.ts`). The schema
+file remains the only source of truth — examples/corrections never override it.
 
 ### Fallback Parsing
 
@@ -116,13 +135,21 @@ Executes SQL queries against the connected database.
 ```typescript
 interface ExecuteRequest {
   sql: string;                    // SQL query to execute
-  connection: {
+  // No-auth mode: full connection object (credentials supplied by client)
+  connection?: {
     host: string;
     port: string;
     database: string;
     username: string;
     password: string;
   };
+  // Auth mode: credentials resolved server-side from the app DB
+  connectionId?: string;
+  source?: "local" | "server";
+  type?: string;
+  // Optional audit-log metadata (never required)
+  question?: string;              // Natural-language prompt behind the SQL
+  querySource?: string;           // e.g. "report", "followup"
 }
 ```
 
@@ -141,18 +168,56 @@ interface ExecuteResponse {
 { "error": "Error message" }
 ```
 
-### Security Validation
+### Security Validation (AST-based)
 
-The endpoint blocks dangerous SQL operations:
+Validation runs through `validateReadOnlySql(sql, dbType)` in
+`lib/database/sql-validator.ts`, which **replaced** the old regex keyword blocklist
+(`DANGEROUS_SQL_KEYWORDS`). The old list was trivially bypassable via comments,
+write-via-function, or stacked statements.
 
 ```typescript
-const dangerousKeywords = [
-  "DROP", "DELETE", "UPDATE", "INSERT",
-  "ALTER", "CREATE", "TRUNCATE"
-];
+import { validateReadOnlySql } from "@/lib/database/sql-validator";
+
+const sqlCheck = validateReadOnlySql(sql, dbType);
+if (!sqlCheck.valid) {
+  return NextResponse.json({ error: sqlCheck.error }, { status: 400 });
+}
 ```
 
-Each keyword is checked with word boundaries to avoid false positives.
+Two layers:
+
+1. **AST (primary)** — parses the SQL with `node-sql-parser` (dependency `^5.4.0`)
+   using the per-dialect grammar (`postgresql` / `mysql` / `transactsql` / `sqlite`).
+   Requires exactly **one** statement of type `SELECT` (CTEs included); anything else
+   (multiple statements, non-SELECT) is rejected.
+2. **Heuristic fallback** — when the parser throws (its grammars reject some valid
+   SQL), `heuristicReadOnly()` strips comments/strings/quoted identifiers, then
+   requires a single statement starting with `SELECT`/`WITH` and containing no
+   write/DDL keyword (blocks stacked statements, data-modifying CTEs, `SELECT INTO`).
+
+### Read-Only Execution Enforcement
+
+Defense-in-depth: after validation the route sets `config.readOnly = true`, so the
+adapter runs the query in a read-only context even if a write slipped past the
+validator:
+
+- **PostgreSQL** — read-only transaction
+- **MySQL** — read-only transaction + ROLLBACK
+- **SQL Server** — wrapped statement, always ROLLBACK
+- **SQLite** — connection opened with `readonly: true`
+
+The `readOnly` flag is also set by `/api/schema/sample-data`. Schema introspection
+intentionally stays writable (internal callers leave the flag unset).
+
+### Audit Logging
+
+Every execution (success and failure) is recorded via fire-and-forget
+`logQuery()` (`lib/query-log.ts`). It writes to the app DB table `query_log`
+(migration `005_query_log.sql`) when the app DB is enabled, otherwise to
+`logs/query-log.jsonl` (`lib/query-log-file.ts`). Credentials are **never** logged —
+`QueryLogEntry` has no field for them. Logged fields include user/connection id,
+database type, SQL, optional `question`/`source`, row count, duration, and (on
+failure) the sanitized error.
 
 ### Database Connection
 
@@ -238,10 +303,10 @@ User Input
 ┌─────────────────────────┐
 │ POST /api/query/execute  │
 ├─────────────────────────┤
-│ 1. Validate SQL safety  │
-│ 2. Connect to database  │
+│ 1. AST read-only check  │
+│ 2. Connect (read-only)  │
 │ 3. Execute query        │
-│ 4. Format results       │
+│ 4. Log + format results │
 └───────────┬─────────────┘
             │
             ▼

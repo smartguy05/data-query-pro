@@ -54,17 +54,20 @@ app/                          # Next.js App Router
 ├── query/page.tsx           # Query interface (/query)
 ├── schema/page.tsx          # Schema explorer (/schema)
 ├── reports/page.tsx         # Saved reports (/reports)
+├── learning/page.tsx        # Query corrections curation (/learning)
+├── profile/page.tsx         # Account overview & usage stats (/profile)
 ├── admin/page.tsx           # Admin panel (/admin) — server connections & assignments
 ├── landing/                 # Public landing page (/landing)
 └── api/                     # API routes
     ├── query/               # Query generation/execution/enhance/revise/followup
-    ├── schema/              # Schema introspection/descriptions/upload
+    ├── schema/              # Schema introspection/descriptions/upload/sample-data
     ├── connection/          # Connection testing
     ├── dashboard/           # Suggestions generation
     ├── chart/               # Chart configuration
     ├── config/              # Server config, rate limit, auth status
     ├── auth/                # Auth.js OIDC handler
-    ├── data/                # Authenticated CRUD (connections, schemas, reports, etc.)
+    ├── data/                # Authenticated CRUD (connections, schemas, reports,
+    │                        #   query-accuracy, corrections, etc.)
     └── admin/               # Admin endpoints (server connections, assignments)
 
 components/                   # React components
@@ -97,11 +100,14 @@ lib/                         # Core utilities
 │   ├── pool.ts              # Connection pool
 │   ├── encryption.ts        # AES-256-GCM password encryption
 │   ├── migrate.ts           # SQL migration runner
-│   ├── migrations/          # SQL migration files (001-003)
-│   └── repositories/        # Data access layer (8 repositories)
+│   ├── migrations/          # SQL migration files (001-006)
+│   └── repositories/        # Data access layer (11 repositories)
 ├── database/                # Database adapter system (factory + 4 adapters)
+│   └── sql-validator.ts     # AST read-only SQL validation (validateReadOnlySql)
 ├── openai/                  # OpenAI integration utilities
 ├── api/                     # API response helpers
+├── query-log.ts            # Query audit log entry point (logQuery)
+├── query-log-file.ts       # JSONL fallback when app DB disabled
 ├── csrf.ts                  # CSRF protection
 ├── constants.ts             # App constants
 └── server-config.ts         # Server config reader
@@ -115,12 +121,17 @@ models/                      # TypeScript interfaces
 ├── saved-report.interface.ts
 ├── chart-config.interface.ts
 ├── query-tab.interface.ts
+├── query-accuracy.interface.ts
+├── query-correction.interface.ts
 └── common-types.ts
 
 utils/                       # Utility functions
 ├── generate-descriptions.ts # Fallback AI descriptions
 ├── compare-schemas.ts       # Schema diffing
 ├── rate-limiter.ts          # IP-based rate limiting
+├── schema-fingerprint.ts    # Stable fingerprint of a schema for learning
+├── example-relevance.ts     # Ranks few-shot examples by relevance
+├── query-corrections.ts     # Device-local captured query corrections
 └── error-sanitizer.ts       # Error sanitization
 
 hooks/                       # Custom React hooks
@@ -142,6 +153,8 @@ hooks/                       # Custom React hooks
 | `/schema` | `app/schema/page.tsx` | Browse and edit schema metadata |
 | `/query` | `app/query/page.tsx` | Natural language query interface |
 | `/reports` | `app/reports/page.tsx` | Saved reports management (with connection selector) |
+| `/learning` | `app/learning/page.tsx` | Curate captured query corrections for the current schema |
+| `/profile` | `app/profile/page.tsx` | Account overview, usage stats, admin/sign-out actions |
 | `/admin` | `app/admin/page.tsx` | Admin panel: server connections & assignments (auth only) |
 | `/landing` | `app/landing/page.tsx` | Public landing page with features/screenshots |
 
@@ -163,7 +176,11 @@ API routes follow RESTful conventions:
 - `POST /api/query/followup` - Follow-up questions on results
 - `POST /api/schema/introspect` - Get database schema
 - `POST /api/schema/upload-schema` - Upload to OpenAI
+- `POST /api/schema/sample-data` - Read-only sample rows for a table
 - `POST /api/connection/test` - Test database connectivity
+- `GET/PUT /api/data/query-accuracy` - Per-user query accuracy counters (auth mode)
+- `GET/POST /api/data/corrections`, `PUT/DELETE /api/data/corrections/[id]` -
+  Team-wide query corrections, pooled by schema fingerprint (auth mode)
 
 ### 3. OpenAI Integration Pattern
 Uses OpenAI Responses API (not Chat Completions):
@@ -174,6 +191,29 @@ Uses OpenAI Responses API (not Chat Completions):
 
 See [OpenAI Integration Guide](../guides/openai-integration.md).
 
+### 4. Learn-From-Previous-Queries Pattern
+Query generation is improved by learning from prior queries, keyed by a stable
+**schema fingerprint** (`utils/schema-fingerprint.ts`):
+- **Phase 1 (device-local)**: captured corrections (`utils/query-corrections.ts`)
+  and relevance-ranked few-shot examples (`utils/example-relevance.ts`) are built
+  client-side and sent to `/api/query/generate`. The server's
+  `buildLearningSections()` injects guarded few-shot and avoid-these-mistakes prompt
+  sections (`AI.MAX_FEW_SHOT`, `AI.MAX_CORRECTIONS`, `CORRECTIONS.MAX_ENTRIES`).
+- **Phase 2 (team-wide, auth mode only)**: failed→revised corrections are pooled
+  across a team purely by `schema_fingerprint` (migration `006_query_corrections.sql`,
+  `query-correction-repository.ts`, `/api/data/corrections`). The `/learning` page
+  curates them; updates/deletes are gated by owner-or-admin on the server.
+
+### 5. Read-Only Execution & Audit Log
+- Query execution and table sampling set `AdapterConnectionConfig.readOnly`, enforced
+  per dialect (PostgreSQL/MySQL read-only transactions, SQL Server wrap+ROLLBACK,
+  SQLite connect-time readonly). Introspection stays writable.
+- SQL is validated by `validateReadOnlySql()` (`lib/database/sql-validator.ts`), an
+  AST-based check (node-sql-parser) that allows a single SELECT only, replacing the
+  former regex keyword blocklist.
+- `logQuery()` (`lib/query-log.ts`) writes a credential-free audit entry to the
+  `query_log` table when the app DB is enabled, otherwise to `logs/query-log.jsonl`.
+
 ## Component Hierarchy
 
 ```
@@ -182,7 +222,7 @@ layout.tsx
 │   └── AuthProvider (SessionProvider, conditional)
 │       └── OpenAIApiProvider (API key context)
 │           └── DatabaseConnectionOptions (state context)
-│               ├── Navigation (with user menu when auth enabled)
+│               ├── Navigation (Dashboard + Data/Query dropdowns; profile menu)
 │               │   └── ApiKeyIndicator
 │               ├── ErrorBoundary
 │               │   └── ContentLoadingGate (shows spinner until initialized)
@@ -210,7 +250,10 @@ layout.tsx
    - query text
    - vectorStoreId (from connection)
    - databaseType
-3. OpenAI Responses API with file_search
+   - learning context (few-shot examples + past corrections, built client-side
+     per schema fingerprint)
+3. OpenAI Responses API with file_search; server buildLearningSections() injects
+   guarded few-shot and avoid-these-mistakes prompt sections
 4. Parse JSON response → { sql, explanation, confidence }
 5. Display SQL and option to execute
 ```
@@ -220,12 +263,15 @@ layout.tsx
 1. POST /api/query/execute with:
    - Auth mode:    { sql, connectionId, source, type }
    - Default mode: { sql, connection: { host, port, ... } }
-2. Validate query (no DROP/DELETE/etc)
+2. Validate query via validateReadOnlySql() — AST parse (node-sql-parser),
+   allows a single SELECT only, with heuristicReadOnly() fallback if the parser throws
 3. Resolve credentials (from DB or client payload via validateConnection)
-4. Connect to database via adapter
+4. Connect to database via adapter with readOnly=true (per-dialect read-only
+   transaction / ROLLBACK / connect-time readonly)
 5. Execute query
-6. Format results → { columns, rows, rowCount, executionTime }
-7. Display in QueryResultsDisplay component
+6. logQuery() records a credential-free audit entry (fire-and-forget)
+7. Format results → { columns, rows, rowCount, executionTime }
+8. Display in QueryResultsDisplay component
 ```
 
 ### Authentication Flow (when enabled)

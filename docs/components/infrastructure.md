@@ -75,11 +75,18 @@ const SafeComponent = withErrorBoundary(MyComponent);
 
 Top navigation bar.
 
-- Route links with active state (blue highlight).
+- Three top-level items: a standalone **Dashboard** link plus two
+  Radix `DropdownMenu` groups (defined as `standaloneLinks` + `navGroups`, typed `NavGroup`):
+  - **Data ▾** — Database, Schema
+  - **Query ▾** — Query, History, Learning, Reports
+- Groups show active state (blue highlight) when any child route is active (`isGroupActive`).
 - Theme toggle and API key status indicator (when rate limiting enabled).
-- User menu when auth is enabled.
-- Mobile responsive with collapsible menu.
-- Skips rendering on the `/landing` page.
+- User menu (profile dropdown) when auth is enabled and authenticated: shows name/email and an
+  **Admin** badge when `isAdmin`. Contains a **Profile** link (`/profile`), an **Admin** link
+  (`/admin`, gated on `isAdmin`), and **Sign out**. The Admin link lives here, not in the top nav.
+- Mobile responsive with collapsible menu that mirrors the standalone link, grouped sections, and
+  the auth profile/admin/sign-out actions.
+- Skips rendering on the `/landing` and `/auth/login` pages.
 
 ### ThemeToggle
 **File:** `components/theme-toggle.tsx`

@@ -69,7 +69,7 @@ A SaaS analytics platform sample:
 ```bash
 # Base configuration (all phases)
 OPENAI_API_KEY=sk-...        # Your OpenAI API key
-OPENAI_MODEL=gpt-5           # Or a faster/cheaper model for tests
+OPENAI_MODEL=gpt-5.4         # Or a faster/cheaper model for tests
 
 # Phase 1 & 2: No rate limiting
 DEMO_RATE_LIMIT=             # Empty or not set

@@ -14,7 +14,10 @@ and the **doc** that covers them. Optimized for fast "where is this?" navigation
 | `/database` | `app/database/page.tsx` | [pages.md](../components/pages.md#database-page) |
 | `/schema` | `app/schema/page.tsx` | [pages.md](../components/pages.md#schema-page) |
 | `/query` | `app/query/page.tsx` | [pages.md](../components/pages.md#query-page) |
+| `/history` | `app/history/page.tsx` | [pages.md](../components/pages.md#history-page) |
+| `/learning` | `app/learning/page.tsx` | [pages.md](../components/pages.md#learning-page) |
 | `/reports` | `app/reports/page.tsx` | [pages.md](../components/pages.md#reports-page) |
+| `/profile` | `app/profile/page.tsx` | [pages.md](../components/pages.md#profile-page) |
 | `/admin` | `app/admin/page.tsx` | [pages.md](../components/pages.md#admin-page) |
 | `/landing` | `app/landing/page.tsx` | [pages.md](../components/pages.md#landing-page) |
 | `/auth/login` | `app/auth/login/page.tsx` | [pages.md](../components/pages.md#auth-login-page) |
@@ -59,6 +62,9 @@ and the **doc** that covers them. Optimized for fast "where is this?" navigation
 | Credential resolution | `lib/database/connection-validator.ts` | [auth-and-data-layer.md](../architecture/auth-and-data-layer.md#credential-resolution-for-target-databases) |
 | Database adapters | `lib/database/adapters/*.adapter.ts`, `lib/database/factory.ts` | [adding-database-support.md](../guides/adding-database-support.md) |
 | SQL dialect queries | `lib/database/queries/*.queries.ts` | [adding-database-support.md](../guides/adding-database-support.md) |
+| Read-only SQL validator (AST) | `lib/database/sql-validator.ts` (`validateReadOnlySql`, `heuristicReadOnly` fallback) | [query-endpoints.md](../api/query-endpoints.md) |
+| Query audit log | `lib/query-log.ts` (`logQuery`), `lib/query-log-file.ts`, `lib/db/repositories/query-log-repository.ts` | [auth-and-data-layer.md](../architecture/auth-and-data-layer.md) |
+| Learn-from-queries (corrections + few-shot) | `utils/schema-fingerprint.ts`, `utils/example-relevance.ts`, `utils/query-corrections.ts`, `app/api/query/generate/route.ts` (`buildLearningSections`), `lib/db/repositories/query-correction-repository.ts`, `app/api/data/corrections/route.ts` (+ `[id]`) | [query-endpoints.md](../api/query-endpoints.md) |
 | OpenAI integration | `lib/openai/schema-upload.ts`, query/schema routes | [openai-integration.md](../guides/openai-integration.md) |
 | Rate limiting | `utils/rate-limiter.ts` | [api/overview.md](../api/overview.md#rate-limiting) |
 | BYOK (user API key) | `hooks/use-openai-key.tsx`, `hooks/use-openai-fetch.tsx` | [infrastructure.md](../components/infrastructure.md#api-key-byok-components) |
@@ -81,6 +87,7 @@ and the **doc** that covers them. Optimized for fast "where is this?" navigation
 | ComposedChart | `components/charts/composed-chart.tsx` | [features.md](../components/features.md#composed-chart) |
 | ChartCustomizer | `components/chart-customizer.tsx` | [features.md](../components/features.md#chartcustomizer) |
 | Report components | `components/save-report-dialog.tsx`, `edit-report-dialog.tsx`, `parameter-config.tsx`, `parameter-input-dialog.tsx`, `saved-reports.tsx` | [features.md](../components/features.md#report-components) |
+| Export / Import Reports | `components/export-reports-dialog.tsx`, `components/import-reports-dialog.tsx` | [features.md](../components/features.md#report-components) |
 | Dashboard widgets (KPIs / trend chart) | `components/executive-metrics.tsx`, `components/performance-chart.tsx`, `app/page.tsx` (`loadDashboardWidgets`) | [features.md](../components/features.md#dashboard-widgets) |
 | Query accuracy stat / override | `app/page.tsx` (stat card), `components/query-tab-content.tsx` (thumbs), `lib/database-connection-options.tsx` (`recordQueryOutcome`/`overrideQueryOutcome`), `lib/db/repositories/query-accuracy-repository.ts`, `app/api/data/query-accuracy/route.ts`, `models/query-accuracy.interface.ts` | — |
 | Dashboard (demo) components | `components/quick-actions.tsx`, `recent-reports.tsx`, `scheduled-reports.tsx`, `report-templates.tsx` | [features.md](../components/features.md#dashboard-components) |
@@ -96,6 +103,7 @@ and the **doc** that covers them. Optimized for fast "where is this?" navigation
 | Item | File | Doc |
 |------|------|-----|
 | TypeScript interfaces | `models/*.interface.ts`, `models/common-types.ts` | [models/overview.md](../models/overview.md) |
+| QueryAccuracy / QueryCorrection | `models/query-accuracy.interface.ts`, `models/query-correction.interface.ts` | [models/overview.md](../models/overview.md) |
 | DashboardWidgetConfig + `SavedReport.visualization` | `models/saved-report.interface.ts` | [features.md](../components/features.md#dashboard-widgets) |
 | ComposedChartConfig + `CHART_TOOLS` | `models/chart-config.interface.ts` | [features.md](../components/features.md#composed-chart) |
 | Custom hooks | `hooks/use-*.ts(x)` | [components/overview.md](../components/overview.md) |

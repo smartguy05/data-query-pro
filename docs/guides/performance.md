@@ -10,6 +10,8 @@ This guide reflects how the code actually behaves today. Where a value is hardco
 |------|-----------|----------|
 | App DB pool (auth mode) | `postgres` pool in `lib/db/pool.ts` | Hardcoded `max: 20`, `idle_timeout: 30`, `connect_timeout: 10` |
 | User database connections | New connection per query via adapters | No pooling — connection cost paid per request |
+| Read-only enforcement | AST validation (`node-sql-parser`) + per-dialect read-only transaction | Adds a parse step + (for PG/MySQL/SQL Server) a transaction round-trip per query |
+| Query audit log | Fire-and-forget `logQuery()` → app DB or JSONL file | Off the hot path — never blocks query execution |
 | Production build | `output: 'standalone'` in `next.config.mjs` | Build-time setting |
 | OpenAI cost / abuse control | `DEMO_RATE_LIMIT` + BYOK | `DEMO_RATE_LIMIT` env var; users supply own key |
 | Schema introspection progress | Background task + 2s client polling | Poll interval hardcoded to 2000ms |
@@ -70,6 +72,7 @@ The flow in routes like `/api/query/execute`, `/api/connection/test`, and `/api/
 - **There is no pooling for user databases.** Every query pays the full cost of opening a new connection (TCP + TLS handshake + auth + the adapter's `SELECT 1` connectivity check) and then closing it. For a remote database, this connection setup can dominate the latency of a fast query.
 - **Introspection is sequential.** `BaseDatabaseAdapter.introspectSchema()` loops tables one at a time, issuing a columns query and a foreign-keys query per table. On a wide schema (many tables), introspection time scales with table count — which is exactly why it runs as a background task with progress polling (see below) rather than blocking a single request.
 - **`testConnection()`** is deliberately a full connect + disconnect, so it measures real round-trip latency (`latencyMs`) — useful, but not free.
+- **Read-only execution adds a small per-query cost.** `/api/query/execute` and `/api/schema/sample-data` set `AdapterConnectionConfig.readOnly = true`, and the adapters enforce it: PostgreSQL/MySQL run the statement inside a read-only transaction, SQL Server wraps it and always rolls back, and SQLite opens the connection read-only at connect time. For PostgreSQL, MySQL, and SQL Server this means an extra `BEGIN`/`ROLLBACK` round-trip on top of the connection setup above. Introspection deliberately stays writable (no transaction wrapper). Before execution, `validateReadOnlySql()` (`lib/database/sql-validator.ts`) parses the SQL with `node-sql-parser` to confirm it's a single SELECT — a cheap CPU step, with a heuristic fallback when the dialect grammar can't parse otherwise-valid SQL.
 
 If you operate at a scale where per-query connection overhead to user databases becomes a bottleneck, that is the place to introduce pooling (e.g. a keyed pool per connection config). It is intentionally absent today to keep adapter lifecycles simple and stateless, which suits the current single-instance, interactive-query workload.
 
@@ -142,6 +145,7 @@ These are high-level considerations rather than configuration knobs:
 - **Result shaping happens server-side.** `BaseDatabaseAdapter.executeQuery()` normalizes every cell (dates → `YYYY-MM-DD` strings, numbers passed through, everything else stringified) and returns `{ columns, rows, rowCount, executionTime }`. The work scales with total cells (rows × columns), so very wide/tall result sets cost both server transform time and payload size. Prefer adding `LIMIT` in your queries for exploratory work.
 - **Column-type detection is client-side and sampled.** `QueryResultsDisplay` infers column types from roughly the first 10 rows, so detection cost is bounded regardless of result height; rendering the full table, however, is not.
 - **Charts use recharts (`recharts@2.15.0`), rendered on the client.** recharts is SVG-based, so render cost grows with the number of data points (and series). Large datasets piped straight into a chart can make the browser sluggish — aggregate/bucket data in the SQL query before charting rather than rendering thousands of raw points.
+- **Query audit logging is off the hot path.** Every execution calls `logQuery()` (`lib/query-log.ts`), which is **fire-and-forget**: it never throws into the caller and its failure can't break query execution. When the app DB is enabled it inserts into the `query_log` table (migration `005_query_log.sql`, no FK); otherwise it appends a line to `logs/query-log.jsonl` (`lib/query-log-file.ts`). Credentials are never logged. The table/file grows one row per executed query, so for high-volume deployments plan periodic pruning/rotation of `query_log` / `query-log.jsonl`.
 
 ---
 
