@@ -1,5 +1,11 @@
 import type { StorageProvider } from './storage-provider';
+import type { DatabaseConnection } from '@/models/database-connection.interface';
+import type { Schema } from '@/models/schema.interface';
 import type { SavedReport } from '@/models/saved-report.interface';
+import type { QueryHistoryEntry } from '@/models/query-history.interface';
+import type { QueryAccuracyStats } from '@/models/query-accuracy.interface';
+import type { QueryCorrection } from '@/models/query-correction.interface';
+import { HISTORY, STORAGE_KEYS } from '@/lib/constants';
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -121,6 +127,34 @@ export class ApiStorageProvider implements StorageProvider {
     });
   }
 
+  // Query history is intentionally device-local (not synced to the app DB), so even in
+  // auth mode it is stored in the browser's localStorage rather than via an API route.
+  async getQueryHistory(): Promise<QueryHistoryEntry[]> {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEYS.QUERY_HISTORY) || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  async addQueryHistory(entry: QueryHistoryEntry): Promise<void> {
+    const existing = await this.getQueryHistory();
+    const next = [entry, ...existing].slice(0, HISTORY.MAX_ENTRIES);
+    localStorage.setItem(STORAGE_KEYS.QUERY_HISTORY, JSON.stringify(next));
+  }
+
+  async deleteQueryHistory(id: string): Promise<void> {
+    const existing = await this.getQueryHistory();
+    localStorage.setItem(
+      STORAGE_KEYS.QUERY_HISTORY,
+      JSON.stringify(existing.filter(e => e.id !== id))
+    );
+  }
+
+  async clearQueryHistory(): Promise<void> {
+    localStorage.removeItem(STORAGE_KEYS.QUERY_HISTORY);
+  }
+
   async getSuggestions(connectionId: string): Promise<unknown[] | null> {
     try {
       return await apiFetch<unknown[]>(`/api/data/suggestions/${connectionId}`);
@@ -133,6 +167,53 @@ export class ApiStorageProvider implements StorageProvider {
     await apiFetch(`/api/data/suggestions/${connectionId}`, {
       method: 'PUT',
       body: JSON.stringify({ suggestions }),
+    });
+  }
+
+  async getQueryAccuracy(): Promise<QueryAccuracyStats> {
+    try {
+      return await apiFetch<QueryAccuracyStats>('/api/data/query-accuracy');
+    } catch {
+      return { total: 0, successful: 0 };
+    }
+  }
+
+  async applyQueryAccuracyDelta(totalDelta: number, successfulDelta: number): Promise<void> {
+    await apiFetch('/api/data/query-accuracy', {
+      method: 'PUT',
+      body: JSON.stringify({ totalDelta, successfulDelta }),
+    });
+  }
+
+  // Corrections are pooled team-wide in Postgres, keyed by schema fingerprint.
+  async getCorrectionsForFingerprint(fingerprint: string): Promise<QueryCorrection[]> {
+    if (!fingerprint) return [];
+    try {
+      return await apiFetch<QueryCorrection[]>(
+        `/api/data/corrections?fingerprint=${encodeURIComponent(fingerprint)}`
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  async addQueryCorrection(entry: QueryCorrection): Promise<void> {
+    await apiFetch('/api/data/corrections', {
+      method: 'POST',
+      body: JSON.stringify(entry),
+    });
+  }
+
+  async updateQueryCorrection(id: string, patch: Partial<QueryCorrection>): Promise<void> {
+    await apiFetch(`/api/data/corrections/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  async deleteQueryCorrection(id: string): Promise<void> {
+    await apiFetch(`/api/data/corrections/${id}`, {
+      method: 'DELETE',
     });
   }
 

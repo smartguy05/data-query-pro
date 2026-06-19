@@ -16,6 +16,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# query audit log (file fallback when app DB is not configured)
+/logs/
+
 # env files
 .env*
 

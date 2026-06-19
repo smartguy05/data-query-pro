@@ -31,6 +31,8 @@ it maps every route, feature, and component to its source path and doc.
 ### Developer Guides
 [Guides index](./guides/README.md)
 - [Getting Started](./guides/getting-started.md) - Setup and configuration
+- [Deployment (Docker Self-Host)](./guides/deployment.md) - Docker Compose, production env vars, migrations, scaling caveats
+- [Performance](./guides/performance.md) - Tuning and scaling considerations
 - [Authentication Testing](./guides/authentication-testing.md) - Local Authentik setup for OIDC testing
 - [Adding Database Support](./guides/adding-database-support.md) - Extending for new databases
 - [OpenAI Integration](./guides/openai-integration.md) - AI features and vector stores
@@ -39,6 +41,7 @@ it maps every route, feature, and component to its source path and doc.
 
 ### Reference & Testing
 - [File Map](./reference/file-map.md) - Feature/route/component → source path → doc
+- [Lessons Learned & Gotchas](./reference/lessons-learned.md) - Non-obvious traps (postgres.js, introspection, SQL safety, auth testing, build)
 - [Testing Plan](./testing/README.md) - Phased Playwright MCP test plan
 
 ## Key Concepts

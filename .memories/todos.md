@@ -1,25 +1,26 @@
 # TODO / Remaining Tasks
 
-## High Priority
-- [ ] Enhanced chart creation and customization (Roadmap item)
-- [ ] Query history and favorites (Roadmap item)
+## Open
+- [ ] **End-to-end auth-mode verification** against a real Authentik instance. Biggest open
+      risk: two shipped features are unverified against live infra — connection/report
+      **sharing** (share view → "Shared with you" w/ disabled Edit/Delete; upgrade to edit;
+      remove) and **team-wide corrections** repo SQL (dedup, author-or-admin scoping). Fold
+      both into this pass. Infra exists: `docker-compose.auth-test.yml` + `scripts/setup-authentik.sh`.
+- [ ] **Playwright E2E tests** from the `docs/testing/` plan — manual plan exists, nothing
+      automated. (Unit/component layer is done: Vitest + Testing Library, 138 tests.)
+- [ ] Prune `.memories/completed.md` periodically to keep it small.
 
-## Medium Priority
-- [ ] Report scheduling (Roadmap item)
-- [ ] Team collaboration features (Roadmap item)
-- [x] Move credentials out of localStorage for production security (done: encrypted in PostgreSQL when auth enabled)
-- [x] Add proper authentication/authorization for production use (done: Authentik OIDC via Auth.js v5)
-- [ ] Test Authentik integration end-to-end with a real Authentik instance
-- [ ] Add connection/report sharing UI to database and reports pages
+## Deferred (intentional, with rationale)
+- [~] WebSocket for real-time introspection — DEFERRED. App Router has no native WS handlers;
+      needs a custom server that breaks `next start`/standalone. Polling (2000ms) kept; SSE is
+      the lighter future option. See `docs/guides/performance.md`.
 
-## Low Priority / Tech Debt
-- [ ] Remove mock/static dashboard components (executive-metrics, performance-chart, recent-reports, scheduled-reports, report-templates) once real data is used
-- [ ] Add automated tests (Playwright test plan at docs/testing/)
-- [ ] Add "composed" chart type support (currently shows unimplemented alert)
-- [ ] Consider WebSocket for real-time introspection instead of polling
-- [ ] Performance documentation (not yet documented)
-- [ ] Deployment guide (minimal coverage in docs)
-
-## Documentation
-- [ ] Keep docs in sync as new features are added
-- [ ] Prune .memories/completed.md periodically to keep file size small
+## Done (roadmap + major items — detail in completed.md)
+- [x] Team collaboration (corrections + sharing + admin assignment + schema sharing) — 2026-06-19
+- [x] Connection/report sharing UI — 2026-06-19
+- [x] Learning feature Phase 2 (team-wide corrections) — 2026-06-18
+- [x] Query accuracy stat; dashboard widgets (pin reports as KPIs/charts); query history;
+      enhanced chart customizer; composed chart type — 2026-06-18
+- [x] Credentials encrypted at rest (Postgres, auth mode) + Authentik OIDC authz
+- [x] Type-safety refactor (models → exported modules, tsc 0) + ESLint setup + Vitest harness
+- [x] Performance + deployment guides; docs sync

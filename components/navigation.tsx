@@ -5,7 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { BarChart3, Database, FileText, Search, Menu, X, LogOut, Shield, User } from "lucide-react"
+import { BarChart3, Database, FileText, Search, Menu, X, LogOut, Shield, User, History, GraduationCap, ChevronDown } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { ApiKeyIndicator } from "@/components/api-key-indicator"
 import { useAuth } from "@/hooks/use-auth"
@@ -17,18 +17,39 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-const navigation = [
+const standaloneLinks = [
   { name: "Dashboard", href: "/", icon: BarChart3 },
-  { name: "Database", href: "/database", icon: Database },
-  { name: "Schema", href: "/schema", icon: Search },
-  { name: "Query", href: "/query", icon: Search },
-  { name: "Reports", href: "/reports", icon: FileText },
 ]
+
+const navGroups = [
+  {
+    name: "Data",
+    icon: Database,
+    items: [
+      { name: "Database", href: "/database", icon: Database },
+      { name: "Schema", href: "/schema", icon: Search },
+    ],
+  },
+  {
+    name: "Query",
+    icon: Search,
+    items: [
+      { name: "Query", href: "/query", icon: Search },
+      { name: "History", href: "/history", icon: History },
+      { name: "Learning", href: "/learning", icon: GraduationCap },
+      { name: "Reports", href: "/reports", icon: FileText },
+    ],
+  },
+]
+
+type NavGroup = (typeof navGroups)[number]
 
 export function Navigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const pathname = usePathname()
   const { user, isAdmin, isAuthenticated, authEnabled, signOut } = useAuth()
+
+  const isGroupActive = (group: NavGroup) => group.items.some((item) => pathname === item.href)
 
   // Don't render navigation on landing page or login page
   if (pathname === "/landing" || pathname === "/auth/login") {
@@ -52,7 +73,7 @@ export function Navigation() {
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-1">
-            {navigation.map((item) => {
+            {standaloneLinks.map((item) => {
               const IconComponent = item.icon
               const isActive = pathname === item.href
               return (
@@ -71,21 +92,48 @@ export function Navigation() {
                 </Link>
               )
             })}
-            {authEnabled && isAdmin && (
-              <Link href="/admin">
-                <Button
-                  variant={pathname === "/admin" ? "default" : "ghost"}
-                  size="sm"
-                  className={cn(
-                    "flex items-center gap-2",
-                    pathname === "/admin" ? "bg-blue-600 text-white dark:bg-blue-700" : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <Shield className="h-4 w-4" />
-                  Admin
-                </Button>
-              </Link>
-            )}
+            {navGroups.map((group) => {
+              const GroupIcon = group.icon
+              const groupActive = isGroupActive(group)
+              return (
+                <DropdownMenu key={group.name}>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant={groupActive ? "default" : "ghost"}
+                      size="sm"
+                      className={cn(
+                        "flex items-center gap-2",
+                        groupActive ? "bg-blue-600 text-white dark:bg-blue-700" : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <GroupIcon className="h-4 w-4" />
+                      {group.name}
+                      <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-48">
+                    {group.items.map((item) => {
+                      const ItemIcon = item.icon
+                      const isActive = pathname === item.href
+                      return (
+                        <DropdownMenuItem key={item.name} asChild>
+                          <Link
+                            href={item.href}
+                            className={cn(
+                              "flex items-center gap-2 cursor-pointer",
+                              isActive && "text-blue-600 dark:text-blue-400 font-medium",
+                            )}
+                          >
+                            <ItemIcon className="h-4 w-4" />
+                            {item.name}
+                          </Link>
+                        </DropdownMenuItem>
+                      )
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )
+            })}
             <div className="ml-4 pl-4 border-l border-slate-200 dark:border-slate-700 flex items-center gap-2">
               <ApiKeyIndicator />
               <ThemeToggle />
@@ -113,11 +161,31 @@ export function Navigation() {
                     </div>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem asChild>
-                      <Link href="/admin" className="flex items-center gap-2">
+                      <Link
+                        href="/profile"
+                        className={cn(
+                          "flex items-center gap-2",
+                          pathname === "/profile" && "text-blue-600 dark:text-blue-400 font-medium",
+                        )}
+                      >
                         <User className="h-4 w-4" />
                         Profile
                       </Link>
                     </DropdownMenuItem>
+                    {isAdmin && (
+                      <DropdownMenuItem asChild>
+                        <Link
+                          href="/admin"
+                          className={cn(
+                            "flex items-center gap-2",
+                            pathname === "/admin" && "text-blue-600 dark:text-blue-400 font-medium",
+                          )}
+                        >
+                          <Shield className="h-4 w-4" />
+                          Admin
+                        </Link>
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => signOut()} className="text-red-500 focus:text-red-500">
                       <LogOut className="h-4 w-4 mr-2" />
@@ -143,7 +211,7 @@ export function Navigation() {
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-border py-4">
             <div className="space-y-1">
-              {navigation.map((item) => {
+              {standaloneLinks.map((item) => {
                 const IconComponent = item.icon
                 const isActive = pathname === item.href
                 return (
@@ -163,22 +231,33 @@ export function Navigation() {
                   </Link>
                 )
               })}
-              {authEnabled && isAdmin && (
-                <Link href="/admin">
-                  <Button
-                    variant={pathname === "/admin" ? "default" : "ghost"}
-                    size="sm"
-                    className={cn(
-                      "w-full justify-start gap-2",
-                      pathname === "/admin" ? "bg-blue-600 text-white dark:bg-blue-700" : "text-muted-foreground",
-                    )}
-                    onClick={() => setMobileMenuOpen(false)}
-                  >
-                    <Shield className="h-4 w-4" />
-                    Admin
-                  </Button>
-                </Link>
-              )}
+              {navGroups.map((group) => (
+                <div key={group.name} className="pt-2">
+                  <p className="px-3 pb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    {group.name}
+                  </p>
+                  {group.items.map((item) => {
+                    const IconComponent = item.icon
+                    const isActive = pathname === item.href
+                    return (
+                      <Link key={item.name} href={item.href}>
+                        <Button
+                          variant={isActive ? "default" : "ghost"}
+                          size="sm"
+                          className={cn(
+                            "w-full justify-start gap-2",
+                            isActive ? "bg-blue-600 text-white dark:bg-blue-700" : "text-muted-foreground",
+                          )}
+                          onClick={() => setMobileMenuOpen(false)}
+                        >
+                          <IconComponent className="h-4 w-4" />
+                          {item.name}
+                        </Button>
+                      </Link>
+                    )
+                  })}
+                </div>
+              ))}
               {authEnabled && isAuthenticated && (
                 <>
                   <div className="border-t border-border my-2 pt-2">
@@ -186,6 +265,36 @@ export function Navigation() {
                       <p className="text-sm font-medium">{user?.name || user?.email}</p>
                       <p className="text-xs text-muted-foreground">{user?.email}</p>
                     </div>
+                    <Link href="/profile">
+                      <Button
+                        variant={pathname === "/profile" ? "default" : "ghost"}
+                        size="sm"
+                        className={cn(
+                          "w-full justify-start gap-2",
+                          pathname === "/profile" ? "bg-blue-600 text-white dark:bg-blue-700" : "text-muted-foreground",
+                        )}
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        <User className="h-4 w-4" />
+                        Profile
+                      </Button>
+                    </Link>
+                    {isAdmin && (
+                      <Link href="/admin">
+                        <Button
+                          variant={pathname === "/admin" ? "default" : "ghost"}
+                          size="sm"
+                          className={cn(
+                            "w-full justify-start gap-2",
+                            pathname === "/admin" ? "bg-blue-600 text-white dark:bg-blue-700" : "text-muted-foreground",
+                          )}
+                          onClick={() => setMobileMenuOpen(false)}
+                        >
+                          <Shield className="h-4 w-4" />
+                          Admin
+                        </Button>
+                      </Link>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"

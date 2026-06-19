@@ -1,9 +1,21 @@
 "use client"
 import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect, useRef } from 'react';
 import type { StorageProvider } from '@/lib/storage/storage-provider';
+import type { DatabaseConnection } from '@/models/database-connection.interface';
+import type { Schema } from '@/models/schema.interface';
+import type { DatabaseContextType } from '@/models/database-context-type.interface';
 import type { SavedReport } from '@/models/saved-report.interface';
+import type { QueryHistoryEntry } from '@/models/query-history.interface';
+import type { QueryAccuracyStats } from '@/models/query-accuracy.interface';
+import type { QueryCorrection } from '@/models/query-correction.interface';
 import { LocalStorageProvider } from '@/lib/storage/local-storage-provider';
 import { ApiStorageProvider } from '@/lib/storage/api-storage-provider';
+import {
+    addQueryCorrection as addLocalCorrection,
+    getCorrectionsForFingerprint as getLocalCorrections,
+    updateQueryCorrection as updateLocalCorrection,
+    deleteQueryCorrection as deleteLocalCorrection,
+} from '@/utils/query-corrections';
 
 const DatabaseContext = createContext<DatabaseContextType | undefined>(undefined);
 
@@ -15,6 +27,7 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
     const [currentSchema, setCurrentSchema] = useState<Schema>();
     const [isInitialized, setIsInitialized] = useState(false);
     const [allReports, setAllReports] = useState<SavedReport[]>([]);
+    const [queryAccuracy, setQueryAccuracy] = useState<QueryAccuracyStats>({ total: 0, successful: 0 });
     const storageRef = useRef<StorageProvider | null>(null);
 
     useEffect(() => {
@@ -67,6 +80,13 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
                     setAllReports(loadedReports);
                 } catch {
                     // Reports may not be available
+                }
+
+                // Load query accuracy counters
+                try {
+                    setQueryAccuracy(await storage.getQueryAccuracy());
+                } catch {
+                    // Accuracy stats may not be available
                 }
 
                 if (allConnections.length > 0) {
@@ -126,6 +146,9 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             const schema = connectionSchemas.find(s => s.connectionId === currentConnection.id);
             setCurrentSchema(schema);
         }
+        // `connections` is read but intentionally excluded: this effect also sets it,
+        // so depending on it would cause an update loop.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentConnection, connectionSchemas]);
 
     useEffect(() => {
@@ -383,6 +406,105 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
         setAllReports(prev => prev.filter(r => r.id !== id));
     }, []);
 
+    // Query history (device-local). Recording is fire-and-forget so it can never
+    // block or break the query-execution flow.
+    const recordQueryHistory = useCallback((entry: QueryHistoryEntry) => {
+        const storage = storageRef.current;
+        const write = storage
+            ? storage.addQueryHistory(entry)
+            : (async () => {
+                const stored = JSON.parse(localStorage.getItem("query_history") || "[]") as QueryHistoryEntry[];
+                localStorage.setItem("query_history", JSON.stringify([entry, ...stored].slice(0, 200)));
+            })();
+        Promise.resolve(write).catch(() => { /* never surface history errors to the query flow */ });
+    }, []);
+
+    const getQueryHistory = useCallback(async (): Promise<QueryHistoryEntry[]> => {
+        if (storageRef.current) return storageRef.current.getQueryHistory();
+        try {
+            return JSON.parse(localStorage.getItem("query_history") || "[]") as QueryHistoryEntry[];
+        } catch {
+            return [];
+        }
+    }, []);
+
+    const deleteQueryHistory = useCallback(async (id: string) => {
+        if (storageRef.current) {
+            await storageRef.current.deleteQueryHistory(id);
+        } else {
+            const stored = JSON.parse(localStorage.getItem("query_history") || "[]") as QueryHistoryEntry[];
+            localStorage.setItem("query_history", JSON.stringify(stored.filter(e => e.id !== id)));
+        }
+    }, []);
+
+    const clearQueryHistory = useCallback(async () => {
+        if (storageRef.current) {
+            await storageRef.current.clearQueryHistory();
+        } else {
+            localStorage.removeItem("query_history");
+        }
+    }, []);
+
+    // Query accuracy (global per-user). State is updated optimistically; persistence
+    // is fire-and-forget so it can never throw into the query-execution flow.
+    const persistAccuracyDelta = useCallback((totalDelta: number, successfulDelta: number) => {
+        const storage = storageRef.current;
+        if (!storage) return;
+        Promise.resolve(storage.applyQueryAccuracyDelta(totalDelta, successfulDelta))
+            .catch(() => { /* never surface accuracy errors to the query flow */ });
+    }, []);
+
+    const applyAccuracyDelta = useCallback((totalDelta: number, successfulDelta: number) => {
+        setQueryAccuracy(prev => {
+            const total = Math.max(0, prev.total + totalDelta);
+            return {
+                total,
+                successful: Math.min(total, Math.max(0, prev.successful + successfulDelta)),
+            };
+        });
+        persistAccuracyDelta(totalDelta, successfulDelta);
+    }, [persistAccuracyDelta]);
+
+    const recordQueryOutcome = useCallback((success: boolean) => {
+        applyAccuracyDelta(1, success ? 1 : 0);
+    }, [applyAccuracyDelta]);
+
+    const overrideQueryOutcome = useCallback((oldSuccess: boolean, newSuccess: boolean) => {
+        if (oldSuccess === newSuccess) return;
+        applyAccuracyDelta(0, (newSuccess ? 1 : 0) - (oldSuccess ? 1 : 0));
+    }, [applyAccuracyDelta]);
+
+    // Learned query corrections. Recording is fire-and-forget (like query history)
+    // so it can never block or break query execution. Reads/edits go through the
+    // storage provider (localStorage when no auth, pooled Postgres when auth enabled);
+    // when no provider is active (auth enabled but signed out) we fall back to the
+    // device-local util so corrections are never silently lost.
+    const recordQueryCorrection = useCallback((entry: QueryCorrection) => {
+        const storage = storageRef.current;
+        const write = storage
+            ? storage.addQueryCorrection(entry)
+            : Promise.resolve(addLocalCorrection(entry));
+        Promise.resolve(write).catch(() => { /* never surface correction errors to the query flow */ });
+    }, []);
+
+    const getCorrectionsForFingerprint = useCallback(async (fingerprint: string): Promise<QueryCorrection[]> => {
+        const storage = storageRef.current;
+        if (storage) return storage.getCorrectionsForFingerprint(fingerprint);
+        return getLocalCorrections(fingerprint);
+    }, []);
+
+    const updateQueryCorrection = useCallback(async (id: string, patch: Partial<QueryCorrection>) => {
+        const storage = storageRef.current;
+        if (storage) { await storage.updateQueryCorrection(id, patch); return; }
+        updateLocalCorrection(id, patch);
+    }, []);
+
+    const deleteQueryCorrection = useCallback(async (id: string) => {
+        const storage = storageRef.current;
+        if (storage) { await storage.deleteQueryCorrection(id); return; }
+        deleteLocalCorrection(id);
+    }, []);
+
     return (
         <DatabaseContext.Provider value={{
             setConnectionStatus,
@@ -408,6 +530,17 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             saveReport: saveReportCtx,
             updateReport: updateReportCtx,
             deleteReport: deleteReportCtx,
+            recordQueryHistory,
+            getQueryHistory,
+            deleteQueryHistory,
+            clearQueryHistory,
+            queryAccuracy,
+            recordQueryOutcome,
+            overrideQueryOutcome,
+            recordQueryCorrection,
+            getCorrectionsForFingerprint,
+            updateQueryCorrection,
+            deleteQueryCorrection,
     }}>
     {children}
     </DatabaseContext.Provider>

@@ -18,7 +18,7 @@ export async function runMigrations(): Promise<void> {
 
   // Get already-applied migrations
   const applied = await sql`SELECT name FROM schema_migrations ORDER BY name`;
-  const appliedSet = new Set(applied.map((r: { name: string }) => r.name));
+  const appliedSet = new Set(applied.map((r) => (r as { name: string }).name));
 
   // Read migration files
   const migrationsDir = join(process.cwd(), 'lib', 'db', 'migrations');
@@ -48,7 +48,9 @@ export async function runMigrations(): Promise<void> {
 
     await sql.begin(async (tx) => {
       await tx.unsafe(content);
-      await tx`INSERT INTO schema_migrations (name) VALUES (${file})`;
+      // Use parameterized unsafe() rather than a tagged template: the postgres
+      // TransactionSql type doesn't expose a callable tagged-template signature here.
+      await tx.unsafe('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
     });
 
     console.log(`[migrate] Applied ${file}`);

@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       let dataType = "text"
       if (nonNullValues.every((val) => !isNaN(Number(val)))) {
         dataType = "numeric"
-      } else if (nonNullValues.some((val) => !isNaN(Date.parse(val)))) {
+      } else if (nonNullValues.some((val) => !isNaN(Date.parse(String(val))))) {
         dataType = "date"
       }
 
@@ -93,6 +93,7 @@ Chart Selection Guidelines:
 3. Pie Chart: Best for showing proportions/percentages (works best with 3-8 categories)
 4. Area Chart: Best for cumulative values or volume over time
 5. Scatter Plot: Best for correlation between two numeric variables
+6. Composed Chart: Best for combining series of different kinds on shared axes (e.g. totals/counts as bars plus a trend, average, or rate as a line). Use when multiple numeric series are best read together but with different visual emphasis.
 
 Requirements:
 - Choose the most appropriate chart type based on data structure
@@ -169,6 +170,7 @@ Call the appropriate chart creation function with the proper configuration.`
       create_pie_chart: "pie",
       create_area_chart: "area",
       create_scatter_plot: "scatter",
+      create_composed_chart: "composed",
     }
 
     const chartType = chartTypeMap[toolCall.function.name]
@@ -224,6 +226,14 @@ function generateReasoning(
       return `Selected area chart to visualize the volume/magnitude of ${args.yAxisColumns.join(", ")} over ${args.xAxisColumn}. This emphasizes the cumulative nature of the data.`
     case "scatter":
       return `Selected scatter plot to explore the relationship between ${args.xAxisColumn} and ${args.yAxisColumn}. ${numericCount >= 2 ? "This is ideal for correlation analysis between numeric variables." : "This helps identify patterns and outliers."}`
+    case "composed": {
+      const parts = [
+        args.bars?.length ? `${args.bars.join(", ")} as bars` : null,
+        args.lines?.length ? `${args.lines.join(", ")} as lines` : null,
+        args.areas?.length ? `${args.areas.join(", ")} as areas` : null,
+      ].filter(Boolean)
+      return `Selected a composed chart over ${args.xAxisColumn}, combining ${parts.join(" and ")}. This lets you compare series of different kinds together while keeping each visually distinct.`
+    }
     default:
       return `Generated a ${chartType} chart based on the data structure.`
   }

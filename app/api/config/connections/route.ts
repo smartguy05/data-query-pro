@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { DatabaseConnection } from "@/models/database-connection.interface";
 import { getServerConfig, stripSensitiveData } from "@/lib/server-config";
 import { isAuthEnabled } from '@/lib/auth/config';
 

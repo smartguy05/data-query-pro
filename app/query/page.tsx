@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import type { DatabaseConnection } from "@/models/database-connection.interface"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,12 +26,16 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { QueryTab, QueryResult, RowLimitOption, FollowUpResponse } from "@/models/query-tab.interface"
+import type { ChartConfig } from "@/models/chart-config.interface"
 import { QueryTabContent } from "@/components/query-tab-content"
 import { FollowUpDialog } from "@/components/followup-dialog"
 import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
 import { useOpenAIKey } from "@/hooks/use-openai-key"
 import { ApiKeyDialog } from "@/components/api-key-dialog"
 import { useAuth } from "@/hooks/use-auth"
+import { computeSchemaFingerprint } from "@/utils/schema-fingerprint"
+import { scoreByQuestion, topN } from "@/utils/example-relevance"
+import { AI } from "@/lib/constants"
 
 export default function QueryPage() {
   const searchParams = useSearchParams()
@@ -60,6 +65,10 @@ export default function QueryPage() {
   // Save report dialog
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [saveTabId, setSaveTabId] = useState<string | null>(null)
+
+  // When results came from running a saved report, track it so chart edits can persist back
+  const [currentReportId, setCurrentReportId] = useState<string | null>(null)
+  const seededVizRef = useRef<string | null>(null)
 
   // Clear confirmation dialog
   const [showClearConfirmation, setShowClearConfirmation] = useState(false)
@@ -98,6 +107,11 @@ export default function QueryPage() {
       setTabs([tab])
       setActiveTabId(tab.id)
 
+      // Track originating report (if any) so chart customizations can be saved back to it
+      const reportId = searchParams.get("reportId")
+      setCurrentReportId(reportId)
+      seededVizRef.current = null
+
       // Auto-execute if requested (e.g., from running a saved report)
       const autoExecute = searchParams.get("autoExecute")
       if (autoExecute === 'true') {
@@ -105,6 +119,19 @@ export default function QueryPage() {
       }
     }
   }, [searchParams])
+
+  // Seed the original tab's chart from the originating report's saved visualization
+  // (once reports have loaded), so the saved chart renders without an AI call.
+  useEffect(() => {
+    if (!currentReportId || seededVizRef.current === currentReportId) return
+    const report = connectionInformation.reports.find(r => r.id === currentReportId)
+    if (!report) return
+    seededVizRef.current = currentReportId
+    if (report.visualization) {
+      const original = tabs.find(t => t.type === 'original')
+      if (original) updateTab(original.id, { chartConfig: report.visualization })
+    }
+  }, [currentReportId, connectionInformation.reports, tabs])
 
   // Auto-execute query when tab is ready and context is initialized
   // (e.g., from running a saved report)
@@ -117,6 +144,9 @@ export default function QueryPage() {
         executeTabQuery(tabId)
       }
     }
+    // executeTabQuery is recreated each render; this effect should only fire when
+    // tabs or init state change, so it is intentionally omitted from the deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs, connectionInformation.isInitialized])
 
   // Clear tabs when connection changes
@@ -127,6 +157,9 @@ export default function QueryPage() {
       // We don't store connectionId on tabs, so we'll reset on any connection change
       // This is handled by the user selecting a different connection
     }
+    // Intentionally runs only on connection change; the tabs.length read is
+    // incidental and should not re-trigger this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionInformation.currentConnection?.id])
 
   // Helper: Create original tab
@@ -209,6 +242,43 @@ export default function QueryPage() {
     generateOriginalSQL()
   }
 
+  // Assemble the "learn from previous queries" context from device-local data:
+  // relevance-matched successful examples (same DB type) + failed->revised
+  // corrections for this schema fingerprint. Best-effort; never throws.
+  const buildLearningContext = async (
+    question: string,
+    connection: DatabaseConnection,
+    schema: ReturnType<typeof connectionInformation.getSchema>
+  ): Promise<{
+    examples: { question: string; sql: string }[]
+    corrections: { question?: string; badSql: string; error: string; goodSql: string }[]
+  }> => {
+    try {
+      const fingerprint = computeSchemaFingerprint(schema)
+
+      const history = await connectionInformation.getQueryHistory().catch(() => [])
+      const exampleCandidates = history
+        .filter(h => h.success && h.question && h.sql && h.databaseType === connection.type)
+        .map(h => ({ question: h.question as string, sql: h.sql }))
+      const examples = topN(scoreByQuestion(question, exampleCandidates), AI.MAX_FEW_SHOT)
+
+      const storedCorrections = await connectionInformation.getCorrectionsForFingerprint(fingerprint)
+      const correctionCandidates = storedCorrections.map(c => ({
+        question: c.question,
+        sql: c.goodSql, // score against the corrected SQL
+        badSql: c.badSql,
+        error: c.error,
+        goodSql: c.goodSql,
+      }))
+      const corrections = topN(scoreByQuestion(question, correctionCandidates), AI.MAX_CORRECTIONS)
+        .map(c => ({ question: c.question, badSql: c.badSql, error: c.error, goodSql: c.goodSql }))
+
+      return { examples, corrections }
+    } catch {
+      return { examples: [], corrections: [] }
+    }
+  }
+
   // Generate SQL for original query
   const generateOriginalSQL = async () => {
     if (!naturalQuery.trim()) return
@@ -224,6 +294,11 @@ export default function QueryPage() {
 
       const schema = connectionInformation.getSchema()
 
+      // Learn from previous queries: assemble relevance-matched few-shot examples
+      // (from successful history of the same DB type) and anti-mistake corrections
+      // (failed->revised pairs for this schema fingerprint) to send to the server.
+      const learning = await buildLearningContext(naturalQuery, connection, schema)
+
       const response = await fetchWithAuth("/api/query/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -232,7 +307,9 @@ export default function QueryPage() {
           vectorStoreId: connection.vectorStoreId,
           databaseType: connection.type,
           schemaData: schema,
-          existingFileId: connection.schemaFileId
+          existingFileId: connection.schemaFileId,
+          examples: learning.examples,
+          corrections: learning.corrections,
         }),
       })
 
@@ -340,9 +417,14 @@ export default function QueryPage() {
     try {
       const activeConnection = connectionInformation.getConnection()
 
+      // question + querySource feed the server-side audit log (lib/query-log.ts).
+      const auditFields = {
+        question: tab.question || undefined,
+        querySource: tab.type === 'followup' ? 'followup' : 'generated',
+      }
       const executeBody = authEnabled
-        ? { sql: tab.editableSql, connectionId: activeConnection?.id, source: activeConnection?.source, type: activeConnection?.type }
-        : { sql: tab.editableSql, connection: activeConnection };
+        ? { sql: tab.editableSql, connectionId: activeConnection?.id, source: activeConnection?.source, type: activeConnection?.type, ...auditFields }
+        : { sql: tab.editableSql, connection: activeConnection, ...auditFields };
 
       const response = await fetch("/api/query/execute", {
         method: "POST",
@@ -359,8 +441,14 @@ export default function QueryPage() {
       updateTab(tabId, {
         isExecuting: false,
         executionResults: result,
-        executionError: undefined
+        executionError: undefined,
+        // New execution → fresh, votable attempt counted as a success.
+        accuracyBaselineSuccess: true,
+        accuracyVote: undefined,
       })
+
+      recordHistory(tab, activeConnection, { rowCount: result.rowCount, executionTimeMs: result.executionTime })
+      connectionInformation.recordQueryOutcome(true)
 
       toast({
         title: "Query Executed Successfully",
@@ -370,14 +458,55 @@ export default function QueryPage() {
       const errorMessage = err instanceof Error ? err.message : "Failed to execute query"
       updateTab(tabId, {
         isExecuting: false,
-        executionError: errorMessage
+        executionError: errorMessage,
+        // New execution → fresh, votable attempt counted as a failure.
+        accuracyBaselineSuccess: false,
+        accuracyVote: undefined,
       })
+      connectionInformation.recordQueryOutcome(false)
       toast({
         title: "Query Execution Failed",
         description: errorMessage,
         variant: "destructive",
       })
     }
+  }
+
+  // Toggle the accuracy vote for a tab's latest execution and adjust the global tally.
+  // Effective verdict = vote ?? baseline; clicking the active thumb clears the vote.
+  const voteTabAccuracy = (tabId: string, vote: 'up' | 'down') => {
+    const tab = tabs.find(t => t.id === tabId)
+    if (!tab || tab.accuracyBaselineSuccess === undefined) return
+
+    const baseline = tab.accuracyBaselineSuccess
+    const oldEffective = tab.accuracyVote ? tab.accuracyVote === 'up' : baseline
+    const nextVote = tab.accuracyVote === vote ? undefined : vote
+    const newEffective = nextVote ? nextVote === 'up' : baseline
+
+    connectionInformation.overrideQueryOutcome(oldEffective, newEffective)
+    updateTab(tabId, { accuracyVote: nextVote })
+  }
+
+  // Record a successfully executed query to device-local history (failures are not kept).
+  // Fire-and-forget — never throws into the execution flow.
+  const recordHistory = (
+    tab: QueryTab,
+    connection: DatabaseConnection | undefined,
+    outcome: { rowCount?: number; executionTimeMs?: number }
+  ) => {
+    if (!tab.editableSql || !connection) return
+    connectionInformation.recordQueryHistory({
+      id: `qh_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      connectionId: connection.id,
+      connectionName: connection.name || connection.database,
+      databaseType: connection.type,
+      question: tab.question || undefined,
+      sql: tab.editableSql,
+      source: tab.type === 'followup' ? 'followup' : 'generated',
+      success: true,
+      executedAt: new Date().toISOString(),
+      ...outcome,
+    })
   }
 
   // Revise SQL for a specific tab after execution error
@@ -410,6 +539,22 @@ export default function QueryPage() {
       }
 
       const result = await response.json()
+
+      // Learn from this fix: record the failed->revised pair so future generations
+      // for this schema avoid the same mistake (esp. wrong tables/columns).
+      if (result.sql && result.sql !== tab.editableSql) {
+        const schema = connectionInformation.getSchema()
+        connectionInformation.recordQueryCorrection({
+          id: `qc_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+          schemaFingerprint: computeSchemaFingerprint(schema),
+          question: tab.question || undefined,
+          badSql: tab.editableSql,
+          error: tab.executionError,
+          goodSql: result.sql,
+          databaseType: connection?.type,
+          createdAt: new Date().toISOString(),
+        })
+      }
 
       // Update the tab with the revised SQL and clear the error
       updateTab(tabId, {
@@ -567,6 +712,7 @@ export default function QueryPage() {
       warnings: tab.queryResult.warnings,
       confidence: tab.queryResult.confidence,
       parameters: parameters.length > 0 ? parameters : undefined,
+      visualization: tab.chartConfig,
       createdAt: new Date().toISOString(),
       lastModified: new Date().toISOString(),
     }
@@ -576,6 +722,25 @@ export default function QueryPage() {
     toast({
       title: "Report Saved",
       description: `"${name}" has been saved successfully`,
+    })
+  }
+
+  // Persist a customized chart back onto the originating saved report
+  const saveChartToReport = (config: ChartConfig) => {
+    if (!currentReportId) return
+    const report = connectionInformation.reports.find(r => r.id === currentReportId)
+    if (!report) {
+      toast({
+        title: "Report Not Found",
+        description: "Could not find the report to update.",
+        variant: "destructive",
+      })
+      return
+    }
+    connectionInformation.updateReport({ ...report, visualization: config, lastModified: new Date().toISOString() })
+    toast({
+      title: "Chart Saved",
+      description: `This chart is now saved on "${report.name}"`,
     })
   }
 
@@ -735,8 +900,11 @@ export default function QueryPage() {
                       onAskFollowUp={() => openFollowUpDialog(tab.id)}
                       onSaveReport={() => openSaveDialog(tab.id)}
                       onReviseQuery={() => reviseTabQuery(tab.id)}
+                      onVoteAccuracy={(vote) => voteTabAccuracy(tab.id, vote)}
                       isExecuting={tab.isExecuting}
                       isRevising={revisingTabId === tab.id}
+                      onChartConfigChange={(config) => updateTab(tab.id, { chartConfig: config ?? undefined })}
+                      onSaveChart={currentReportId ? saveChartToReport : undefined}
                     />
                   </TabsContent>
                 ))}

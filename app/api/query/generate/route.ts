@@ -38,6 +38,58 @@ const dialectHints: Record<string, string> = {
     - Limited date functions: date(), time(), datetime(), strftime()`,
 };
 
+// Shapes of the client-supplied learning context.
+interface FewShotExample { question?: string; sql?: string }
+interface QueryCorrectionHint { question?: string; badSql?: string; error?: string; goodSql?: string }
+
+const truncate = (s: unknown, n = 600): string => {
+  const str = typeof s === "string" ? s : String(s ?? "");
+  return str.length > n ? `${str.slice(0, n)} …` : str;
+};
+
+/**
+ * Builds the optional "Proven examples" and "Known corrections" prompt sections
+ * from client-supplied data. Returns empty strings when there's nothing to add,
+ * so the base prompt is byte-identical with no history.
+ */
+function buildLearningSections(
+  examples: unknown,
+  corrections: unknown
+): { examplesSection: string; correctionsSection: string } {
+  const fewShot = (Array.isArray(examples) ? examples : []).slice(0, 6) as FewShotExample[];
+  const corr = (Array.isArray(corrections) ? corrections : []).slice(0, 4) as QueryCorrectionHint[];
+
+  const examplesSection = fewShot.length
+    ? `
+
+              # Proven examples for this schema
+              These are past natural-language questions and the SQL that successfully ran against this database. Use them as guidance for table/column names and query patterns. The schema file above remains the ONLY source of truth — if an example conflicts with the schema, follow the schema.
+              ${fewShot
+                .map(
+                  (e, i) =>
+                    `Example ${i + 1}:\n              Q: ${truncate(e.question, 300)}\n              SQL: ${truncate(e.sql)}`
+                )
+                .join("\n\n              ")}`
+    : "";
+
+  const correctionsSection = corr.length
+    ? `
+
+              # Known corrections — avoid these mistakes
+              Each item shows a query that previously FAILED for this database and the corrected version. Do NOT repeat these mistakes (especially wrong table or column names).
+              ${corr
+                .map(
+                  (c, i) =>
+                    `Correction ${i + 1}: When asked "${truncate(c.question, 200)}", the query "${truncate(
+                      c.badSql
+                    )}" failed with: ${truncate(c.error, 300)}. The correct query was: "${truncate(c.goodSql)}".`
+                )
+                .join("\n\n              ")}`
+    : "";
+
+  return { examplesSection, correctionsSection };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const auth = await getAuthContext(request);
@@ -59,7 +111,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { query, databaseType, vectorStoreId, schemaData, existingFileId } = await request.json();
+    const { query, databaseType, vectorStoreId, schemaData, existingFileId, examples, corrections } = await request.json();
     console.log("Received query:", query);
     console.log("Received database type:", databaseType);
     console.log("Received VectorStore Id:", vectorStoreId);
@@ -67,6 +119,11 @@ export async function POST(request: NextRequest) {
     if (!query) {
       return NextResponse.json({ error: "Query is required" }, { status: 400})
     }
+
+    // "Learn from previous queries": optional few-shot examples and failed->revised
+    // corrections supplied by the client (device-local history). Rendered into the
+    // prompt only when present, so the prompt is unchanged when there's no history.
+    const { examplesSection, correctionsSection } = buildLearningSections(examples, corrections);
 
     // Get API key (user-provided or server key)
     const apiKey = getOpenAIKey(request);
@@ -134,7 +191,7 @@ export async function POST(request: NextRequest) {
               7. Primary keys are often named "Id" (capitalized) - but VERIFY in schema first
 
               # Database-Specific Syntax (${databaseType || 'postgresql'})
-              ${dialectHints[databaseType] || dialectHints['postgresql']}
+              ${dialectHints[databaseType] || dialectHints['postgresql']}${examplesSection}${correctionsSection}
 
               # Confidence Scoring (be honest!)
               - 0.9-1.0: Every table and column was explicitly found in schema search results

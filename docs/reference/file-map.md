@@ -64,6 +64,8 @@ and the **doc** that covers them. Optimized for fast "where is this?" navigation
 | BYOK (user API key) | `hooks/use-openai-key.tsx`, `hooks/use-openai-fetch.tsx` | [infrastructure.md](../components/infrastructure.md#api-key-byok-components) |
 | Error sanitization | `utils/error-sanitizer.ts` | [openai-integration.md](../guides/openai-integration.md) |
 | Schema change detection | `utils/compare-schemas.ts` | [pages.md](../components/pages.md#schema-page) |
+| Dashboard metric status/formatting | `utils/metric-status.ts` | [features.md](../components/features.md#dashboard-widgets) |
+| Report parameter substitution | `utils/substitute-params.ts` | [features.md](../components/features.md#dashboard-widgets) |
 | API response helpers | `lib/api/response.ts` | [data-endpoints.md](../api/data-endpoints.md#response-envelope) |
 
 ## Components (component → file → doc)
@@ -76,8 +78,12 @@ and the **doc** that covers them. Optimized for fast "where is this?" navigation
 | QueryTabContent | `components/query-tab-content.tsx` | [features.md](../components/features.md#querytabcontent) |
 | FollowupDialog | `components/followup-dialog.tsx` | [features.md](../components/features.md#followupdialog) |
 | ChartDisplay + charts/ | `components/chart-display.tsx`, `components/charts/*` | [features.md](../components/features.md#chart-components) |
+| ComposedChart | `components/charts/composed-chart.tsx` | [features.md](../components/features.md#composed-chart) |
+| ChartCustomizer | `components/chart-customizer.tsx` | [features.md](../components/features.md#chartcustomizer) |
 | Report components | `components/save-report-dialog.tsx`, `edit-report-dialog.tsx`, `parameter-config.tsx`, `parameter-input-dialog.tsx`, `saved-reports.tsx` | [features.md](../components/features.md#report-components) |
-| Dashboard (demo) components | `components/executive-metrics.tsx`, `quick-actions.tsx`, `recent-reports.tsx`, `performance-chart.tsx`, `scheduled-reports.tsx`, `report-templates.tsx` | [features.md](../components/features.md#dashboard-components) |
+| Dashboard widgets (KPIs / trend chart) | `components/executive-metrics.tsx`, `components/performance-chart.tsx`, `app/page.tsx` (`loadDashboardWidgets`) | [features.md](../components/features.md#dashboard-widgets) |
+| Query accuracy stat / override | `app/page.tsx` (stat card), `components/query-tab-content.tsx` (thumbs), `lib/database-connection-options.tsx` (`recordQueryOutcome`/`overrideQueryOutcome`), `lib/db/repositories/query-accuracy-repository.ts`, `app/api/data/query-accuracy/route.ts`, `models/query-accuracy.interface.ts` | — |
+| Dashboard (demo) components | `components/quick-actions.tsx`, `recent-reports.tsx`, `scheduled-reports.tsx`, `report-templates.tsx` | [features.md](../components/features.md#dashboard-components) |
 | Providers | `components/auth-provider.tsx`, `openai-api-provider.tsx`, `theme-provider.tsx` | [infrastructure.md](../components/infrastructure.md#providers) |
 | ContentLoadingGate / ErrorBoundary | `components/content-loading-gate.tsx`, `error-boundary.tsx` | [infrastructure.md](../components/infrastructure.md#loading--error-boundaries) |
 | Navigation / Theme | `components/navigation.tsx`, `theme-toggle.tsx` | [infrastructure.md](../components/infrastructure.md#navigation--theme) |
@@ -90,6 +96,8 @@ and the **doc** that covers them. Optimized for fast "where is this?" navigation
 | Item | File | Doc |
 |------|------|-----|
 | TypeScript interfaces | `models/*.interface.ts`, `models/common-types.ts` | [models/overview.md](../models/overview.md) |
+| DashboardWidgetConfig + `SavedReport.visualization` | `models/saved-report.interface.ts` | [features.md](../components/features.md#dashboard-widgets) |
+| ComposedChartConfig + `CHART_TOOLS` | `models/chart-config.interface.ts` | [features.md](../components/features.md#composed-chart) |
 | Custom hooks | `hooks/use-*.ts(x)` | [components/overview.md](../components/overview.md) |
 
 ---

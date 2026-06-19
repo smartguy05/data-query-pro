@@ -17,8 +17,10 @@ interface DbReport {
   created_at: Date;
   last_modified: Date;
   last_run: Date | null;
-  // Join field
+  // Join fields for shared reports
   permission?: string;
+  shared_by_email?: string | null;
+  shared_by_name?: string | null;
 }
 
 function parseJsonb<T>(data: T | string, fallback: T): T {
@@ -28,7 +30,10 @@ function parseJsonb<T>(data: T | string, fallback: T): T {
   return data ?? fallback;
 }
 
-function toClientReport(row: DbReport): SavedReport {
+function toClientReport(
+  row: DbReport,
+  accessLevel: SavedReport['accessLevel'] = 'owner'
+): SavedReport {
   return {
     id: row.id,
     connectionId: row.connection_id,
@@ -44,6 +49,9 @@ function toClientReport(row: DbReport): SavedReport {
     createdAt: row.created_at.toISOString(),
     lastModified: row.last_modified.toISOString(),
     lastRun: row.last_run?.toISOString(),
+    accessLevel,
+    sharedByEmail: row.shared_by_email || undefined,
+    sharedByName: row.shared_by_name ?? undefined,
   };
 }
 
@@ -56,15 +64,23 @@ export async function getReportsForUser(userId: string): Promise<SavedReport[]> 
     ORDER BY last_modified DESC
   `;
 
-  // Get shared reports
+  // Get shared reports (with the owner's identity for "Shared by …" display)
   const shared = await sql<DbReport[]>`
-    SELECT sr.*, rs.permission FROM saved_reports sr
+    SELECT sr.*, rs.permission,
+           u.email AS shared_by_email, u.name AS shared_by_name
+    FROM saved_reports sr
     JOIN report_shares rs ON rs.report_id = sr.id
+    LEFT JOIN users u ON u.id = sr.owner_id
     WHERE rs.shared_with_id = ${userId}
     ORDER BY sr.last_modified DESC
   `;
 
-  return [...owned, ...shared].map(toClientReport);
+  return [
+    ...owned.map((row) => toClientReport(row, 'owner')),
+    ...shared.map((row) =>
+      toClientReport(row, (row.permission as SavedReport['accessLevel']) || 'view')
+    ),
+  ];
 }
 
 export async function createReport(
@@ -83,7 +99,7 @@ export async function createReport(
       ${report.id}, ${report.connectionId}, ${userId}, ${report.name},
       ${report.description || null}, ${report.naturalLanguageQuery},
       ${report.sql}, ${report.explanation}, ${sql.json(report.warnings || [])},
-      ${report.confidence}, ${sql.json(report.parameters || [])},
+      ${report.confidence}, ${sql.json((report.parameters || []) as unknown as Parameters<typeof sql.json>[0])},
       ${report.isFavorite || false}, ${report.createdAt},
       ${report.lastModified}, ${report.lastRun || null}
     )
@@ -118,7 +134,7 @@ export async function updateReport(
       explanation = COALESCE(${report.explanation ?? null}, explanation),
       warnings = COALESCE(${report.warnings ? sql.json(report.warnings) : null}, warnings),
       confidence = COALESCE(${report.confidence ?? null}, confidence),
-      parameters = COALESCE(${report.parameters ? sql.json(report.parameters) : null}, parameters),
+      parameters = COALESCE(${report.parameters ? sql.json(report.parameters as unknown as Parameters<typeof sql.json>[0]) : null}, parameters),
       is_favorite = COALESCE(${report.isFavorite ?? null}, is_favorite),
       last_modified = ${report.lastModified || new Date().toISOString()},
       last_run = ${report.lastRun || existing.last_run}

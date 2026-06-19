@@ -35,6 +35,7 @@ export class MySQLAdapter extends BaseDatabaseAdapter {
 
     this.databaseName = config.database;
     this.config = config;
+    this.readOnly = !!config.readOnly;
     this.connected = true;
   }
 
@@ -50,6 +51,18 @@ export class MySQLAdapter extends BaseDatabaseAdapter {
   async executeRawQuery(sql: string): Promise<Record<string, unknown>[]> {
     if (!this.client) {
       throw new Error('Not connected to MySQL');
+    }
+    if (this.readOnly) {
+      // READ ONLY transaction rejects any write; always roll back afterward.
+      // mysql2's multipleStatements defaults to false, so ;-stacked statements
+      // are already blocked at the driver level.
+      await this.client.query('START TRANSACTION READ ONLY');
+      try {
+        const [rows] = await this.client.execute(sql);
+        return rows as Record<string, unknown>[];
+      } finally {
+        await this.client.query('ROLLBACK');
+      }
     }
     const [rows] = await this.client.execute(sql);
     return rows as Record<string, unknown>[];

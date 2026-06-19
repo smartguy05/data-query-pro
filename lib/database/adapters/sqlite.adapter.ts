@@ -26,9 +26,11 @@ export class SQLiteAdapter extends BaseDatabaseAdapter {
       throw new Error('SQLite requires a filepath');
     }
 
-    // better-sqlite3 is synchronous
-    this.db = new Database(config.filepath, { readonly: false });
+    // better-sqlite3 is synchronous. When readOnly is requested, open the file
+    // read-only so the driver rejects any write with SQLITE_READONLY.
+    this.db = new Database(config.filepath, { readonly: !!config.readOnly });
     this.config = config;
+    this.readOnly = !!config.readOnly;
     this.connected = true;
 
     // Pre-cache valid table names for SQL injection prevention

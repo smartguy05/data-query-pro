@@ -91,12 +91,16 @@ Features:
 
 Props:
 ```typescript
-interface QueryResultsDisplayProps {
-  columns: string[];
-  rows: string[][];
-  rowCount: number;
-  executionTime: number;
-  onVisualize?: () => void;
+interface QueryResultsProps {
+  data: {
+    columns: string[];
+    rows: DataRows;
+    rowCount: number;
+    executionTime: number;
+  };
+  initialChartConfig?: ChartConfig;        // seed a saved chart (no AI call)
+  onChartConfigChange?: (config: ChartConfig | null) => void;
+  onSaveChart?: (config: ChartConfig) => void;  // shows "Save chart to report"
 }
 ```
 
@@ -106,16 +110,16 @@ interface QueryResultsDisplayProps {
 Renders charts based on configuration.
 
 Features:
-- Multiple chart types (bar, line, pie, area, scatter)
+- Multiple chart types (bar, line, pie, area, scatter, composed)
 - Responsive sizing
 - Legend toggle
-- Download as image
 
 Props:
 ```typescript
 interface ChartDisplayProps {
-  config: ChartConfig;
-  data: any[];
+  config: ChartConfig;   // type: "bar" | "line" | "pie" | "area" | "scatter" | "composed"
+  columns: string[];
+  rows: DataRows;
 }
 ```
 
@@ -175,17 +179,19 @@ Detailed documentation: [Feature Components](./features.md)
 
 ### Chart Components
 - `chart-display.tsx` - Main chart renderer
+- `chart-customizer.tsx` - Live chart-config editor (type/columns/labels/colors) + `reshapeChartConfig`
 - `charts/bar-chart.tsx` - Bar chart
 - `charts/line-chart.tsx` - Line chart
 - `charts/pie-chart.tsx` - Pie chart
 - `charts/area-chart.tsx` - Area chart
 - `charts/scatter-chart.tsx` - Scatter plot
+- `charts/composed-chart.tsx` - Mixed bars/lines/areas on shared axes
 
 ### Dashboard Components
-- `executive-metrics.tsx` - Static high-level metric cards
+- `executive-metrics.tsx` - Pinned-report KPI cards (wired to real query results)
+- `performance-chart.tsx` - Pinned-report trend chart (wired to real query results)
 - `quick-actions.tsx` - Quick action buttons (New Query, Reports, etc.)
 - `recent-reports.tsx` - Recent reports display
-- `performance-chart.tsx` - Mock performance visualization
 - `scheduled-reports.tsx` - Demo scheduled-delivery UI (hardcoded data)
 - `report-templates.tsx` - Demo report template gallery (hardcoded data)
 

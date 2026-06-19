@@ -91,13 +91,19 @@ Displays query execution results.
 
 **Props:**
 ```typescript
-interface QueryResultsDisplayProps {
-  columns: string[];
-  rows: string[][];
-  rowCount: number;
-  executionTime: number;
-  sql?: string;
-  onVisualize?: () => void;
+interface QueryResultsProps {
+  data: {
+    columns: string[];
+    rows: DataRows;
+    rowCount: number;
+    executionTime: number;
+  };
+  /** Seed a saved chart (e.g. a report's persisted visualization) so it renders immediately, no AI call. */
+  initialChartConfig?: ChartConfig;
+  /** Notified whenever the currently displayed chart config changes (or null when viewing the table). */
+  onChartConfigChange?: (config: ChartConfig | null) => void;
+  /** When provided (results belong to a saved report), renders a "Save chart to report" action. */
+  onSaveChart?: (config: ChartConfig) => void;
 }
 ```
 
@@ -150,27 +156,20 @@ const exportToCSV = () => {
 ### ChartDisplay
 **File:** `components/chart-display.tsx`
 
-Main chart renderer supporting multiple chart types.
+Main chart renderer. Switches over `config.type` to render the matching chart
+component, transforming the `columns`/`rows` result shape into Recharts row objects.
 
 **Props:**
 ```typescript
 interface ChartDisplayProps {
-  config: ChartConfig;
-  data: ChartData[];
-}
-
-interface ChartConfig {
-  type: 'bar' | 'line' | 'pie' | 'area' | 'scatter';
-  title: string;
-  xAxis: string;
-  yAxis: string;
-  series: string[];
-  options?: {
-    stacked?: boolean;
-    showLegend?: boolean;
-  };
+  config: ChartConfig;   // discriminated union, see models/chart-config.interface.ts
+  columns: string[];
+  rows: DataRows;
 }
 ```
+
+`config.type` is one of `"bar" | "line" | "pie" | "area" | "scatter" | "composed"`;
+an unknown type renders an "Unknown chart type" alert.
 
 **Usage:**
 ```tsx
@@ -178,11 +177,11 @@ interface ChartConfig {
   config={{
     type: 'bar',
     title: 'Monthly Sales',
-    xAxis: 'month',
-    yAxis: 'revenue',
-    series: ['revenue', 'profit']
+    xAxisColumn: 'month',
+    yAxisColumns: ['revenue', 'profit'],
   }}
-  data={chartData}
+  columns={columns}
+  rows={rows}
 />
 ```
 
@@ -195,8 +194,96 @@ Located in `components/charts/`:
 - **pie-chart.tsx** - Pie/donut charts
 - **area-chart.tsx** - Stacked area charts
 - **scatter-chart.tsx** - Scatter plots
+- **composed-chart.tsx** - Mixed bars/lines/areas on shared axes (see below)
 
 All use Recharts library and follow consistent prop patterns.
+
+### Composed Chart
+**File:** `components/charts/composed-chart.tsx`
+
+Renders multiple numeric series of **different kinds** (bars, lines, and/or areas)
+on a single shared X/Y axis pair, driven by `ComposedChartConfig`
+(`models/chart-config.interface.ts`):
+
+```typescript
+interface ComposedChartConfig extends BaseChartConfig {
+  type: "composed";
+  xAxisColumn: string;     // shared X axis for all series
+  bars?: string[];         // columns rendered as bars
+  lines?: string[];        // columns rendered as lines
+  areas?: string[];        // columns rendered as filled areas
+  xAxisLabel?: string;
+  yAxisLabel?: string;
+  colors?: string[];
+}
+```
+
+**Behavior:**
+- **Render order is bars → areas → lines**, so lines draw on top of the filled
+  areas and bars.
+- Colors come from a single **running color index** across all three series
+  groups (bars, then areas, then lines), cycling through `config.colors` (default
+  palette `#3b82f6, #10b981, #f59e0b, #ef4444, #8b5cf6, #ec4899`).
+- All series columns are **numerically coerced** (same guard as the other
+  renderers — non-numeric / empty values are left untouched).
+- The legend shows only when there is more than one numeric series.
+
+**When to use:** comparing series that read better with different visual emphasis
+on the same axis — e.g. totals/counts as bars alongside a trend, average, or rate
+as a line. The AI can select it via the `create_composed_chart` tool
+(`CHART_TOOLS`), mapped to `"composed"` by `chartTypeMap` in
+`app/api/chart/generate/route.ts`.
+
+### ChartCustomizer
+**File:** `components/chart-customizer.tsx`
+
+A live-editing panel for chart configuration. Lets users change the chart type,
+remap columns, set axis labels and display toggles, and pick colors — previewing
+changes immediately. Exports `ChartCustomizer`, the `reshapeChartConfig` helper,
+and the `CHART_PALETTE` constant.
+
+**Props:**
+```typescript
+interface ChartCustomizerProps {
+  config: ChartConfig;
+  columns: string[];
+  onChange: (config: ChartConfig) => void;
+}
+```
+
+**Per-type column mapping** — the rendered fields depend on `config.type`:
+- `bar` / `line` / `area`: single **X-Axis** select + multi-select **Y-Axis
+  columns** (series) checklist.
+- `pie`: **Category (name)** and **Value** column selects.
+- `scatter`: **X**, **Y**, and optional **Point label** column selects.
+- `composed`: **X-Axis** select plus three checklists — **Bars**, **Lines**,
+  **Areas** — so any column can be assigned to a series kind.
+
+Axis-label inputs show for everything except pie; display toggles are type-specific
+(Stacked for bar/area, Smooth + Show dots for line, Show labels for pie). Colors use
+a palette of swatches plus a native `<input type="color">` picker; for scatter it is
+a single point color, otherwise one color per series (in the renderer's color order).
+
+**`reshapeChartConfig(prev, newType, columns)`** rebuilds a config of `newType`
+while **carrying column choices across chart shapes** — it preserves
+title/description/colors and maps the previous X column and series columns into the
+new shape's fields (filling sensible defaults from `columns` when needed). This is
+what runs when the user switches the chart type in the dropdown, so selections
+survive the switch.
+
+**Build-manually flow:** the chart view dropdown in
+[`QueryResultsDisplay`](#queryresultsdisplay) offers **"Build manually (no AI)"**,
+which calls `reshapeChartConfig(undefined, "bar", columns)` to seed a default bar
+chart and opens the customizer — no AI call. A **"Customize"** toggle reveals the
+panel for any displayed chart (AI-generated or manual).
+
+**Persistence:** the customized config is lifted out of `QueryResultsDisplay` via
+`onChartConfigChange` into the query tab's `chartConfig`
+(`models/query-tab.interface.ts`). When the results belong to a saved report, a
+**"Save chart to report"** action (`onSaveChart`) writes the config to the report's
+`SavedReport.visualization` (`app/query/page.tsx`, `saveChartToReport`). On reopening
+the report, the tab's chart is **seeded from `report.visualization`** so it renders
+without an AI call.
 
 ---
 
@@ -297,14 +384,99 @@ interface SavedReportsProps {
 
 ## Dashboard Components
 
-> **Note:** Several dashboard components below render **hardcoded demo data**, not
-> live query results. They exist to showcase the dashboard layout. Treat them as
-> placeholder UI until wired to real data.
+The dashboard surfaces **Dashboard Widgets** — pinned saved reports whose SQL is
+executed live on dashboard load and rendered as KPI cards or a trend chart. See
+the [Dashboard Widgets](#dashboard-widgets) section below for the full flow.
 
-### ExecutiveMetrics
+### Dashboard Widgets
+
+Users pin a saved report to the dashboard from the report's actions dropdown in
+[`SavedReports`](#savedreports) — "Pin as Dashboard Metric" or "Pin as Dashboard
+Chart" (and the corresponding "Unpin …"). Pinning sets a `dashboardWidget` config
+on the `SavedReport` (`components/saved-reports.tsx`, `setDashboardWidget`) and
+persists it via the storage layer; unpinning deletes the config.
+
+**`DashboardWidgetConfig`** (`models/saved-report.interface.ts`):
+
+```typescript
+interface DashboardWidgetConfig {
+  kind: 'metric' | 'chart';
+
+  // metric only — the KPI's value is rows[0][0] of the report's result
+  target?: number;
+  unit?: 'number' | 'currency' | 'percent';
+  higherIsBetter?: boolean;   // default true
+
+  // chart only — optional cached config; generated on the fly when absent
+  chartConfig?: ChartConfig;
+}
+```
+
+The companion `SavedReport.visualization?: ChartConfig` field stores the report's
+saved chart; when present, the dashboard chart widget uses it directly (no AI call).
+
+**Load flow (`loadDashboardWidgets` in `app/page.tsx`):**
+
+1. Filters the active connection's reports to those with a `dashboardWidget`.
+2. Caps the dashboard at **4 metric reports** (`.slice(0, 4)`) plus **1 chart
+   report** (`.find(...)`).
+3. Runs each report's SQL via `POST /api/query/execute` (params substituted by
+   `utils/substitute-params.ts`; queries with an unresolved `{{placeholder}}` are
+   skipped so the dashboard never blocks on required parameters).
+4. Metric queries run together under `Promise.allSettled`, so a single failing
+   query is isolated and never breaks the rest of the dashboard strip. The whole
+   load is fire-and-forget.
+5. For the chart widget, config resolution prefers `report.visualization`, then
+   `dashboardWidget.chartConfig`, and only calls `POST /api/chart/generate` when
+   neither exists.
+
+**Metric status logic (`utils/metric-status.ts`):**
+
+- `formatMetricValue(value, unit?)` coerces to a number (stripping non-numeric
+  characters) and formats by unit — `currency` → USD, `percent` → `N%`, default →
+  locale number. Non-numeric values fall back to their string form (or an em dash).
+- `computeStatus(value, target?, higherIsBetter = true)` returns
+  `"exceeding" | "on-track" | "behind" | "neutral"`. When `higherIsBetter` the
+  ratio is `value/target`; otherwise it inverts to `target/value` so a lower value
+  scores better. Ratio `>= 1` → exceeding, `>= 0.9` → on-track, below → behind.
+  Returns `neutral` when there is no target or the value isn't numeric. Edge cases:
+  `higherIsBetter` with target `0` → neutral; `!higherIsBetter` with value `0` →
+  exceeding.
+
+#### ExecutiveMetrics
 **File:** `components/executive-metrics.tsx`
 
-Static metric cards showing Revenue Growth, Customer Satisfaction, Market Share, and Operational Efficiency with value vs target and status badges.
+Renders the pinned-report KPI strip. Each `KpiMetric` shows the report name,
+optional description, formatted value, an optional "Target: …" badge, and a
+status icon/color keyed off `KpiStatus` (`exceeding` / `on-track` / `behind` /
+`neutral`). Returns `null` when there are no metrics. When `onRemove` is provided,
+each card gets an unpin (X) button.
+
+```typescript
+function ExecutiveMetrics({
+  metrics: KpiMetric[];
+  onRemove?: (reportId: string) => void;
+}): JSX.Element | null
+```
+
+#### PerformanceChart
+**File:** `components/performance-chart.tsx`
+
+Thin wrapper around [`ChartDisplay`](#chartdisplay) for the pinned-report trend
+chart. `title`/`description` override the chart config's own header so the widget
+reflects the report's name; when `onRemove` is supplied, an unpin button is
+overlaid in the card's top-right corner.
+
+```typescript
+interface PerformanceChartProps {
+  config: ChartConfig;
+  columns: string[];
+  rows: DataRows;
+  title?: string;
+  description?: string;
+  onRemove?: () => void;
+}
+```
 
 ### QuickActions
 **File:** `components/quick-actions.tsx`
@@ -319,11 +491,6 @@ Quick action card with 4 color-coded buttons:
 **File:** `components/recent-reports.tsx`
 
 Shows mock recent reports with type badges, timestamps, and download options.
-
-### PerformanceChart
-**File:** `components/performance-chart.tsx`
-
-Mock 6-month revenue/customers/orders trend visualization with manual bar chart rendering.
 
 ### ScheduledReports
 **File:** `components/scheduled-reports.tsx`

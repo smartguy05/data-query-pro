@@ -88,7 +88,7 @@ export function ApiKeyIndicator() {
                   Clear API Key
                 </Button>
                 <p className="text-xs text-muted-foreground">
-                  After clearing, you'll use demo access with rate limits
+                  After clearing, you&apos;ll use demo access with rate limits
                 </p>
               </div>
             ) : (

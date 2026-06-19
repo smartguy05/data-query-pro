@@ -9,6 +9,7 @@ import { LineChartComponent } from "@/components/charts/line-chart"
 import { PieChartComponent } from "@/components/charts/pie-chart"
 import { AreaChartComponent } from "@/components/charts/area-chart"
 import { ScatterChartComponent } from "@/components/charts/scatter-chart"
+import { ComposedChartComponent } from "@/components/charts/composed-chart"
 import type { CellValue, DataRows } from "@/models/common-types"
 
 interface ChartDisplayProps {
@@ -40,12 +41,7 @@ export function ChartDisplay({ config, columns, rows }: ChartDisplayProps) {
       case "scatter":
         return <ScatterChartComponent data={data} config={config} />
       case "composed":
-        return (
-          <Alert>
-            <Info className="h-4 w-4" />
-            <AlertDescription>Composed charts are not yet implemented</AlertDescription>
-          </Alert>
-        )
+        return <ComposedChartComponent data={data} config={config} />
       default:
         return (
           <Alert>

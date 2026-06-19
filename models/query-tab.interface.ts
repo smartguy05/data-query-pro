@@ -5,6 +5,7 @@
 
 import type { DataRows } from './common-types';
 import type { Schema } from './schema.interface';
+import type { ChartConfig } from './chart-config.interface';
 
 export type FollowUpResponseType = 'query' | 'explanation';
 export type RowLimitOption = 'none' | 25 | 50 | 100 | 'all';
@@ -50,8 +51,18 @@ export interface QueryTab {
   executionError?: string;
   executionResults?: QueryExecutionResult;
 
+  // Query-accuracy override (results-area thumbs). `accuracyBaselineSuccess` is the
+  // auto verdict for the latest execution (true = ran without error); `accuracyVote`
+  // is the user's manual override of that verdict for this execution.
+  accuracyBaselineSuccess?: boolean;
+  accuracyVote?: 'up' | 'down';
+
   // Response type determined by AI
   responseType?: FollowUpResponseType;
+
+  // The chart currently displayed for this tab's results (customized or generated).
+  // Lifted up so it can be persisted to a report's `visualization`.
+  chartConfig?: ChartConfig;
 
   // Timestamp for ordering
   createdAt: string;

@@ -39,7 +39,7 @@ export async function upsertSuggestions(
 
   await sql`
     INSERT INTO suggestions_cache (connection_id, owner_id, suggestions)
-    VALUES (${connectionId}, ${userId}, ${sql.json(suggestions)})
+    VALUES (${connectionId}, ${userId}, ${sql.json(suggestions as unknown as Parameters<typeof sql.json>[0])})
     ON CONFLICT (connection_id, owner_id) DO UPDATE SET
       suggestions = EXCLUDED.suggestions
   `;

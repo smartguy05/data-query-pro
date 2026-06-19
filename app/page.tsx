@@ -26,11 +26,13 @@ import {
   Shield,
   Lock,
   Eye,
-  Server
+  Server,
+  Gauge
 } from "lucide-react"
 import Link from "next/link"
 import { SavedReport } from "@/models/saved-report.interface"
 import { useDatabaseOptions } from "@/lib/database-connection-options"
+import { ACCURACY } from "@/lib/constants"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
@@ -38,6 +40,13 @@ import { Toaster } from "@/components/ui/toaster"
 import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
 import { useOpenAIKey } from "@/hooks/use-openai-key"
 import { ApiKeyDialog } from "@/components/api-key-dialog"
+import { useAuth } from "@/hooks/use-auth"
+import { ExecutiveMetrics, type KpiMetric } from "@/components/executive-metrics"
+import { PerformanceChart } from "@/components/performance-chart"
+import { substituteParams } from "@/utils/substitute-params"
+import { formatMetricValue, computeStatus } from "@/utils/metric-status"
+import type { ChartConfig } from "@/models/chart-config.interface"
+import type { DataRows } from "@/models/common-types"
 
 interface MetricSuggestion {
   title: string
@@ -61,6 +70,7 @@ export default function ContextualDashboard() {
   const { toast } = useToast()
   const { fetchWithAuth, showRateLimitDialog, resetTimeInfo, clearRateLimitError } = useOpenAIFetch()
   const { setApiKey } = useOpenAIKey()
+  const { authEnabled } = useAuth()
   const [hasConnection, setHasConnection] = useState(false)
   const [hasSchemaFile, setHasSchemaFile] = useState(false)
   const [hasSchema, setHasSchema] = useState(false)
@@ -74,6 +84,16 @@ export default function ContextualDashboard() {
   const [reportCount, setReportCount] = useState(0)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([])
+  const [kpiMetrics, setKpiMetrics] = useState<KpiMetric[]>([])
+  const [chartWidget, setChartWidget] = useState<{
+    reportId: string
+    config: ChartConfig
+    columns: string[]
+    rows: DataRows
+    title?: string
+    description?: string
+  } | null>(null)
+  const [loadingWidgets, setLoadingWidgets] = useState(false)
   const isLoadingSuggestionsRef = useRef(false)
 
   useEffect(() => {
@@ -131,6 +151,9 @@ export default function ContextualDashboard() {
 
     checkStatus()
     detectNotifications()
+    // connectionOptions (context identity) and detectNotifications are recreated each
+    // render; this status check should run only on init/connection change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionOptions.isInitialized, connectionOptions.currentConnection?.id])
 
   useEffect(() => {
@@ -138,6 +161,20 @@ export default function ContextualDashboard() {
     const dismissed = JSON.parse(localStorage.getItem("dismissed_notifications") || "[]") as string[]
     setDismissedNotifications(dismissed)
   }, [])
+
+  useEffect(() => {
+    // Load dashboard widgets (pinned-report KPIs + trend chart) once context is ready.
+    // Re-runs when the active connection or the reports list changes (e.g. after pinning).
+    if (!connectionOptions.isInitialized) return
+    const connection = connectionOptions.getConnection()
+    if (!connection) {
+      setKpiMetrics([])
+      setChartWidget(null)
+      return
+    }
+    loadDashboardWidgets(connection.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionOptions.isInitialized, connectionOptions.currentConnection?.id, connectionOptions.reports])
 
   const loadRecentReports = (connectionId: string) => {
     const allReports = JSON.parse(localStorage.getItem("saved_reports") || "[]") as SavedReport[]
@@ -159,7 +196,141 @@ export default function ContextualDashboard() {
     // Get top 3 most recent
     setRecentReports(sorted.slice(0, 3))
   }
-  
+
+  // Execute pinned-report widgets and populate the dashboard KPI strip + trend chart.
+  // Fire-and-forget: a failing widget query is isolated (Promise.allSettled) and never
+  // breaks the rest of the dashboard.
+  const loadDashboardWidgets = async (connectionId: string) => {
+    const connection = connectionOptions.getConnection(connectionId)
+    if (!connection) {
+      setKpiMetrics([])
+      setChartWidget(null)
+      return
+    }
+
+    const pinned = connectionOptions.reports.filter(
+      r => r.connectionId === connectionId && r.dashboardWidget
+    )
+    const metricReports = pinned.filter(r => r.dashboardWidget?.kind === "metric").slice(0, 4)
+    const chartReport = pinned.find(r => r.dashboardWidget?.kind === "chart")
+
+    if (metricReports.length === 0 && !chartReport) {
+      setKpiMetrics([])
+      setChartWidget(null)
+      return
+    }
+
+    const runSql = async (sql: string) => {
+      const body = authEnabled
+        ? { sql, connectionId: connection.id, source: connection.source, type: connection.type }
+        : { sql, connection }
+      const res = await fetch("/api/query/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error("Query execution failed")
+      return res.json() as Promise<{ columns: string[]; rows: DataRows; rowCount: number }>
+    }
+
+    setLoadingWidgets(true)
+    try {
+      // KPI metrics
+      const metricResults = await Promise.allSettled(
+        metricReports.map(async (report) => {
+          const sql = substituteParams(report.sql, report.parameters)
+          if (sql.includes("{{")) return null // unresolved required parameter — skip unattended
+          const result = await runSql(sql)
+          return { report, raw: result.rows?.[0]?.[0] }
+        })
+      )
+
+      const metrics: KpiMetric[] = []
+      for (const settled of metricResults) {
+        if (settled.status !== "fulfilled" || !settled.value) continue
+        const { report, raw } = settled.value
+        const cfg = report.dashboardWidget!
+        const numeric = typeof raw === "number" ? raw : Number(String(raw ?? "").replace(/[^0-9.-]/g, ""))
+        metrics.push({
+          reportId: report.id,
+          title: report.name,
+          description: report.description || undefined,
+          value: formatMetricValue(raw, cfg.unit),
+          target: cfg.target !== undefined ? formatMetricValue(cfg.target, cfg.unit) : undefined,
+          status: computeStatus(numeric, cfg.target, cfg.higherIsBetter),
+        })
+      }
+      setKpiMetrics(metrics)
+
+      // Trend chart
+      if (chartReport) {
+        try {
+          const sql = substituteParams(chartReport.sql, chartReport.parameters)
+          if (sql.includes("{{")) {
+            setChartWidget(null)
+          } else {
+            const result = await runSql(sql)
+            // Prefer the report's saved visualization, then the cached widget config, else generate
+            let config = chartReport.visualization ?? chartReport.dashboardWidget?.chartConfig
+            if (!config) {
+              const genRes = await fetchWithAuth("/api/chart/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  columns: result.columns,
+                  rows: result.rows,
+                  rowCount: result.rowCount,
+                }),
+              })
+              if (genRes.ok) {
+                const genData = await genRes.json()
+                config = genData.config
+              }
+            }
+            if (config) {
+              setChartWidget({
+                reportId: chartReport.id,
+                config,
+                columns: result.columns,
+                rows: result.rows,
+                title: chartReport.name,
+                description: chartReport.description,
+              })
+            } else {
+              setChartWidget(null)
+            }
+          }
+        } catch {
+          setChartWidget(null)
+        }
+      } else {
+        setChartWidget(null)
+      }
+    } finally {
+      setLoadingWidgets(false)
+    }
+  }
+
+  // Unpin a report from the dashboard. Clears its dashboardWidget config and persists;
+  // the widget-loading effect re-runs on the reports change and refreshes the widgets.
+  const handleRemoveWidget = async (reportId: string) => {
+    const report = connectionOptions.reports.find(r => r.id === reportId)
+    if (!report) return
+
+    // Optimistically drop the widget so the UI updates immediately
+    setKpiMetrics(prev => prev.filter(m => m.reportId !== reportId))
+    setChartWidget(prev => (prev?.reportId === reportId ? null : prev))
+
+    const updated = { ...report }
+    delete updated.dashboardWidget
+    await connectionOptions.updateReport(updated)
+
+    toast({
+      title: "Removed from Dashboard",
+      description: `"${report.name}" is no longer pinned to the dashboard`,
+    })
+  }
+
   const regenerateSuggestions = async () => {
     setIsReGenerating(true);
     try {
@@ -467,6 +638,13 @@ export default function ContextualDashboard() {
                 ))}
               </SelectContent>
             </Select>
+            <Link href="/query" className="ml-auto shrink-0">
+              <Button className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
+                <MessageSquare className="h-4 w-4" />
+                Query Data
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </Link>
           </div>
         </CardContent>
       </Card>
@@ -536,7 +714,7 @@ export default function ContextualDashboard() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg">
-                <h4 className="font-semibold mb-2">What you'll be able to do:</h4>
+                <h4 className="font-semibold mb-2">What you&apos;ll be able to do:</h4>
                 <ul className="space-y-2 text-sm text-muted-foreground">
                   <li className="flex items-start gap-2">
                     <CheckCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
@@ -583,7 +761,7 @@ export default function ContextualDashboard() {
                   🔒 Your data never leaves your control without explicit consent
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  DataQuery Pro is designed with privacy-first principles. Here's exactly what gets sent to AI services and when:
+                  DataQuery Pro is designed with privacy-first principles. Here&apos;s exactly what gets sent to AI services and when:
                 </p>
               </div>
 
@@ -609,7 +787,7 @@ export default function ContextualDashboard() {
                     <h4 className="font-semibold mb-1">Query Results Stay Local</h4>
                     <p className="text-sm text-muted-foreground">
                       When you run a query, the results are displayed in your browser and <strong>never automatically sent to any AI service</strong>.
-                      Data only goes to OpenAI if you explicitly click "Ask a follow-up question" and include results as context.
+                      Data only goes to OpenAI if you explicitly click &quot;Ask a follow-up question&quot; and include results as context.
                     </p>
                   </div>
                 </div>
@@ -621,7 +799,7 @@ export default function ContextualDashboard() {
                   <div className="flex-1">
                     <h4 className="font-semibold mb-1">Credentials Stored Locally</h4>
                     <p className="text-sm text-muted-foreground">
-                      Database connection credentials (host, username, password) are stored in your browser's localStorage only.
+                      Database connection credentials (host, username, password) are stored in your browser&apos;s localStorage only.
                       They never leave your machine and are never sent to our servers or any third party.
                     </p>
                   </div>
@@ -657,7 +835,7 @@ export default function ContextualDashboard() {
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                    <span><strong>Hide sensitive tables:</strong> Mark tables or columns as "hidden" to exclude them from AI context entirely</span>
+                    <span><strong>Hide sensitive tables:</strong> Mark tables or columns as &quot;hidden&quot; to exclude them from AI context entirely</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
@@ -785,7 +963,7 @@ export default function ContextualDashboard() {
                 <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside">
                   <li>Go to the Database page</li>
                   <li>Find your connection</li>
-                  <li>Click "Upload Schema File" button</li>
+                  <li>Click &quot;Upload Schema File&quot; button</li>
                   <li>Wait for the upload to complete</li>
                 </ol>
               </div>
@@ -988,8 +1166,38 @@ export default function ContextualDashboard() {
           </div>
         )}
 
+        {/* Executive Metrics (pinned-report KPIs) */}
+        {loadingWidgets && kpiMetrics.length === 0 ? (
+          <Card>
+            <CardContent className="p-6 flex items-center justify-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading dashboard metrics…</span>
+            </CardContent>
+          </Card>
+        ) : (
+          <ExecutiveMetrics metrics={kpiMetrics} onRemove={handleRemoveWidget} />
+        )}
+
         {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {connectionOptions.queryAccuracy.total >= ACCURACY.MIN_SAMPLE && (
+            <Card className="border-l-4 border-l-violet-500 hover:shadow-lg hover:shadow-violet-500/10 transition-shadow">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Query Accuracy</p>
+                    <p className="text-2xl font-bold text-violet-500">
+                      {Math.round((connectionOptions.queryAccuracy.successful / connectionOptions.queryAccuracy.total) * 100)}%
+                    </p>
+                  </div>
+                  <div className="p-2 bg-violet-500/10 rounded-lg">
+                    <Gauge className="h-6 w-6 text-violet-500" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card className="border-l-4 border-l-blue-500 hover:shadow-lg hover:shadow-blue-500/10 transition-shadow">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
@@ -1059,7 +1267,8 @@ export default function ContextualDashboard() {
                     onClick={() => {
                       const params = new URLSearchParams({
                         suggestion: encodeURIComponent(report.naturalLanguageQuery),
-                        sql: encodeURIComponent(report.sql)
+                        sql: encodeURIComponent(report.sql),
+                        reportId: report.id
                       })
                       window.location.href = `/query?${params.toString()}`
                     }}
@@ -1142,6 +1351,18 @@ export default function ContextualDashboard() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* Performance Chart (pinned-report trend) */}
+        {chartWidget && (
+          <PerformanceChart
+            config={chartWidget.config}
+            columns={chartWidget.columns}
+            rows={chartWidget.rows}
+            title={chartWidget.title}
+            description={chartWidget.description}
+            onRemove={() => handleRemoveWidget(chartWidget.reportId)}
+          />
         )}
 
         {/* Quick Actions */}

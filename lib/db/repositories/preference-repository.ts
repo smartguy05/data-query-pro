@@ -49,10 +49,10 @@ export async function updatePreferences(
     VALUES (
       ${userId},
       ${data.currentConnectionId ?? null},
-      ${sql.json(data.preferences || {})}
+      ${sql.json((data.preferences || {}) as unknown as Parameters<typeof sql.json>[0])}
     )
     ON CONFLICT (user_id) DO UPDATE SET
       current_connection_id = COALESCE(${data.currentConnectionId !== undefined ? data.currentConnectionId : null}, user_preferences.current_connection_id),
-      preferences = COALESCE(${data.preferences ? sql.json(data.preferences) : null}, user_preferences.preferences)
+      preferences = COALESCE(${data.preferences ? sql.json(data.preferences as unknown as Parameters<typeof sql.json>[0]) : null}, user_preferences.preferences)
   `;
 }

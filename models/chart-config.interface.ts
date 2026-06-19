@@ -342,4 +342,58 @@ export const CHART_TOOLS: ChartToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "create_composed_chart",
+      description:
+        "Create a composed chart that combines bars, lines, and/or areas on shared axes. Best for: comparing series of different kinds at once — e.g. showing totals/counts as bars alongside a trend, average, or rate as a line. Use when the data has multiple numeric series that are better read together but with different visual emphasis. At least one of bars, lines, or areas must be provided.",
+      parameters: {
+        type: "object",
+        properties: {
+          xAxisColumn: {
+            type: "string",
+            description: "Column name for the X-axis (categories or time/sequential data), shared by all series",
+          },
+          bars: {
+            type: "array",
+            items: { type: "string" },
+            description: "Column name(s) to render as bars (typically magnitudes, counts, or totals)",
+          },
+          lines: {
+            type: "array",
+            items: { type: "string" },
+            description: "Column name(s) to render as lines (typically trends, averages, or rates)",
+          },
+          areas: {
+            type: "array",
+            items: { type: "string" },
+            description: "Column name(s) to render as filled areas (typically cumulative volume)",
+          },
+          xAxisLabel: {
+            type: "string",
+            description: "Optional label for X-axis",
+          },
+          yAxisLabel: {
+            type: "string",
+            description: "Optional label for Y-axis",
+          },
+          colors: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional array of hex color codes for the series",
+          },
+          title: {
+            type: "string",
+            description: "Optional chart title",
+          },
+          description: {
+            type: "string",
+            description: "Optional explanation of what the chart shows",
+          },
+        },
+        required: ["xAxisColumn"],
+      },
+    },
+  },
 ]

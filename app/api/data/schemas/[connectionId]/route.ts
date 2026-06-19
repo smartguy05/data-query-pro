@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import type { Schema } from '@/models/schema.interface';
 import { getAuthContext } from '@/lib/auth/require-auth';
 import { successResponse, unauthorized, internalError } from '@/lib/api/response';
 import * as schemaRepo from '@/lib/db/repositories/schema-repository';

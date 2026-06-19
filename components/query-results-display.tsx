@@ -15,9 +15,10 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu"
-import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, ChevronLeft, ChevronRight, Loader2, Sparkles, LineChart, PieChart, AreaChart, ScatterChart, ExternalLink } from "lucide-react"
+import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, ChevronLeft, ChevronRight, Loader2, Sparkles, LineChart, PieChart, AreaChart, ScatterChart, ExternalLink, Activity, Settings2, Save } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ChartDisplay } from "@/components/chart-display"
+import { ChartCustomizer, reshapeChartConfig } from "@/components/chart-customizer"
 import { ChartConfig } from "@/models/chart-config.interface"
 import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
 import { useOpenAIKey } from "@/hooks/use-openai-key"
@@ -31,12 +32,18 @@ interface QueryResultsProps {
     rowCount: number
     executionTime: number
   }
+  /** Seed a saved chart (e.g. a report's persisted visualization) so it renders immediately, no AI call. */
+  initialChartConfig?: ChartConfig
+  /** Notified whenever the currently displayed chart config changes (or null when viewing the table). */
+  onChartConfigChange?: (config: ChartConfig | null) => void
+  /** When provided (i.e. these results belong to a saved report), renders a "Save chart to report" action. */
+  onSaveChart?: (config: ChartConfig) => void
 }
 
 type SortDirection = "asc" | "desc" | null
-type ViewMode = "table" | "bar" | "line" | "pie" | "area" | "scatter"
+type ViewMode = "table" | "bar" | "line" | "pie" | "area" | "scatter" | "composed"
 
-export function QueryResultsDisplay({ data }: QueryResultsProps) {
+export function QueryResultsDisplay({ data, initialChartConfig, onChartConfigChange, onSaveChart }: QueryResultsProps) {
   const [sortColumn, setSortColumn] = useState<number | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
   const [searchTerm, setSearchTerm] = useState("")
@@ -47,14 +54,34 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
   const [generatedCharts, setGeneratedCharts] = useState<Record<string, { config: ChartConfig; reasoning: string }>>({})
   const [isGeneratingChart, setIsGeneratingChart] = useState(false)
   const [chartError, setChartError] = useState<string | null>(null)
+  const [showCustomizer, setShowCustomizer] = useState(false)
 
   // Manual column type overrides (by column index)
   const [columnTypeOverrides, setColumnTypeOverrides] = useState<Record<number, string>>({})
 
-  // Reset overrides when data changes
+  // Reset overrides + (re)seed charts when the result data changes.
+  // Reads initialChartConfig but does NOT depend on it, so live customization
+  // (which flows back out via onChartConfigChange) never re-seeds/clobbers edits.
   useEffect(() => {
     setColumnTypeOverrides({})
+    setShowCustomizer(false)
+    if (initialChartConfig) {
+      setGeneratedCharts({ [initialChartConfig.type]: { config: initialChartConfig, reasoning: "" } })
+      setViewMode(initialChartConfig.type as ViewMode)
+    } else {
+      setGeneratedCharts({})
+      setViewMode("table")
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
+
+  // Notify the parent of the currently displayed chart config (or null for the table view)
+  useEffect(() => {
+    if (!onChartConfigChange) return
+    const cfg = viewMode !== "table" ? generatedCharts[viewMode]?.config ?? null : null
+    onChartConfigChange(cfg)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, generatedCharts])
 
   // Rate limiting hooks
   const { fetchWithAuth, showRateLimitDialog, resetTimeInfo, clearRateLimitError } = useOpenAIFetch()
@@ -360,6 +387,26 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
     }
   }
 
+  // Build a chart locally without calling the AI (full manual creation)
+  const buildManualChart = () => {
+    setChartError(null)
+    const config = reshapeChartConfig(undefined, "bar", data.columns)
+    setGeneratedCharts((prev) => ({ ...prev, bar: { config, reasoning: "" } }))
+    setViewMode("bar")
+    setShowCustomizer(true)
+  }
+
+  // Apply a customizer edit; handles chart-type changes by re-keying the entry
+  const handleCustomizeChange = (config: ChartConfig) => {
+    setGeneratedCharts((prev) => {
+      const next = { ...prev }
+      if (viewMode !== config.type) delete next[viewMode]
+      next[config.type] = { config, reasoning: prev[viewMode]?.reasoning ?? "" }
+      return next
+    })
+    if (viewMode !== config.type) setViewMode(config.type as ViewMode)
+  }
+
   return (
     <>
     <Card>
@@ -429,6 +476,14 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
                       </div>
                     </SelectItem>
                   )}
+                  {generatedCharts.composed && (
+                    <SelectItem value="composed">
+                      <div className="flex items-center gap-2">
+                        <Activity className="h-4 w-4" />
+                        Composed Chart
+                      </div>
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             )}
@@ -490,9 +545,40 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
                     <ScatterChart className="h-4 w-4 mr-2" />
                     Scatter Plot
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => generateChart("composed")}>
+                    <Activity className="h-4 w-4 mr-2" />
+                    Composed Chart
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={buildManualChart}>
+                    <Settings2 className="h-4 w-4 mr-2" />
+                    Build manually (no AI)
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+
+            {viewMode !== "table" && generatedCharts[viewMode] && (
+              <Button
+                variant={showCustomizer ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowCustomizer((s) => !s)}
+              >
+                <Settings2 className="h-4 w-4 mr-2" />
+                Customize
+              </Button>
+            )}
+
+            {onSaveChart && viewMode !== "table" && generatedCharts[viewMode] && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onSaveChart(generatedCharts[viewMode].config)}
+              >
+                <Save className="h-4 w-4 mr-2" />
+                Save chart to report
+              </Button>
+            )}
 
             <Button variant="outline" size="sm" onClick={exportToCSV}>
               <Download className="h-4 w-4 mr-2" />
@@ -670,13 +756,20 @@ export function QueryResultsDisplay({ data }: QueryResultsProps) {
                     <AlertDescription>{generatedCharts[viewMode].reasoning}</AlertDescription>
                   </Alert>
                 )}
+                {showCustomizer && (
+                  <ChartCustomizer
+                    config={generatedCharts[viewMode].config}
+                    columns={data.columns}
+                    onChange={handleCustomizeChange}
+                  />
+                )}
                 <ChartDisplay config={generatedCharts[viewMode].config} columns={data.columns} rows={data.rows} />
               </div>
             ) : (
               <Alert>
                 <BarChart3 className="h-4 w-4" />
                 <AlertDescription>
-                  Click "Generate Chart" to create an AI-powered visualization of your query results.
+                  Click &quot;Generate Chart&quot; to create an AI-powered visualization of your query results.
                 </AlertDescription>
               </Alert>
             )}

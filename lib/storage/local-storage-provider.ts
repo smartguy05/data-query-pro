@@ -1,5 +1,17 @@
 import type { StorageProvider } from './storage-provider';
+import type { DatabaseConnection } from '@/models/database-connection.interface';
+import type { Schema } from '@/models/schema.interface';
 import type { SavedReport } from '@/models/saved-report.interface';
+import type { QueryHistoryEntry } from '@/models/query-history.interface';
+import type { QueryAccuracyStats } from '@/models/query-accuracy.interface';
+import type { QueryCorrection } from '@/models/query-correction.interface';
+import {
+  getCorrectionsForFingerprint as localGetCorrections,
+  addQueryCorrection as localAddCorrection,
+  updateQueryCorrection as localUpdateCorrection,
+  deleteQueryCorrection as localDeleteCorrection,
+} from '@/utils/query-corrections';
+import { HISTORY, STORAGE_KEYS } from '@/lib/constants';
 
 export class LocalStorageProvider implements StorageProvider {
   private serverConnections: DatabaseConnection[] = [];
@@ -265,6 +277,33 @@ export class LocalStorageProvider implements StorageProvider {
     );
   }
 
+  async getQueryHistory(): Promise<QueryHistoryEntry[]> {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEYS.QUERY_HISTORY) || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  async addQueryHistory(entry: QueryHistoryEntry): Promise<void> {
+    const existing = await this.getQueryHistory();
+    // Newest first, capped to a bounded ring buffer so localStorage never grows unbounded.
+    const next = [entry, ...existing].slice(0, HISTORY.MAX_ENTRIES);
+    localStorage.setItem(STORAGE_KEYS.QUERY_HISTORY, JSON.stringify(next));
+  }
+
+  async deleteQueryHistory(id: string): Promise<void> {
+    const existing = await this.getQueryHistory();
+    localStorage.setItem(
+      STORAGE_KEYS.QUERY_HISTORY,
+      JSON.stringify(existing.filter(e => e.id !== id))
+    );
+  }
+
+  async clearQueryHistory(): Promise<void> {
+    localStorage.removeItem(STORAGE_KEYS.QUERY_HISTORY);
+  }
+
   async getSuggestions(connectionId: string): Promise<unknown[] | null> {
     const stored = localStorage.getItem(`suggestions_${connectionId}`);
     if (!stored) return null;
@@ -277,6 +316,50 @@ export class LocalStorageProvider implements StorageProvider {
 
   async setSuggestions(connectionId: string, suggestions: unknown[]): Promise<void> {
     localStorage.setItem(`suggestions_${connectionId}`, JSON.stringify(suggestions));
+  }
+
+  async getQueryAccuracy(): Promise<QueryAccuracyStats> {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.QUERY_ACCURACY);
+      if (!stored) return { total: 0, successful: 0 };
+      const parsed = JSON.parse(stored) as Partial<QueryAccuracyStats>;
+      return {
+        total: Math.max(0, Number(parsed.total) || 0),
+        successful: Math.max(0, Number(parsed.successful) || 0),
+      };
+    } catch {
+      return { total: 0, successful: 0 };
+    }
+  }
+
+  async applyQueryAccuracyDelta(totalDelta: number, successfulDelta: number): Promise<void> {
+    const current = await this.getQueryAccuracy();
+    const next: QueryAccuracyStats = {
+      total: Math.max(0, current.total + totalDelta),
+      // Never exceed total and never drop below zero.
+      successful: Math.min(
+        Math.max(0, current.total + totalDelta),
+        Math.max(0, current.successful + successfulDelta)
+      ),
+    };
+    localStorage.setItem(STORAGE_KEYS.QUERY_ACCURACY, JSON.stringify(next));
+  }
+
+  // Corrections are device-local here; the util layer owns the ring-buffer storage.
+  async getCorrectionsForFingerprint(fingerprint: string): Promise<QueryCorrection[]> {
+    return localGetCorrections(fingerprint);
+  }
+
+  async addQueryCorrection(entry: QueryCorrection): Promise<void> {
+    localAddCorrection(entry);
+  }
+
+  async updateQueryCorrection(id: string, patch: Partial<QueryCorrection>): Promise<void> {
+    localUpdateCorrection(id, patch);
+  }
+
+  async deleteQueryCorrection(id: string): Promise<void> {
+    localDeleteCorrection(id);
   }
 
   async getDismissedNotifications(): Promise<string[]> {

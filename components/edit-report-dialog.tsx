@@ -13,9 +13,17 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { ReportParameter, SavedReport } from "@/models/saved-report.interface"
 import { ParameterConfig } from "./parameter-config"
-import { RefreshCw } from "lucide-react"
+import { RefreshCw, LayoutDashboard } from "lucide-react"
 
 interface EditReportDialogProps {
   open: boolean
@@ -55,6 +63,18 @@ export function EditReportDialog({ open, onOpenChange, onSave, report }: EditRep
   const [sql, setSql] = useState(report?.sql || "")
   const [parameters, setParameters] = useState<ReportParameter[]>(getInitialParameters())
 
+  // Dashboard metric widget config (only relevant when this report is pinned as a metric)
+  const isPinnedMetric = report?.dashboardWidget?.kind === "metric"
+  const [metricTarget, setMetricTarget] = useState(
+    report?.dashboardWidget?.target !== undefined ? String(report.dashboardWidget.target) : ""
+  )
+  const [metricUnit, setMetricUnit] = useState<"number" | "currency" | "percent">(
+    report?.dashboardWidget?.unit || "number"
+  )
+  const [metricHigherIsBetter, setMetricHigherIsBetter] = useState(
+    report?.dashboardWidget?.higherIsBetter !== false
+  )
+
   const refreshParameters = () => {
     if (!sql) return
 
@@ -92,6 +112,18 @@ export function EditReportDialog({ open, onOpenChange, onSave, report }: EditRep
       sql: sql.trim(),
       parameters: parameters.length > 0 ? parameters : undefined,
       lastModified: new Date().toISOString(),
+    }
+
+    // Persist metric widget settings when this report is pinned as a metric
+    if (isPinnedMetric && report.dashboardWidget) {
+      const parsedTarget = metricTarget.trim() === "" ? undefined : Number(metricTarget)
+      updatedReport.dashboardWidget = {
+        ...report.dashboardWidget,
+        kind: "metric",
+        target: parsedTarget !== undefined && !Number.isNaN(parsedTarget) ? parsedTarget : undefined,
+        unit: metricUnit,
+        higherIsBetter: metricHigherIsBetter,
+      }
     }
 
     onSave(updatedReport)
@@ -170,6 +202,55 @@ export function EditReportDialog({ open, onOpenChange, onSave, report }: EditRep
           {/* Parameter Configuration */}
           {parameters.length > 0 && (
             <ParameterConfig parameters={parameters} onChange={setParameters} />
+          )}
+
+          {/* Dashboard Metric Configuration */}
+          {isPinnedMetric && (
+            <div className="space-y-4 rounded-lg border p-4">
+              <div className="flex items-center gap-2">
+                <LayoutDashboard className="h-4 w-4 text-blue-600" />
+                <h4 className="font-medium">Dashboard Metric</h4>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                This report is pinned as a dashboard KPI. Its first returned value is shown as the metric.
+                Configure an optional target to display status.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="metric-target">Target (optional)</Label>
+                  <Input
+                    id="metric-target"
+                    type="number"
+                    placeholder="e.g., 1000"
+                    value={metricTarget}
+                    onChange={(e) => setMetricTarget(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="metric-unit">Format</Label>
+                  <Select value={metricUnit} onValueChange={(v) => setMetricUnit(v as typeof metricUnit)}>
+                    <SelectTrigger id="metric-unit">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="number">Number</SelectItem>
+                      <SelectItem value="currency">Currency</SelectItem>
+                      <SelectItem value="percent">Percent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="metric-higher-better"
+                  checked={metricHigherIsBetter}
+                  onCheckedChange={(checked) => setMetricHigherIsBetter(checked === true)}
+                />
+                <Label htmlFor="metric-higher-better" className="font-normal">
+                  Higher value is better (uncheck for metrics where lower is better, e.g. error rate)
+                </Label>
+              </div>
+            </div>
           )}
         </div>
         <DialogFooter>

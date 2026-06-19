@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import type { Schema } from "@/models/schema.interface"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,6 +12,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ConfirmationModal } from "@/components/confirmation-modal"
 import { SchemaUpdateModal } from "@/components/schema-update-modal"
+import { CopyDescriptionsDialog } from "@/components/copy-descriptions-dialog"
+import type { CopyDescriptionsStats } from "@/utils/copy-descriptions"
 import {
   Database,
   TableIcon,
@@ -26,7 +29,8 @@ import {
   ChevronRight,
   Trash,
   Eye,
-  EyeOff
+  EyeOff,
+  ClipboardCopy
 } from "lucide-react"
 import {useDatabaseOptions} from "@/lib/database-connection-options";
 import { useToast } from "@/hooks/use-toast";
@@ -73,11 +77,14 @@ export function SchemaExplorer() {
   const [sampleDataVisible, setSampleDataVisible] = useState<Set<string>>(new Set());
   const [pendingSchemaUpdate, setPendingSchemaUpdate] = useState<Schema | null>(null);
   const [showDiscardAllConfirmation, setShowDiscardAllConfirmation] = useState(false);
+  const [showCopyDialog, setShowCopyDialog] = useState(false);
 
   useEffect(() => {
     if (connectionInformation.isInitialized) {
       checkConnectionAndLoadSchema();
     }
+    // checkConnectionAndLoadSchema is recreated each render; run only on init/connection change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionInformation.isInitialized, connectionInformation.currentConnection?.id])
 
   // Check if schema has unsaved change flags on load
@@ -89,6 +96,8 @@ export function SchemaExplorer() {
         setHasUnsavedChanges(true);
       }
     }
+    // hasUnsavedChanges is read only as a guard; this effect should react to schema changes only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionInformation.currentSchema])
 
   // Ensure loading states are correct when schema is loaded
@@ -101,6 +110,8 @@ export function SchemaExplorer() {
         setIsProcessing(false);
       }
     }
+    // loading/isProcessing are read only as guards; react to schema changes only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionInformation.currentSchema])
 
   useEffect(() => {
@@ -139,6 +150,9 @@ export function SchemaExplorer() {
 
       return () => clearInterval(pollInterval)
     }
+    // connectionInformation is a context object (new identity each render); polling
+    // should restart only when processId/isProcessing change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [processId, isProcessing]);
 
   // Navigation guard for unsaved changes
@@ -679,6 +693,21 @@ export function SchemaExplorer() {
     });
   }
 
+  const handleApplyCopiedDescriptions = (newSchema: Schema, stats: CopyDescriptionsStats) => {
+    connectionInformation.setSchema(newSchema);
+    setHasUnsavedChanges(true);
+
+    const copied = stats.tableDescriptionsCopied + stats.columnDescriptionsCopied;
+    const parts = [`${copied} descriptions copied`];
+    if (stats.visibilityChanged > 0) parts.push(`${stats.visibilityChanged} visibility flags updated`);
+    if (stats.tablesUnmatched > 0) parts.push(`${stats.tablesUnmatched} tables had no match`);
+
+    toast({
+      title: "Descriptions copied",
+      description: `${parts.join(", ")}. Click "Save to OpenAI" to apply them to query generation.`,
+    });
+  }
+
   const discardTableChanges = (tableName: string) => {
     if (!connectionInformation.currentSchema) return;
 
@@ -758,7 +787,7 @@ export function SchemaExplorer() {
                 </div>
               )}
               <p className="text-xs text-muted-foreground">
-                This may take several minutes for large databases. You'll be notified when complete.
+                This may take several minutes for large databases. You&apos;ll be notified when complete.
               </p>
             </div>
           </div>
@@ -841,6 +870,15 @@ export function SchemaExplorer() {
                 Update Schema
               </>
             )}
+          </Button>
+          <Button
+            onClick={() => setShowCopyDialog(true)}
+            variant="outline"
+            className="flex items-center gap-2"
+            title="Copy descriptions from another connection's schema"
+          >
+            <ClipboardCopy className="w-4 h-4" />
+            Copy Descriptions
           </Button>
           {hasUnsavedChanges && (
             <>
@@ -1294,6 +1332,13 @@ export function SchemaExplorer() {
           schema={pendingSchemaUpdate}
           onConfirm={confirmSchemaUpdate}
           onCancel={cancelSchemaUpdate}
+      />
+
+      <CopyDescriptionsDialog
+          open={showCopyDialog}
+          onOpenChange={setShowCopyDialog}
+          targetSchema={connectionInformation.currentSchema}
+          onApply={handleApplyCopiedDescriptions}
       />
 
       <ConfirmationModal

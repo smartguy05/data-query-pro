@@ -59,6 +59,12 @@ export const AI = {
 
   /** Confidence threshold for showing warnings */
   LOW_CONFIDENCE_THRESHOLD: 0.5,
+
+  /** Max number of past successful queries injected as few-shot examples */
+  MAX_FEW_SHOT: 4,
+
+  /** Max number of failed->revised corrections injected as anti-mistake hints */
+  MAX_CORRECTIONS: 2,
 } as const;
 
 // ============================================================================
@@ -96,6 +102,15 @@ export const STORAGE_KEYS = {
   /** Saved reports */
   SAVED_REPORTS: "saved_reports",
 
+  /** Executed-query history (device-local, capped) */
+  QUERY_HISTORY: "query_history",
+
+  /** Query accuracy counters (device-local when auth disabled) */
+  QUERY_ACCURACY: "query_accuracy",
+
+  /** Captured failed->revised SQL corrections (device-local, capped) */
+  QUERY_CORRECTIONS: "query_corrections",
+
   /** Dismissed notification IDs */
   DISMISSED_NOTIFICATIONS: "dismissed_notifications",
 
@@ -106,6 +121,39 @@ export const STORAGE_KEYS = {
 // Helper to get suggestions key for a specific connection
 export const getSuggestionsKey = (connectionId: string) =>
   `suggestions_${connectionId}`;
+
+// ============================================================================
+// Query History
+// ============================================================================
+
+export const HISTORY = {
+  /** Maximum number of query-history entries kept per browser (ring buffer, newest first) */
+  MAX_ENTRIES: 200,
+} as const;
+
+// ============================================================================
+// Query Corrections (learned failed->revised pairs)
+// ============================================================================
+
+export const CORRECTIONS = {
+  /** Maximum number of correction entries kept per browser (ring buffer, newest first) */
+  MAX_ENTRIES: 50,
+
+  /**
+   * Max corrections fetched from the team-wide pool per schema fingerprint (auth mode)
+   * before relevance-scoring. Bounds work as the shared pool grows; newest first.
+   */
+  MAX_POOL_FETCH: 200,
+} as const;
+
+// ============================================================================
+// Query Accuracy
+// ============================================================================
+
+export const ACCURACY = {
+  /** Minimum number of recorded queries before the dashboard accuracy stat is shown */
+  MIN_SAMPLE: 5,
+} as const;
 
 // ============================================================================
 // API Rate Limits
@@ -152,14 +200,7 @@ export const SECURITY = {
     "/api/schema/start-introspection",
   ] as const,
 
-  /** Dangerous SQL keywords to block */
-  DANGEROUS_SQL_KEYWORDS: [
-    "DROP",
-    "DELETE",
-    "UPDATE",
-    "INSERT",
-    "ALTER",
-    "CREATE",
-    "TRUNCATE",
-  ] as const,
+  // NOTE: SQL safety is now enforced by the AST validator in
+  // lib/database/sql-validator.ts (one read-only SELECT only) plus read-only
+  // transaction execution in the adapters — not by a keyword blocklist.
 } as const;

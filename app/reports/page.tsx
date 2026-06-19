@@ -7,9 +7,10 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Plus, Download } from "lucide-react"
+import { Search, Plus, Download, Upload } from "lucide-react"
 import { SavedReports } from "@/components/saved-reports"
 import { ExportReportsDialog } from "@/components/export-reports-dialog"
+import { ImportReportsDialog } from "@/components/import-reports-dialog"
 import { useDatabaseOptions } from "@/lib/database-connection-options"
 import { useToast } from "@/hooks/use-toast"
 
@@ -17,6 +18,7 @@ export default function ReportsPage() {
   const router = useRouter()
   const [searchTerm, setSearchTerm] = useState("")
   const [showExportDialog, setShowExportDialog] = useState(false)
+  const [showImportDialog, setShowImportDialog] = useState(false)
   const connectionInfo = useDatabaseOptions()
   const { toast } = useToast()
 
@@ -30,6 +32,10 @@ export default function ReportsPage() {
             <p className="text-muted-foreground">View and run your saved queries</p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setShowImportDialog(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              Import Reports
+            </Button>
             <Button
               variant="outline"
               onClick={() => setShowExportDialog(true)}
@@ -101,6 +107,7 @@ export default function ReportsPage() {
       </div>
 
       <ExportReportsDialog open={showExportDialog} onOpenChange={setShowExportDialog} />
+      <ImportReportsDialog open={showImportDialog} onOpenChange={setShowImportDialog} />
     </div>
   )
 }
