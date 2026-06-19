@@ -42,6 +42,13 @@ export interface SavedReport {
 
   // Origin of the report: "local" (user-created) or "server" (loaded from config/reports.json, read-only)
   source?: "local" | "server";
+
+  // Sharing (auth mode only). Set server-side by getReportsForUser.
+  // undefined ⇒ owned (e.g. localStorage mode); "owner" ⇒ owned in auth mode;
+  // "view"/"edit" ⇒ shared with the current user at that permission.
+  accessLevel?: "owner" | "view" | "edit";
+  sharedByEmail?: string;   // owner's email, shown on "Shared with you" items
+  sharedByName?: string | null;
 }
 
 /**

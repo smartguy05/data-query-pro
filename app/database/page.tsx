@@ -13,10 +13,12 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Database, CheckCircle, Loader2, Plus, Trash2, Download, Upload, Edit, AlertCircle, Copy } from "lucide-react"
+import { Database, CheckCircle, Loader2, Plus, Trash2, Download, Upload, Edit, AlertCircle, Copy, Share2, Users } from "lucide-react"
 import {useDatabaseOptions} from "@/lib/database-connection-options";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import type { DatabaseType } from "@/lib/database"
+import { ShareDialog } from "@/components/share-dialog"
+import { useAuth } from "@/hooks/use-auth"
 
 interface ConnectionFormData {
   type: string
@@ -32,6 +34,7 @@ interface ConnectionFormData {
 
 export default function DatabasePage() {
   const connectionInformation = useDatabaseOptions();
+  const { authEnabled } = useAuth();
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -456,6 +459,159 @@ export default function DatabasePage() {
     return `${connection.type.toUpperCase()} • ${connection.host}:${connection.port}/${connection.database}`
   }
 
+  const isSharedConnection = (connection: DatabaseConnection) =>
+    connection.accessLevel === "view" || connection.accessLevel === "edit"
+
+  const ownedConnections = (savedConnections ?? []).filter((c) => !isSharedConnection(c))
+  const sharedConnections = (savedConnections ?? []).filter(isSharedConnection)
+
+  const renderConnectionCard = (connection: DatabaseConnection) => {
+    const isServer = connection.source === "server"
+    const isShared = isSharedConnection(connection)
+    const canEdit = !isServer && (!isShared || connection.accessLevel === "edit")
+    const canDelete = !isServer && !isShared
+    const canShare = authEnabled && !isServer && !isShared
+
+    return (
+      <Card key={connection.id}>
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            {/* Icon */}
+            <div
+              className={`p-2 rounded-lg flex-shrink-0 ${
+                connection.status === "connected" ? "bg-green-100" : "bg-slate-100"
+              }`}
+            >
+              <Database
+                className={`h-5 w-5 ${
+                  connection.status === "connected" ? "text-green-600" : "text-slate-600"
+                }`}
+              />
+            </div>
+
+            {/* Connection Info */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-semibold">{connection.name}</h3>
+                <Badge
+                  variant={connection.status === "connected" ? "default" : "secondary"}
+                  className={connection.status === "connected" ? "bg-green-100 text-green-700" : ""}
+                >
+                  {connection.status === "connected" ? "Active" : "Saved"}
+                </Badge>
+                {connection.source === "server" && (
+                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                    Server Config
+                  </Badge>
+                )}
+                {isShared && (
+                  <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 gap-1">
+                    <Users className="h-3 w-3" />
+                    Shared by {connection.sharedByName || connection.sharedByEmail || "owner"}
+                    {connection.accessLevel === "view" ? " · View" : " · Edit"}
+                  </Badge>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground truncate">
+                {getConnectionDisplayInfo(connection)}
+              </p>
+              {connection.description && (
+                <p className="text-xs text-muted-foreground mt-1 truncate">{connection.description}</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Created: {new Date(connection.createdAt).toLocaleDateString()}
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {connection.status !== "connected" && (
+                <Button size="sm" variant="outline" onClick={() => setCurrentConnection(connection)}>
+                  Use Connection
+                </Button>
+              )}
+              {!connection.schemaFileId ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => uploadSchema(connection)}
+                  disabled={uploadingSchemaId === connection.id}
+                >
+                  {uploadingSchemaId === connection.id ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload Schema
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <div className="flex items-center gap-1 text-green-600">
+                  <CheckCircle className="h-4 w-4" />
+                  <span className="text-xs whitespace-nowrap">Schema Uploaded</span>
+                </div>
+              )}
+              {canShare && (
+                <ShareDialog
+                  resourceId={connection.id}
+                  resourceType="connection"
+                  resourceName={connection.name}
+                  trigger={
+                    <Button size="sm" variant="outline" title="Share connection">
+                      <Share2 className="h-4 w-4" />
+                    </Button>
+                  }
+                />
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleDuplicateConnection(connection)}
+                title="Duplicate connection"
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => canEdit && openEditDialog(connection)}
+                disabled={!canEdit}
+                title={
+                  isServer
+                    ? "Server connections cannot be edited"
+                    : isShared && connection.accessLevel !== "edit"
+                    ? "You have view-only access to this connection"
+                    : "Edit connection"
+                }
+              >
+                <Edit className={`h-4 w-4 ${!canEdit ? "text-muted-foreground" : ""}`} />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => canDelete && deleteConnection(connection.id)}
+                disabled={!canDelete}
+                title={
+                  isServer
+                    ? "Server connections cannot be deleted"
+                    : isShared
+                    ? "Only the owner can delete this connection"
+                    : "Delete connection"
+                }
+              >
+                <Trash2 className={`h-4 w-4 ${!canDelete ? "text-muted-foreground" : "text-red-500"}`} />
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -672,117 +828,23 @@ export default function DatabasePage() {
                     </div>
                   </CardContent>
                 </Card>
+              ) : authEnabled && sharedConnections.length > 0 ? (
+                <>
+                  <div className="space-y-4">
+                    <h2 className="text-sm font-semibold text-muted-foreground">Your Connections</h2>
+                    {ownedConnections.length > 0 ? (
+                      ownedConnections.map(renderConnectionCard)
+                    ) : (
+                      <p className="text-sm text-muted-foreground">You haven&apos;t created any connections yet.</p>
+                    )}
+                  </div>
+                  <div className="space-y-4 pt-2">
+                    <h2 className="text-sm font-semibold text-muted-foreground">Shared with you</h2>
+                    {sharedConnections.map(renderConnectionCard)}
+                  </div>
+                </>
               ) : (
-                savedConnections.map((connection) => (
-                  <Card key={connection.id}>
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-3">
-                        {/* Icon */}
-                        <div
-                          className={`p-2 rounded-lg flex-shrink-0 ${
-                            connection.status === "connected" ? "bg-green-100" : "bg-slate-100"
-                          }`}
-                        >
-                          <Database
-                            className={`h-5 w-5 ${
-                              connection.status === "connected" ? "text-green-600" : "text-slate-600"
-                            }`}
-                          />
-                        </div>
-
-                        {/* Connection Info */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-semibold">{connection.name}</h3>
-                            <Badge
-                              variant={connection.status === "connected" ? "default" : "secondary"}
-                              className={connection.status === "connected" ? "bg-green-100 text-green-700" : ""}
-                            >
-                              {connection.status === "connected" ? "Active" : "Saved"}
-                            </Badge>
-                            {connection.source === "server" && (
-                              <Badge
-                                variant="outline"
-                                className="bg-blue-50 text-blue-700 border-blue-200"
-                              >
-                                Server Config
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-sm text-muted-foreground truncate">
-                            {getConnectionDisplayInfo(connection)}
-                          </p>
-                          {connection.description && (
-                            <p className="text-xs text-muted-foreground mt-1 truncate">{connection.description}</p>
-                          )}
-                          <p className="text-xs text-muted-foreground">
-                            Created: {new Date(connection.createdAt).toLocaleDateString()}
-                          </p>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {connection.status !== "connected" && (
-                            <Button size="sm" variant="outline" onClick={() => setCurrentConnection(connection)}>
-                              Use Connection
-                            </Button>
-                          )}
-                          {!connection.schemaFileId ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => uploadSchema(connection)}
-                              disabled={uploadingSchemaId === connection.id}
-                            >
-                              {uploadingSchemaId === connection.id ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  Uploading...
-                                </>
-                              ) : (
-                                <>
-                                  <Upload className="h-4 w-4 mr-2" />
-                                  Upload Schema
-                                </>
-                              )}
-                            </Button>
-                          ) : (
-                            <div className="flex items-center gap-1 text-green-600">
-                              <CheckCircle className="h-4 w-4" />
-                              <span className="text-xs whitespace-nowrap">Schema Uploaded</span>
-                            </div>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleDuplicateConnection(connection)}
-                            title="Duplicate connection"
-                          >
-                            <Copy className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => connection.source !== "server" && openEditDialog(connection)}
-                            disabled={connection.source === "server"}
-                            title={connection.source === "server" ? "Server connections cannot be edited" : "Edit connection"}
-                          >
-                            <Edit className={`h-4 w-4 ${connection.source === "server" ? "text-muted-foreground" : ""}`} />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => connection.source !== "server" && deleteConnection(connection.id)}
-                            disabled={connection.source === "server"}
-                            title={connection.source === "server" ? "Server connections cannot be deleted" : "Delete connection"}
-                          >
-                            <Trash2 className={`h-4 w-4 ${connection.source === "server" ? "text-muted-foreground" : "text-red-500"}`} />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
+                savedConnections.map(renderConnectionCard)
               )}
             </div>
           </TabsContent>

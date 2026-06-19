@@ -22,9 +22,14 @@ interface DbConnection {
   updated_at: Date;
   // Join fields for shared connections
   permission?: string;
+  shared_by_email?: string | null;
+  shared_by_name?: string | null;
 }
 
-function toClientConnection(row: DbConnection): DatabaseConnection {
+function toClientConnection(
+  row: DbConnection,
+  accessLevel: DatabaseConnection['accessLevel'] = 'owner'
+): DatabaseConnection {
   return {
     id: row.id,
     name: row.name,
@@ -41,6 +46,9 @@ function toClientConnection(row: DbConnection): DatabaseConnection {
     vectorStoreId: row.vector_store_id || undefined,
     source: (row.source || 'local') as 'local' | 'server',
     createdAt: row.created_at?.toISOString() || new Date().toISOString(),
+    accessLevel,
+    sharedByEmail: row.shared_by_email || undefined,
+    sharedByName: row.shared_by_name ?? undefined,
   };
 }
 
@@ -57,11 +65,13 @@ export async function getConnectionsForUser(
     ORDER BY created_at DESC
   `;
 
-  // Get shared connections
+  // Get shared connections (with the owner's identity for "Shared by …" display)
   const shared = await sql<DbConnection[]>`
-    SELECT dc.*, cs.permission
+    SELECT dc.*, cs.permission,
+           u.email AS shared_by_email, u.name AS shared_by_name
     FROM database_connections dc
     JOIN connection_shares cs ON cs.connection_id = dc.id
+    LEFT JOIN users u ON u.id = dc.owner_id
     WHERE cs.shared_with_id = ${userId}
     ORDER BY dc.created_at DESC
   `;
@@ -89,13 +99,23 @@ export async function getConnectionsForUser(
         ORDER BY dc.created_at DESC
       `;
 
-  // Deduplicate by id
+  // Deduplicate by id. Order matters: owned takes precedence over shared,
+  // and both over server-assigned, so the first occurrence wins its accessLevel.
+  const sourceGroups: Array<{ rows: DbConnection[]; level: DatabaseConnection['accessLevel'] }> = [
+    { rows: owned, level: 'owner' },
+    { rows: shared, level: undefined },         // per-row permission, set below
+    { rows: serverConns, level: 'owner' },
+  ];
   const seen = new Set<string>();
   const results: DatabaseConnection[] = [];
-  for (const row of [...owned, ...shared, ...serverConns]) {
-    if (!seen.has(row.id)) {
-      seen.add(row.id);
-      results.push(toClientConnection(row));
+  for (const group of sourceGroups) {
+    for (const row of group.rows) {
+      if (!seen.has(row.id)) {
+        seen.add(row.id);
+        const level =
+          group.level ?? ((row.permission as DatabaseConnection['accessLevel']) || 'view');
+        results.push(toClientConnection(row, level));
+      }
     }
   }
 
@@ -339,7 +359,7 @@ export async function getAllServerConnections(): Promise<DatabaseConnection[]> {
     ORDER BY created_at DESC
   `;
 
-  return rows.map(toClientConnection);
+  return rows.map((row) => toClientConnection(row));
 }
 
 export async function updateServerConnection(

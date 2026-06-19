@@ -41,6 +41,7 @@ it maps every route, feature, and component to its source path and doc.
 
 ### Reference & Testing
 - [File Map](./reference/file-map.md) - Feature/route/component → source path → doc
+- [Lessons Learned & Gotchas](./reference/lessons-learned.md) - Non-obvious traps (postgres.js, introspection, SQL safety, auth testing, build)
 - [Testing Plan](./testing/README.md) - Phased Playwright MCP test plan
 
 ## Key Concepts

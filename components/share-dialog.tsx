@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -20,11 +20,17 @@ import {
 } from "@/components/ui/select"
 import { Share2, Trash2, Search, UserPlus } from "lucide-react"
 import type { ShareInfo } from "@/lib/db/repositories/sharing-repository"
+import { useToast } from "@/hooks/use-toast"
 
 interface ShareDialogProps {
   resourceId: string
   resourceType: "connection" | "report"
   resourceName: string
+  /** Custom trigger element. Ignored when `open`/`onOpenChange` are supplied (controlled mode). */
+  trigger?: ReactNode
+  /** Controlled open state. When provided, the dialog renders no internal trigger. */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 interface SearchUser {
@@ -33,20 +39,32 @@ interface SearchUser {
   name: string | null
 }
 
-const PERMISSION_OPTIONS = {
-  connection: [
-    { value: "view", label: "View" },
-    { value: "edit", label: "Edit" },
-    { value: "admin", label: "Admin" },
-  ],
-  report: [
-    { value: "view", label: "View" },
-    { value: "edit", label: "Edit" },
-  ],
-}
+// View/Edit only — owner shares as view and can later grant edit. (The DB also
+// supports an `admin` connection permission, but we don't surface it in the UI.)
+const PERMISSION_OPTIONS = [
+  { value: "view", label: "View" },
+  { value: "edit", label: "Edit" },
+]
 
-export function ShareDialog({ resourceId, resourceType, resourceName }: ShareDialogProps) {
-  const [open, setOpen] = useState(false)
+export function ShareDialog({
+  resourceId,
+  resourceType,
+  resourceName,
+  trigger,
+  open: controlledOpen,
+  onOpenChange,
+}: ShareDialogProps) {
+  const { toast } = useToast()
+  const isControlled = controlledOpen !== undefined
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = isControlled ? controlledOpen : internalOpen
+  const setOpen = useCallback(
+    (next: boolean) => {
+      if (isControlled) onOpenChange?.(next)
+      else setInternalOpen(next)
+    },
+    [isControlled, onOpenChange]
+  )
   const [shares, setShares] = useState<ShareInfo[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<SearchUser[]>([])
@@ -94,41 +112,57 @@ export function ShareDialog({ resourceId, resourceType, resourceName }: ShareDia
     return () => clearTimeout(timer)
   }, [searchQuery])
 
-  const handleShare = async (userId: string) => {
+  const handleShare = async (userId: string, perm: string = permission) => {
     try {
-      await fetch(`/api/sharing/${resourceType}s/${resourceId}`, {
+      const res = await fetch(`/api/sharing/${resourceType}s/${resourceId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sharedWithId: userId, permission }),
+        body: JSON.stringify({ sharedWithId: userId, permission: perm }),
       })
+      if (!res.ok) throw new Error()
       setSearchQuery("")
       setSearchResults([])
       loadShares()
+      toast({ title: "Access updated", description: `Shared with ${perm} access.` })
     } catch {
-      // Ignore errors
+      toast({
+        title: "Couldn't update sharing",
+        description: "Please try again.",
+        variant: "destructive",
+      })
     }
   }
 
   const handleRemove = async (userId: string) => {
     try {
-      await fetch(`/api/sharing/${resourceType}s/${resourceId}`, {
+      const res = await fetch(`/api/sharing/${resourceType}s/${resourceId}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sharedWithId: userId }),
       })
+      if (!res.ok) throw new Error()
       loadShares()
+      toast({ title: "Access removed", description: "User can no longer access this." })
     } catch {
-      // Ignore errors
+      toast({
+        title: "Couldn't remove access",
+        description: "Please try again.",
+        variant: "destructive",
+      })
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" title="Share">
-          <Share2 className="h-4 w-4" />
-        </Button>
-      </DialogTrigger>
+      {!isControlled && (
+        <DialogTrigger asChild>
+          {trigger ?? (
+            <Button variant="ghost" size="sm" title="Share">
+              <Share2 className="h-4 w-4" />
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Share {resourceType === "connection" ? "Connection" : "Report"}</DialogTitle>
@@ -154,7 +188,7 @@ export function ShareDialog({ resourceId, resourceType, resourceName }: ShareDia
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PERMISSION_OPTIONS[resourceType].map((opt) => (
+                {PERMISSION_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </SelectItem>
@@ -211,9 +245,25 @@ export function ShareDialog({ resourceId, resourceType, resourceName }: ShareDia
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs bg-blue-500/10 text-blue-500 px-2 py-0.5 rounded">
-                        {share.permission}
-                      </span>
+                      <Select
+                        value={share.permission === "edit" ? "edit" : "view"}
+                        onValueChange={(value) => {
+                          if (value !== share.permission) {
+                            handleShare(share.sharedWithId, value)
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-7 w-20 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PERMISSION_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <Button
                         variant="ghost"
                         size="sm"

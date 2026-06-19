@@ -638,6 +638,13 @@ export default function ContextualDashboard() {
                 ))}
               </SelectContent>
             </Select>
+            <Link href="/query" className="ml-auto shrink-0">
+              <Button className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
+                <MessageSquare className="h-4 w-4" />
+                Query Data
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </Link>
           </div>
         </CardContent>
       </Card>

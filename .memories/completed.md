@@ -1,204 +1,125 @@
 # Completed Tasks
 
+> Recent (current branch) work is detailed below. Older work is collapsed under
+> **Historical (summarized)** — for full prose, see git history. Durable gotchas live in
+> [docs/reference/lessons-learned.md](../docs/reference/lessons-learned.md).
+
+## Nav consolidation + Admin/Profile relocation + real Profile page (2026-06-19, branch more-improvements)
+- Crowded top nav (7 flat links) reduced to 3 top-level items. New shape: **Dashboard** (standalone) + **Data ▾** (Database, Schema) + **Query ▾** (Query, History, Learning, Reports).
+- Replaced flat `navigation` array with `standaloneLinks` + `navGroups` (+ `NavGroup` type) in `components/navigation.tsx`. Desktop uses Radix `DropdownMenu` (already imported for user menu); parent highlights via `isGroupActive(group)`. Added `ChevronDown` icon. Mobile keeps flat expanded list with uppercase group-label headers.
+- **Admin** moved out of the top nav into the profile dropdown (between Profile and Sign out), gated on `isAdmin`. Same on mobile (in the user section).
+- **Profile link was dead** — it pointed at `/admin` (Admin Panel, which redirects non-admins to `/`); there was no profile route. Built a real `app/profile/page.tsx`: account card (avatar/name/email/admin badge/groups from `useAuth`, with a "Local mode" fallback when auth disabled) + Usage stats (query accuracy %, connections, reports counts from `useDatabaseOptions`) + Admin Panel / Sign out actions. Nav "Profile" now → `/profile` (desktop + mobile; added Profile to mobile too). Guards: in auth mode redirects to `/` if not authenticated.
+- Verified: `npm run lint` 0/0, `npm run build` passes (route `/profile` 4.73 kB).
+
+## Import Reports (2026-06-19, branch more-improvements)
+- Closed a gap: Reports page had **Export** (`export-reports-dialog.tsx`, emits `{version,exportDate,reports[]}`) but **no import**. The only importer was the Database page's `importData`, which rejects any file lacking `databaseConnections` AND writes straight to localStorage (broken in auth mode).
+- New `components/import-reports-dialog.tsx` + "Import Reports" button on `app/reports/page.tsx`. File picker → parse (accepts `{reports}`, bare array, or `{savedReports}`) → classify each report: **duplicate** (id already in context.reports → skipped, idempotent), **auto** (original `connectionId` exists → imports there), **orphan** (connection missing → per-report connection `Select`, unassigned orphans skipped). Imports via context `saveReport` so it works in BOTH localStorage and auth modes. Strips `source`/`accessLevel`/`sharedBy*` on import. Toast summarizes imported + skipped counts.
+- Decisions (user): auto-assign original connection else per-report choice; skip-by-id for duplicates.
+- Verified: `pnpm lint` 0/0, `pnpm build` passes.
+
+## Connection & Report Sharing UI (2026-06-19, branch more-improvements)
+- Surfaced the already-built sharing backend in the UI (it had none). Scope: connections +
+  reports. Permissions **View/Edit only** (admin dropped from UI), default view, owner can
+  grant edit. Presentation: separate "Your X" / "Shared with you" sections. View-only
+  recipients see Edit/Delete **shown-but-disabled** w/ tooltips. All gated on `authEnabled`.
+  No new migration (tables exist in 001).
+- Models: added optional `accessLevel?: "owner"|"view"|"edit"`, `sharedByEmail?`,
+  `sharedByName?` to `DatabaseConnection` + `SavedReport` (`undefined` ⇒ owned).
+- Repos: `getConnectionsForUser`/`getReportsForUser` tag owned rows `'owner'`, shared rows by
+  `permission`, and `LEFT JOIN users` on `owner_id` for "Shared by …". `toClientConnection`/
+  `toClientReport` gained an `accessLevel` 2nd arg — **callers using `.map(toClientX)` must
+  wrap `.map(r => toClientX(r))`** (index leak broke the build once).
+- `ShareDialog`: controlled mode (`open`/`onOpenChange`) + custom `trigger` prop; reports open
+  it from a dropdown via controlled state, connections via inline trigger. Per-share permission
+  `Select` (view↔edit upsert), success/error toasts (was silently swallowing).
+- UI: `app/database/page.tsx` + `components/saved-reports.tsx` extracted `renderConnectionCard`/
+  `renderReportCard`, partition owned/shared, two titled sections when `authEnabled &&
+  shared.length>0`. Owner-only Share; `canEdit = !server && (!shared || accessLevel==='edit')`;
+  delete/pin/favorite owner-only; purple "Shared by {name} · View/Edit" badge.
+- Verified: `pnpm lint` 0/0, `pnpm build` passes, 138 vitest tests pass. Sharing routes/repo
+  SQL NOT unit-tested (need live Postgres + auth) — verify via manual e2e in auth mode.
+
 ## Learning Feature Phase 2 — team-wide corrections sync (2026-06-18, branch more-improvements)
-- **Goal**: make captured failed→revised corrections shared across a team in auth mode (Phase 1 was device-local). Decisions (interviewed): **corrections only** (examples/history stay device-local), **team-wide pool keyed purely by schema fingerprint** (any authed user with same fingerprint sees them; single-tenant app), **author-or-admin** edit/delete, **capture-only** (no manual authoring), **curation page**.
-- **Migration** `006_query_corrections.sql`: table pooled by `schema_fingerprint` (NOT per-user). `owner_id TEXT REFERENCES users(id) ON DELETE SET NULL` (attribution only; shared knowledge survives user deletion). Index `(schema_fingerprint, created_at DESC)`; **dedup** unique index `(schema_fingerprint, md5(bad_sql), md5(good_sql))`; reuses `update_updated_at_column()` trigger from 001.
-- **Repo** `lib/db/repositories/query-correction-repository.ts`: `getByFingerprint(fp, limit)` (LEFT JOIN users for owner name/email, no owner filter), `createCorrection(userId, c)` (`INSERT ... ON CONFLICT DO NOTHING`, server stamps owner_id), `updateCorrection`/`deleteCorrection` gated `WHERE id=$ AND (owner_id=$user OR $isAdmin)`.
-- **API** (auth-mode, `/api/data/*` pattern): `app/api/data/corrections/route.ts` (GET `?fingerprint=`, POST) + `[id]/route.ts` (PUT, DELETE). Uses `getAuthContext` + response helpers.
-- **Storage abstraction**: corrections previously **bypassed** StorageProvider (page imported `utils/query-corrections` directly). Added 4 methods to `StorageProvider`: `getCorrectionsForFingerprint`, `addQueryCorrection`, `updateQueryCorrection`, `deleteQueryCorrection`. `LocalStorageProvider` delegates to `utils/query-corrections.ts` (added `updateQueryCorrection`/`deleteQueryCorrection` helpers); `ApiStorageProvider` calls the new endpoints.
-- **Context** (`database-connection-options.tsx`): exposes `recordQueryCorrection` (fire-and-forget like `recordQueryHistory`), `getCorrectionsForFingerprint`, `updateQueryCorrection`, `deleteQueryCorrection` (added to `database-context-type.interface.ts`). `app/query/page.tsx` now routes through the context (no direct util import); examples/history path untouched.
-- **Curation page** `app/learning/page.tsx` (+ nav link "Learning", GraduationCap icon): lists corrections for the current connection's fingerprint, search, edit dialog (question/error/goodSql), delete with confirm. Edit/delete affordances gated by `canManage` = `!authEnabled || isAdmin || ownerId===user.id`; server enforces too. Works in both modes (local in no-auth).
-- **Model**: `QueryCorrection` gained optional `ownerId`/`ownerName`/`updatedAt`. **Constant**: `CORRECTIONS.MAX_POOL_FETCH=200`.
-- Verified: tsc 0, lint 0/0, `next build` passes (new routes + /learning compiled), 138 vitest tests pass (new `query-corrections-storage.test.ts`: util + LocalStorageProvider correction round-trip/edit/delete/cap/corrupt-recovery). Repo SQL (dedup, author-or-admin scoping) NOT unit-tested (needs live DB) — verify via migration + manual e2e in auth mode.
+- Captured failed→revised corrections now shared across a team in auth mode (Phase 1 was
+  device-local). Decisions: corrections only (examples/history stay device-local), team-wide
+  pool keyed purely by schema fingerprint, author-or-admin edit/delete, capture-only, curation page.
+- Migration `006_query_corrections.sql`: pooled by `schema_fingerprint` (NOT per-user).
+  `owner_id ... ON DELETE SET NULL` (attribution only). Indexes `(fingerprint, created_at DESC)`
+  + dedup unique `(fingerprint, md5(bad_sql), md5(good_sql))`.
+- Repo `query-correction-repository.ts`: `getByFingerprint` (no owner filter, LEFT JOIN users),
+  `createCorrection` (`INSERT ... ON CONFLICT DO NOTHING`), `update`/`delete` gated
+  `WHERE id=$ AND (owner_id=$user OR $isAdmin)`.
+- API `/api/data/corrections` (GET `?fingerprint=`, POST) + `[id]` (PUT, DELETE). Added 4
+  methods to `StorageProvider` (corrections previously bypassed it); context exposes
+  `recordQueryCorrection`/`getCorrectionsForFingerprint`/`update`/`delete` (fire-and-forget).
+- Curation page `app/learning/page.tsx` (+ nav "Learning"): list/search/edit/delete for current
+  connection's fingerprint; `canManage = !authEnabled || isAdmin || ownerId===user.id` (server
+  enforces too). `QueryCorrection` gained `ownerId`/`ownerName`/`updatedAt`; `CORRECTIONS.MAX_POOL_FETCH=200`.
+- Verified: tsc 0, lint 0/0, build passes, 138 tests (new `query-corrections-storage.test.ts`).
+  Repo SQL not unit-tested (needs live DB).
 
 ## Query Safety, Auditing & Learning (2026-06-18, branch more-improvements)
-- **Read-only execution**: `AdapterConnectionConfig.readOnly` flag (`lib/database/types.ts`), set on `config.readOnly=true` in `/api/query/execute` and `/api/schema/sample-data` before `connect()`. Each adapter enforces it: PG `client.begin('read only', tx=>tx.unsafe(sql))`; MySQL `START TRANSACTION READ ONLY`+ROLLBACK; SQL Server `sql.Transaction` + always ROLLBACK (T-SQL has no true RO tx — validator is primary there, DDL auto-commits noted); SQLite opens `new Database(path,{readonly:!!config.readOnly})`. Introspection leaves flag unset (stays writable). `BaseDatabaseAdapter.readOnly` field.
-- **AST validator** (`lib/database/sql-validator.ts`, `validateReadOnlySql(sql,dbType)`): replaces the regex keyword blocklist. Uses `node-sql-parser` (added dep, ^5.4.0). Dialect map pg→postgresql, mysql→mysql, sqlserver→transactsql, sqlite→sqlite. Allows exactly ONE statement of type `select` (CTEs parse as select). **Fails closed** on parse error (no keyword fallback). Removed dead `DANGEROUS_SQL_KEYWORDS` from `lib/constants.ts`.
-- **Audit log** (`lib/query-log.ts` `logQuery()` fire-and-forget): app DB when `isAppDbEnabled()` (migration `005_query_log.sql` append-only, nullable user_id NO FK, repo `query-log-repository.ts`), else JSONL to `logs/query-log.jsonl` (`lib/query-log-file.ts`, gitignored). Hooked into execute route success+failure. Client sends `question`+`querySource` in execute body. **Never logs credentials** (QueryLogEntry has no cred fields; unit-tested).
-- **Learn from previous queries** (per user: few-shot + avoid-mistakes, all successful executions, per schema fingerprint, device-local like history, relevance match, capture failed→revised): `utils/schema-fingerprint.ts` (FNV-1a, order-independent, lowercased), `utils/example-relevance.ts` (Jaccard scorer + SQL-token boost, topN), `utils/query-corrections.ts` (localStorage `query_corrections`, capped 50). Client `buildLearningContext` in `app/query/page.tsx` assembles examples (from `getQueryHistory()`, same dbType) + corrections (by fingerprint), sends in `/api/query/generate` body. Server `buildLearningSections()` injects two **guarded** prompt sections (empty→prompt unchanged). Corrections captured in `reviseTabQuery` on success. Constants: `AI.MAX_FEW_SHOT=4`, `AI.MAX_CORRECTIONS=2`, `CORRECTIONS.MAX_ENTRIES=50`, `STORAGE_KEYS.QUERY_CORRECTIONS`.
-- **Encrypt creds at rest**: app DB already AES-256-GCM; localStorage + config JSON intentionally out of scope (user decision). Deliverable = the audit-log no-credentials guarantee above.
-- Verified: tsc clean, lint 0/0, `next build` passes, 123 vitest tests pass (new: sql-validator, schema-fingerprint, example-relevance, query-log-no-credentials). NOT live-tested against a real DB — demo Postgres not running this session; better-sqlite3 native binary missing locally.
+- **Read-only execution**: `AdapterConnectionConfig.readOnly` flag set in `/api/query/execute`
+  + `/api/schema/sample-data`. Per-dialect enforcement (PG RO tx, MySQL RO tx+ROLLBACK, SQL
+  Server wrap+always-ROLLBACK, SQLite connect-time readonly). Introspection stays writable.
+- **AST validator** `lib/database/sql-validator.ts` `validateReadOnlySql(sql,dbType)` replaced
+  the regex blocklist — `node-sql-parser` (dep ^5.4.0), single `select` only, hybrid fallback
+  to `heuristicReadOnly()` when astify throws. Removed dead `DANGEROUS_SQL_KEYWORDS`.
+- **Audit log** `lib/query-log.ts` `logQuery()` (fire-and-forget): app DB `query_log`
+  (migration 005, no FK) when `isAppDbEnabled()` else `logs/query-log.jsonl`. Never logs creds.
+- **Learn from previous queries** (per-user few-shot + avoid-mistakes, device-local, per schema
+  fingerprint): `utils/schema-fingerprint.ts`, `utils/example-relevance.ts`,
+  `utils/query-corrections.ts`. Client `buildLearningContext` → `/api/query/generate`; server
+  `buildLearningSections()` injects two guarded prompt sections. Constants `AI.MAX_FEW_SHOT=4`,
+  `AI.MAX_CORRECTIONS=2`, `CORRECTIONS.MAX_ENTRIES=50`.
+- Verified: tsc clean, lint 0/0, build passes, 123 tests at the time (new: sql-validator,
+  schema-fingerprint, example-relevance, query-log-no-credentials). Not live-DB tested.
+- (Full SQL-safety/learning gotchas → docs/reference/lessons-learned.md.)
 
-## Core Features (Complete)
-- Multi-database support: PostgreSQL, MySQL, SQL Server, SQLite with adapter pattern
-- Natural language to SQL query generation via OpenAI Responses API
-- Query enhancement (improve vague queries with schema details)
-- Self-correcting queries (revise failed SQL automatically)
-- Follow-up questions on query results (new query or explanation)
-- Schema introspection with background processing and polling
-- AI-generated descriptions for tables and columns (batch processing)
-- Schema change detection (new/modified flags after re-introspection)
-- Column type auto-detection (text, number, currency, date, URL, empty)
-- Manual column type override via dropdown
-- Multi-tab query interface (original + follow-up tabs)
-- Saved reports with parameterized queries ({{param}} syntax)
-- Report favorites, cloning, import/export
-- AI suggestions for metrics/reports based on schema
-- Chart generation (bar, line, pie, area, scatter, composed) via Recharts
-- Dashboard widgets: pin saved reports as KPI cards / trend chart (live query execution)
-- Query accuracy tracking: dashboard "% Query Accuracy" stat (global, per-user) measuring how often AI-generated/follow-up queries execute without error; thumbs up/down override on results area flips the verdict either way; counters in localStorage (auth off) / `query_accuracy_stats` Postgres table (auth on, migration 004); hidden until 5+ queries; added 2026-06-18
-- Chart customizer: manual per-type chart config editing, persisted to SavedReport.visualization
-- Docs sync: documented dashboard widgets, composed chart, chart customizer (features.md, overview.md, file-map.md)
-- Dark/light theme support
-- Server configuration via config/databases.json for team deployments
-- Rate limiting with BYOK (bring your own key) bypass
-- CSRF protection
-- Error boundary for crash recovery
-- Landing page with features, screenshots, and installation instructions
-- Connection testing (real connectivity test with latency/version info)
-- Data export/import (backup/restore connections, schemas, reports)
+## Team Collaboration (Roadmap item) — COMPLETE (2026-06-19)
+- Delivered across: team-wide shared **query corrections** (Learning Phase 2, auth mode) +
+  **connection/report sharing** (view/edit, owner-curated) + **admin server-connection
+  assignment** to users/groups + **schema sharing** (admin uploads visible to assigned users).
+  Considered complete per user decision 2026-06-19.
 
-## Testing, Tooling & Docs (2026-06-18)
-- Vitest + Testing Library harness: vitest.config.ts (jsdom, "@/" alias, globals), setupTests.ts (jest-dom), `npm run test` / `test:watch` scripts
-- 86 tests across 7 files: tests/unit/{metric-status,substitute-params,error-sanitizer,compare-schemas,reshape-chart-config}.test.ts + tests/components/{executive-metrics,chart-customizer}.test.tsx
-- Extracted KPI logic to utils/metric-status.ts (formatMetricValue/computeStatus) from app/page.tsx for testability (only production-code change)
-- ESLint set up: .eslintrc.json (next/core-web-vitals) + eslint 8.57.1 + eslint-config-next 15.2.4; `npm run lint` now runs non-interactively. Fixed pre-existing react/no-unescaped-entities errors
-- New guides: docs/guides/performance.md (incl. WebSocket-deferral rationale) and docs/guides/deployment.md (Docker self-host); cross-linked from docs/README.md + CLAUDE.md
-- Tests/lint are unit-level only; Playwright E2E (docs/testing/) remains unimplemented
-- Group C model-types refactor (2026-06-18): all models/*.interface.ts now `export` their interfaces (were global ambient); added internal cross-imports + `import type` at ~22 usage sites. tsc clean (0, was 85). Global-ambient type pattern eliminated.
-- Pre-existing issues fixed (Group A+B): all 9 react-hooks/exhaustive-deps warnings silenced with documented eslint-disable directives (NOT by adding deps — would loop); ~20 localized tsc errors fixed: rate-limiter NextRequest.ip→x-real-ip (Next 15 removed .ip), tsconfig target ES6→ES2020 (fixes es2018 regex flag), repository sql.json() JSONValue casts, Session→unknown casts (use-auth/auth-options), implicit-any callback params annotated with global Column/DatabaseTable, postgres adapter/factory/migrate typing. Lint: 0/0; tests: 86 pass; tsc down to 85 (all Group C model-globals, deferred)
+---
 
-## Authentication & Multi-User Support (2026-02-05)
-- Optional Authentik OIDC authentication via Auth.js v5 (next-auth)
-- Dual-mode: localStorage (default) or PostgreSQL (when auth enabled)
-- StorageProvider abstraction: LocalStorageProvider / ApiStorageProvider
-- App database with auto-migration (instrumentation.ts + lib/db/migrate.ts)
-- Password encryption (AES-256-GCM) for stored database credentials
-- 10 PostgreSQL tables: users, database_connections, connection_schemas, saved_reports, suggestions_cache, user_preferences, dismissed_notifications, connection_shares, report_shares, server_connection_assignments
-- Repository layer: 8 repository files in lib/db/repositories/
-- CRUD API routes: /api/data/* (connections, schemas, reports, suggestions, preferences, notifications, import-local)
-- Sharing API routes: /api/sharing/{connections,reports}/[id], /api/sharing/users/search
-- Admin API routes: /api/admin/{users,server-connections,server-connections/[id]/assign,assignments}
-- Auth context (getAuthContext) added to all 16 existing API routes
-- Connection validator updated to resolve credentials from app DB in auth mode
-- Login page with Authentik SSO button
-- Navigation updated with user avatar, dropdown menu, admin link
-- Admin panel for managing server connection assignments (users and groups)
-- Share dialog component for connections and reports
-- Data migration dialog: import localStorage data on first authenticated login
-- Middleware updated: auth check, CSP form-action for Authentik issuer
-- CSRF exemption for /api/auth/ routes
-- useAuth hook for client-side auth state
+## Historical (summarized)
 
-## Auth Testing Infrastructure (2026-02-06)
-- docker-compose.auth-test.yml: Authentik + app DB + demo DB (6 containers)
-- scripts/setup-authentik.sh: auto-configures OIDC provider, application, groups, test users via API
-- docs/guides/authentication-testing.md: developer guide for auth testing setup
-- Fixed NextAuth route handler: destructure `handlers` from `NextAuth()` return value
-- Added AUTH_URL to .env.example and CLAUDE.md
+### Core feature set (complete)
+Multi-DB (PostgreSQL/MySQL/SQL Server/SQLite via adapter pattern); NL→SQL via OpenAI Responses
+API; query enhance / self-correct-revise / follow-ups; schema introspection (background + poll)
+with AI table/column descriptions + change detection; column type auto-detect + manual override;
+multi-tab query UI; saved reports w/ `{{param}}` params, favorites, clone, import/export;
+AI metric/report suggestions; charts (bar/line/pie/area/scatter/composed) via Recharts;
+dashboard widgets (pin reports as KPIs / trend charts, live execution); query accuracy stat;
+chart customizer; query history (device-local); dark/light theme; server config via
+`config/databases.json` + shared reports via `config/reports.json`; rate limiting + BYOK;
+CSRF; error boundary; landing page; real connection testing; data export/import.
 
-## Auth Bug Fixes (2026-02-06)
-- Fixed DataMigrationDialog showing before user is logged in (added useAuth check)
-- Fixed DatabaseConnectionOptions making API calls before session is established
-- Fixed getAuthContext missing `secret` param in getToken() causing 401s
-- Fixed JWT callback to retry userId lookup if initial upsert failed (DB not ready)
-- Fixed JSONB double-serialization in all 4 repositories (schema, report, suggestion, preference) — changed JSON.stringify() to sql.json() and added parseJsonb safety on retrieval
-- Fixed "connection data is required" error: admin page test connection wrapping
-- Fixed migration 001 idempotency: added DROP TRIGGER IF EXISTS before CREATE TRIGGER
-- Fixed migration 002 robustness: IF NOT EXISTS guards on FK constraints
-- Fixed page flash/reload UX: added ContentLoadingGate component
-- Fixed stale data after admin deletes: added refreshConnections() to context
-- Fixed "server connection not found" during introspection: start-introspection now uses validateConnection
-- Fixed PostgreSQL duplicate columns: removed cross-product JOIN in PK subquery + added Map-based deduplication in base adapter
-- Fixed pk.attname reference after PK subquery refactor
+### Auth & multi-user (2026-02-05 → 06)
+Optional Authentik OIDC via Auth.js v5 (JWT, no DB sessions); dual-mode storage
+(localStorage / PostgreSQL); `StorageProvider` abstraction; auto-migration via
+`instrumentation.ts`; AES-256-GCM credential encryption; 10 PG tables + 8 repositories;
+`/api/data/*`, `/api/sharing/*`, `/api/admin/*` routes; `getAuthContext` on all routes;
+credential resolution from app DB; login page; nav user menu; admin panel (server-connection
+assignment); data-migration dialog; `useAuth` hook. Auth testing infra:
+`docker-compose.auth-test.yml` + `scripts/setup-authentik.sh` + `docs/guides/authentication-testing.md`.
+Bug fixes: migration dialog gating, pre-session API calls, getToken secret, JWT retry, JSONB
+double-serialization, migration idempotency/FK guards, ContentLoadingGate, PG PK cross-product.
 
-## Auth UX Improvements (2026-02-06)
-- ID-only credential pattern: endpoints accept { connectionId } (auth) or { connection } (no-auth) for backwards compat
-- Server connection visibility: non-admins only see server connections with uploaded schema
-- Schema sharing: admin-uploaded schemas visible to all assigned users
-- Admin creates connection → auto-set as active → navigate to schema → auto-introspect
-- Admin page loading indicator for connections list
-- Reports page: added active connection selector dropdown
-- Copy report to connection: new "Copy to Connection" menu item for dev/staging/prod workflows
-- Migration 003: cascade-delete FK constraints on connection_schemas, saved_reports, suggestions_cache
+### Testing / tooling / docs (2026-06-18)
+Vitest + Testing Library harness (`vitest.config.ts`, jsdom, `@/` alias); ESLint
+(`.eslintrc.json` next/core-web-vitals). **Group C type refactor**: all `models/*.interface.ts`
+→ exported modules + `import type` at ~22 sites; tsc 0 (was 85); next.config flipped to enforce
+type-check + lint; build script de-fanged to plain `next build`. Guides added: performance,
+deployment. Playwright E2E (docs/testing/) still NOT implemented.
 
-## README & Getting Started Update (2026-02-06)
-- Updated top-level README.md: added "Option 3" local auth testing quickstart with docker-compose.auth-test.yml
-- Fixed npm → pnpm throughout README.md and getting-started.md
-- Fixed demo database password mismatch (demo123 → demo to match docker-compose)
-- Added test accounts table, container services table, demo DB connection details to README
-- Added auth testing guide link to README documentation table
-- Updated getting-started.md: added auth mode section, demo database section, auth env vars to table
-- Added cross-references between getting-started.md and authentication-testing.md
-
-## Documentation Audit (2026-02-05)
-- Updated CLAUDE.md project structure with all current files
-- Added missing API endpoints to docs (followup, enhance, revise, connection/test, rate-limit-status)
-- Updated architecture overview with multi-database support
-- Updated component docs with missing components (query-tab-content, followup-dialog, error-boundary, openai-api-provider, api-key-*)
-- Updated models overview with missing interfaces (QueryTab, CommonTypes)
-- Rewrote adding-database-support guide to reflect implemented adapter pattern
-- Fixed outdated references to "PostgreSQL only" throughout docs
-- Added TRUSTED_PROXIES env var documentation
-- Created .memories files (completed.md, todos.md, notes.md)
-
-## Schema UX Improvements (2026-03-04)
-- Per-table AI description generation: sends one table per API request instead of batches of 10, shows table name and count in progress button
-- Sample data preview: new `/api/schema/sample-data` route returns top 10 rows for a table, "Sample Data" button on each table card in schema explorer with cached data and toggle visibility
-
-## Copy Schema Descriptions Between Connections (2026-06-18)
-- New feature: copy table/column descriptions from one connection's schema to another (same DB across dev/staging/prod). Purely client-side; no API route/migration.
-- `utils/copy-descriptions.ts`: pure `copyDescriptions(target, source, {mode, includeAiDescriptions, includeVisibility})` → `{schema, stats}`. Name-matches tables/columns (Map pattern like `compare-schemas.ts`), deep-clones target (no mutation). `mode`: 'fill-empty' (only blanks) | 'overwrite'. Copies `description` always, `aiDescription` if includeAiDescriptions, mirrors `hidden` if includeVisibility. Unmatched target tables/columns left untouched + counted.
-- `components/copy-descriptions-dialog.tsx`: source-connection Select (only connections with a saved schema, excluding target), fill-empty/overwrite RadioGroup, AI-descriptions + visibility Switches (default on), live preview stats, Apply. Empty-state Alert if no other connection has a schema.
-- `components/schema-explorer.tsx`: "Copy Descriptions" toolbar button (ClipboardCopy icon) + `showCopyDialog` state + `handleApplyCopiedDescriptions` (calls `setSchema`, `setHasUnsavedChanges(true)`, toast reminding to Save to OpenAI). Reuses existing save/re-upload flow — no changes to `saveChangesToOpenAI`.
-
-## Query History + Mock-Component Cleanup (2026-06-18)
-- New **Query History** feature (device-local, localStorage in both auth & no-auth modes — intentionally NOT synced to app DB).
-  - Model: `models/query-history.interface.ts` (`QueryHistoryEntry`).
-  - Constants: `STORAGE_KEYS.QUERY_HISTORY = "query_history"`, `HISTORY.MAX_ENTRIES = 200` (ring buffer, newest first) in `lib/constants.ts`.
-  - StorageProvider: added `getQueryHistory`/`addQueryHistory`/`deleteQueryHistory`/`clearQueryHistory` to interface + both `LocalStorageProvider` and `ApiStorageProvider` (ApiStorageProvider backs history with localStorage too — see comment).
-  - Context (`lib/database-connection-options.tsx` + `models/database-context-type.interface.ts`): `recordQueryHistory` (fire-and-forget, never throws into query flow), `getQueryHistory`, `deleteQueryHistory`, `clearQueryHistory`.
-  - Capture point: `app/query/page.tsx` `executeTabQuery` records **successful executions only** via `recordHistory()` helper (failures not kept). `source` = 'followup' for follow-up tabs else 'generated'.
-  - Each entry leads with the plain-English natural-language prompt (`question`) as a prominent headline, then metadata, then SQL (updated 2026-06-18 per user feedback).
-  - New page `app/history/page.tsx`: list (newest first), search (SQL/question/connection), "this connection only" toggle, per-entry Re-run (reuses `/query?sql=...&autoExecute=true` + sets active connection), Save as report (reuses `SaveReportDialog`), Copy SQL, Delete, Clear all (AlertDialog confirm). Relative timestamps.
-  - Nav: added "History" link in `components/navigation.tsx` (History icon) — appears in desktop + mobile (shared array).
-- Tech debt: deleted 3 unused mock components (`recent-reports.tsx`, `scheduled-reports.tsx`, `report-templates.tsx`). `executive-metrics.tsx` + `performance-chart.tsx` LEFT (carded in design-sync) per user decision.
-
-## Dashboard Widgets: pin reports as KPIs / trend charts (2026-06-18)
-- Wired the two previously-orphaned mock components (`executive-metrics.tsx`, `performance-chart.tsx`) into the main dashboard, now driven by **real data from pinned saved reports** (no more hardcoded demo data).
-- Data model: `SavedReport.dashboardWidget?: DashboardWidgetConfig` (`models/saved-report.interface.ts`). `{ kind: 'metric'|'chart'; target?; unit?: 'number'|'currency'|'percent'; higherIsBetter?; chartConfig? }`. Backward-compatible optional field stored in the `saved_reports` array (rides along like `isFavorite`).
-- Shared util `utils/substitute-params.ts` (`substituteParams(sql, params?, values?)`) — extracted verbatim from the old inline logic in `saved-reports.tsx` `executeReport` (same quoting rule: quote text/date/datetime, falsy-fallback to defaultValue). `saved-reports.tsx` now calls it.
-- `components/executive-metrics.tsx`: prop-driven `ExecutiveMetrics({ metrics: KpiMetric[] })`, renders null when empty. Kept the card/badge/icon visuals + status colors. Exports `KpiMetric`, `KpiStatus`.
-- `components/performance-chart.tsx`: thin wrapper delegating to existing `ChartDisplay` (`{config, columns, rows, title?, description?}`) — deleted the hand-rolled div-bars + mock data. Reuses the real Recharts pipeline.
-- Pinning UI: `saved-reports.tsx` dropdown adds Pin as Dashboard Metric / Pin as Dashboard Chart / Unpin (via `setDashboardWidget(id, kind|null)` → `updateReport`). `edit-report-dialog.tsx` adds a "Dashboard Metric" config section (target/format/higher-is-better) shown only when `dashboardWidget.kind === 'metric'`.
-- Dashboard (`app/page.tsx`, State 5 only): `loadDashboardWidgets()` filters current-connection pinned reports (metrics capped at 4, first chart report), substitutes param defaults, **skips any SQL still containing `{{`** (required param w/o default), executes via `/api/query/execute` (payload shape mirrors `query/page.tsx`: `authEnabled ? {connectionId,source,type} : {connection}`), `Promise.allSettled` isolation. Metric value = `rows[0][0]`; status computed vs target (`higherIsBetter` inverts ratio). Chart uses cached `dashboardWidget.chartConfig` or generates via `/api/chart/generate` (`fetchWithAuth`). Effect re-runs on connection or `reports` change. ExecutiveMetrics placed after Notifications/before Quick Stats; PerformanceChart after Recent Reports/before Quick Actions.
-- Note: execute route returns stringified rows; charts already consumed stringified rows in the existing query-results flow, so no numeric coercion needed (matches existing behavior). `useAuth()` provides `authEnabled`.
-## Enhanced Chart Creation & Customization (2026-06-18)
-- Users can now fully customize charts (override the AI) with live preview, build charts manually without AI, and persist a chart on the report.
-- New `components/chart-customizer.tsx`: `ChartCustomizer({config, columns, onChange})` — chart-type Select, per-type column mapping (x-axis Select + y-series checkbox-list; pie name/value; scatter x/y/label; composed bars/lines/areas checkbox-lists), title + axis-label Inputs, display toggles (stacked/smooth/showDots/showLabels) via Switch, and per-series color editing (palette swatches + native `<input type=color>`). Pure UI; emits `ChartConfig`. Exports `reshapeChartConfig(prev, newType, columns)` which carries column choices across chart shapes, and `CHART_PALETTE`.
-- `models/saved-report.interface.ts`: added `visualization?: ChartConfig` (the report's saved chart, independent of dashboard pinning). `models/query-tab.interface.ts`: added `chartConfig?: ChartConfig` to `QueryTab`.
-- `components/query-results-display.tsx`: new optional props `initialChartConfig` (seed a saved chart, no AI), `onChartConfigChange` (notifies parent of displayed config; null on table view), `onSaveChart` (renders "Save chart to report" button). Added a "Customize" toggle (renders ChartCustomizer above the chart, live), a "Build manually (no AI)" dropdown item (uses `reshapeChartConfig(undefined,"bar",columns)`), and `handleCustomizeChange` that re-keys generatedCharts on type change. Seeding/notify effects: data-change effect seeds from initialChartConfig but does NOT depend on it (avoids reseed loop with the out-callback).
-- `components/query-tab-content.tsx`: threads `onChartConfigChange`/`onSaveChart` to QueryResultsDisplay (+ `initialChartConfig={tab.chartConfig}`).
-- `app/query/page.tsx`: per-tab `chartConfig` via `onChartConfigChange`→updateTab; reads `reportId` URL param → `currentReportId`; effect seeds the original tab's chartConfig from `report.visualization` once reports load (seededVizRef guards once); Save-as-Report includes `visualization: tab.chartConfig`; `saveChartToReport(config)` updates an existing report's `visualization`; passes `onSaveChart` only when `currentReportId` set.
-- `components/saved-reports.tsx` + `app/page.tsx` favorite links: append `reportId` to the `/query?...` run URL. `app/page.tsx` `loadDashboardWidgets`: prefer `chartReport.visualization` over `dashboardWidget.chartConfig` over AI-generate.
-- Verified: changed files type-check clean (pre-existing `schema.interface` "not a module" error on query-tab.interface.ts:7 is unrelated — Schema is an ambient global; my ChartConfig import is from a real module).
-
-## Composed Chart Type (2026-06-18)
-- Implemented the previously-stubbed "composed" chart (mixed bars + lines + areas on shared axes). `ComposedChartConfig` + `ChartType` "composed" already existed in `models/chart-config.interface.ts`; only the renderer + plumbing were missing.
-- New `components/charts/composed-chart.tsx`: `ComposedChartComponent({data, config})` via Recharts `ComposedChart` with `Bar`/`Area`/`Line`. Follows the bar/line/area pattern (numeric coercion over union of `config.bars/areas/lines`, shared `DEFAULT_COLORS`, theme-matched grid/tooltip). Renders bars → areas → lines (lines on top); single running color index across all series; legend when >1 series; defaults missing arrays to `[]`.
-- `components/chart-display.tsx`: replaced the "not yet implemented" Alert for `case "composed"` with `<ComposedChartComponent>`. (Alert/Info still used by the default case.)
-- `models/chart-config.interface.ts`: added `create_composed_chart` to `CHART_TOOLS` (params: xAxisColumn required, bars/lines/areas string[], labels, colors, title, description).
-- `app/api/chart/generate/route.ts`: added `create_composed_chart: "composed"` to `chartTypeMap`, a Composed guideline in the system prompt, and a `case "composed"` in `generateReasoning()`. Config assembly (`{type, ...args}`) needed no change.
-- `components/query-results-display.tsx`: added "composed" to `ViewMode`, a Generate-Chart dropdown item (`Activity` icon), and a conditional `SelectItem`. `generateChart()` is generic (keys by config.type) so no logic change.
-- Works via both AI auto-select and explicit user pick; the dashboard `PerformanceChart`→`ChartDisplay` path now renders composed configs too. Verified: no new tsc errors in changed files (pre-existing route.ts:60 CellValue error is unrelated).
-
-## Dashboard Remove-Widget Control (2026-06-18)
-- Remove-from-dashboard: widgets can be unpinned **in place** on the dashboard, not just from the Reports menu. `KpiMetric` carries `reportId`; `ExecutiveMetrics` takes optional `onRemove(reportId)` (per-row X button); `PerformanceChart` takes optional `onRemove()` (X overlaid top-right of the ChartDisplay card, only rendered when onRemove provided). Dashboard `handleRemoveWidget(reportId)` optimistically drops the widget from state then clears `dashboardWidget` via `updateReport` (effect re-run refreshes). chartWidget state gained `reportId`.
-
-## Bug Fixes & QoL (2026-06-16)
-- More helpful DB error messages: `utils/error-sanitizer.ts` now surfaces the raw driver message (naming the offending column/table/constraint) for user/query-logic errors, instead of the generic "Column not found in table". Added `detail` field to `SanitizedError` + `normalizeDbDetail()` helper. Connection/auth/unknown errors stay generic to avoid credential leaks. Added column/table-not-found patterns for SQLite and SQL Server (previously fell through to generic). Execute route passes `detail` through in the response.
-
-## Documentation Refresh & Reorganization (2026-06-16)
-- Fixed stale facts: per-endpoint `OPENAI_MODEL` defaults (generate/enhance/revise have no fallback), `npm`→`pnpm` in guides, removed non-existent `schema_{connectionId}` localStorage key.
-- Closed coverage gaps: documented Admin/Landing/Auth-login pages; added missing components; new `docs/api/data-endpoints.md` (auth-mode data/admin/sharing/config/auth/connection-test); added `/api/schema/sample-data`; new `docs/architecture/auth-and-data-layer.md`.
-- Restructure: split `docs/testing-plan.md` → `docs/testing/` (README + phase-1..4); split `components/features.md` → new `components/infrastructure.md`; added `docs/reference/file-map.md` (feature/route/component → source → doc) + `reference/README.md` + `guides/README.md` indexes; updated `docs/README.md` nav.
-- Synced root `README.md` and `CLAUDE.md` doc tables (fixed broken testing-plan link). Verified: all docs <500 lines, all relative + anchor links resolve.
-- Note: `app/auth/error`, `app/api/setup/init`, `app/setup`, `app/users` do NOT exist (code-reality audit corrected); only `app/auth/login` exists.
-
-## Export Reports + config/reports.json (2026-06-16)
-- New selective report export on Reports page: `components/export-reports-dialog.tsx` (db→reports checkbox tree, selecting a db selects all its reports, Select All/None). Button added to `app/reports/page.tsx` header. Downloads `{ version, exportDate, reports }` (source field stripped) as `reports-export-YYYY-MM-DD.json` — drop-in usable as config/reports.json.
-- New shared-reports config: `config/reports.json` loaded like databases.json. `getServerReports()` in `lib/server-config.ts` (null on auth, tolerates `{reports:[]}` or bare array), new `app/api/config/reports/route.ts` (marks each `source:"server"`), `LocalStorageProvider` adds `serverReports` field, fetches `/api/config/reports` in `initialize()`, merges fresh in `getReports()` (server wins by id, never persisted to localStorage). Write methods (`saveReport`/`updateReport`) no-op on `source:"server"`.
-- Server reports are read-only in UI (`components/saved-reports.tsx`): "Server Config" badge (Lock icon), Edit/Delete/favorite hidden; Clone & Copy-to-Connection still allowed (create local copies). Report `connectionId` must match a databases.json connection id to resolve.
-- Added `source?: "local"|"server"` to `SavedReport` (`models/saved-report.interface.ts`). Added `config/reports.json.example` + "Shared Reports" section in `config/README.md`.
-- Verified: `npm run build` clean (new route present); `/api/config/reports` returns empty when no file, loads + stamps source:server for both `{reports:[]}` and bare-array formats. Non-auth-mode only (same as databases.json).
-- Note: legacy `savedReports` field inside databases.json still seeds-once (untouched for back-compat); reports.json is the always-present path.
+### Other features (2026-03 → 2026-06)
+Per-table AI descriptions + sample-data preview (`/api/schema/sample-data`); copy schema
+descriptions between connections (`utils/copy-descriptions.ts` + dialog, client-only);
+composed chart type; enhanced chart customizer (`components/chart-customizer.tsx`,
+`SavedReport.visualization`); dashboard remove-widget control; export-reports dialog +
+`config/reports.json` shared reports (read-only, "Server Config" badge); error-sanitizer
+`detail` field (raw DB message for query-logic errors); doc refresh/reorg (split testing-plan
+→ docs/testing/, added file-map, data-endpoints, auth-and-data-layer).

@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { FileText, Calendar, Trash2, MoreHorizontal, Eye, AlertTriangle, Play, Edit, Copy, Star, Database, ArrowRightLeft, Lock, LayoutDashboard, PinOff } from "lucide-react"
+import { FileText, Calendar, Trash2, MoreHorizontal, Eye, AlertTriangle, Play, Edit, Copy, Star, Database, ArrowRightLeft, Lock, LayoutDashboard, PinOff, Share2, Users } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +36,8 @@ import { useToast } from "@/hooks/use-toast"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ParameterInputDialog } from "./parameter-input-dialog"
 import { EditReportDialog } from "./edit-report-dialog"
+import { ShareDialog } from "./share-dialog"
+import { useAuth } from "@/hooks/use-auth"
 import { substituteParams } from "@/utils/substitute-params"
 
 interface SavedReportsProps {
@@ -45,8 +47,10 @@ interface SavedReportsProps {
 export function SavedReports({ searchTerm }: SavedReportsProps) {
   const router = useRouter()
   const { toast } = useToast()
+  const { authEnabled } = useAuth()
   const connectionInfo = useDatabaseOptions()
   const [reports, setReports] = useState<SavedReport[]>([])
+  const [reportToShare, setReportToShare] = useState<SavedReport | null>(null)
   const [selectedReport, setSelectedReport] = useState<SavedReport | null>(null)
   const [showDetailDialog, setShowDetailDialog] = useState(false)
   const [showParameterDialog, setShowParameterDialog] = useState(false)
@@ -287,6 +291,11 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
     router.push(`/query?${params.toString()}`)
   }
 
+  const shareReport = (report: SavedReport) => {
+    // Small delay to ensure dropdown closes and loses focus
+    setTimeout(() => setReportToShare(report), 50)
+  }
+
   const formatDate = (dateString?: string) => {
     if (!dateString) return "Never"
     return new Date(dateString).toLocaleDateString("en-US", {
@@ -296,6 +305,193 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
       hour: "2-digit",
       minute: "2-digit"
     })
+  }
+
+  const isSharedReport = (report: SavedReport) =>
+    report.accessLevel === "view" || report.accessLevel === "edit"
+
+  const ownedReports = filteredReports.filter((r) => !isSharedReport(r))
+  const sharedReports = filteredReports.filter(isSharedReport)
+
+  const renderReportCard = (report: SavedReport) => {
+    const isServer = report.source === "server"
+    const isShared = isSharedReport(report)
+    const canEdit = !isServer && (!isShared || report.accessLevel === "edit")
+    const canModify = !isServer && !isShared // delete / pin / favorite — owner only
+    const canShare = authEnabled && !isServer && !isShared
+    return (
+      <Card key={report.id} className="hover:shadow-md transition-shadow">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between">
+            <div className="space-y-1 flex-1 min-w-0">
+              <CardTitle className="text-lg truncate">{report.name}</CardTitle>
+              <CardDescription className="text-sm line-clamp-2">
+                {report.description || report.naturalLanguageQuery}
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-1">
+              {canModify && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => toggleFavorite(report.id)}
+                  className="hover:bg-transparent"
+                >
+                  <Star
+                    className={`h-4 w-4 ${
+                      report.isFavorite
+                        ? "fill-amber-500 text-amber-500"
+                        : "text-muted-foreground"
+                    }`}
+                  />
+                </Button>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => viewReport(report)}>
+                    <Eye className="h-4 w-4 mr-2" />
+                    View Details
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => runReport(report)}>
+                    <Play className="h-4 w-4 mr-2" />
+                    Run Query
+                  </DropdownMenuItem>
+                  {canEdit && (
+                    <DropdownMenuItem onClick={() => editReport(report)}>
+                      <Edit className="h-4 w-4 mr-2" />
+                      Edit Report
+                    </DropdownMenuItem>
+                  )}
+                  {canShare && (
+                    <DropdownMenuItem onClick={() => shareReport(report)}>
+                      <Share2 className="h-4 w-4 mr-2" />
+                      Share Report
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={() => cloneReport(report)}>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Clone Report
+                  </DropdownMenuItem>
+                  {connectionInfo.connections.length > 1 && (
+                    <DropdownMenuItem onClick={() => copyToConnection(report)}>
+                      <ArrowRightLeft className="h-4 w-4 mr-2" />
+                      Copy to Connection
+                    </DropdownMenuItem>
+                  )}
+                  {canModify && (
+                    <>
+                      <DropdownMenuSeparator />
+                      {report.dashboardWidget?.kind === "metric" ? (
+                        <DropdownMenuItem onClick={() => setDashboardWidget(report.id, null)}>
+                          <PinOff className="h-4 w-4 mr-2" />
+                          Unpin Metric from Dashboard
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem onClick={() => setDashboardWidget(report.id, "metric")}>
+                          <LayoutDashboard className="h-4 w-4 mr-2" />
+                          Pin as Dashboard Metric
+                        </DropdownMenuItem>
+                      )}
+                      {report.dashboardWidget?.kind === "chart" ? (
+                        <DropdownMenuItem onClick={() => setDashboardWidget(report.id, null)}>
+                          <PinOff className="h-4 w-4 mr-2" />
+                          Unpin Chart from Dashboard
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem onClick={() => setDashboardWidget(report.id, "chart")}>
+                          <LayoutDashboard className="h-4 w-4 mr-2" />
+                          Pin as Dashboard Chart
+                        </DropdownMenuItem>
+                      )}
+                    </>
+                  )}
+                  {canModify && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-red-600"
+                        onClick={() => deleteReport(report.id)}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant={report.confidence > 0.8 ? "default" : "secondary"}>
+              {Math.round(report.confidence * 100)}% Confidence
+            </Badge>
+            {report.warnings.length > 0 && (
+              <Badge variant="destructive">
+                {report.warnings.length} Warning{report.warnings.length !== 1 ? 's' : ''}
+              </Badge>
+            )}
+            <Badge variant="outline" className="gap-1">
+              <Database className="h-3 w-3" />
+              {(() => {
+                const conn = connectionInfo.connections.find(c => c.id === report.connectionId)
+                return conn ? (conn.name || conn.database) : "Unknown"
+              })()}
+            </Badge>
+            {isServer && (
+              <Badge variant="secondary" className="gap-1">
+                <Lock className="h-3 w-3" />
+                Server Config
+              </Badge>
+            )}
+            {isShared && (
+              <Badge variant="outline" className="gap-1 bg-purple-50 text-purple-700 border-purple-200">
+                <Users className="h-3 w-3" />
+                Shared by {report.sharedByName || report.sharedByEmail || "owner"}
+                {report.accessLevel === "view" ? " · View" : " · Edit"}
+              </Badge>
+            )}
+          </div>
+
+          <div className="space-y-1 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4" />
+              Created: {formatDate(report.createdAt)}
+            </div>
+            {report.lastRun && (
+              <div className="flex items-center gap-2">
+                <Play className="h-3 w-3" />
+                Last run: {formatDate(report.lastRun)}
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="flex-1 bg-blue-600 hover:bg-blue-700"
+              onClick={() => runReport(report)}
+            >
+              <Play className="h-4 w-4 mr-2" />
+              Run
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => viewReport(report)}
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
@@ -316,171 +512,28 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
               </Button>
             </CardContent>
           </Card>
+        ) : authEnabled && sharedReports.length > 0 ? (
+          <div className="space-y-6">
+            <div className="space-y-4">
+              <h2 className="text-sm font-semibold text-muted-foreground">Your Reports</h2>
+              {ownedReports.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {ownedReports.map(renderReportCard)}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">You haven&apos;t created any reports yet.</p>
+              )}
+            </div>
+            <div className="space-y-4">
+              <h2 className="text-sm font-semibold text-muted-foreground">Shared with you</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {sharedReports.map(renderReportCard)}
+              </div>
+            </div>
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredReports.map((report) => {
-              const isServer = report.source === "server"
-              return (
-              <Card key={report.id} className="hover:shadow-md transition-shadow">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-1 flex-1 min-w-0">
-                      <CardTitle className="text-lg truncate">{report.name}</CardTitle>
-                      <CardDescription className="text-sm line-clamp-2">
-                        {report.description || report.naturalLanguageQuery}
-                      </CardDescription>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {!isServer && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => toggleFavorite(report.id)}
-                          className="hover:bg-transparent"
-                        >
-                          <Star
-                            className={`h-4 w-4 ${
-                              report.isFavorite
-                                ? "fill-amber-500 text-amber-500"
-                                : "text-muted-foreground"
-                            }`}
-                          />
-                        </Button>
-                      )}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => viewReport(report)}>
-                            <Eye className="h-4 w-4 mr-2" />
-                            View Details
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => runReport(report)}>
-                            <Play className="h-4 w-4 mr-2" />
-                            Run Query
-                          </DropdownMenuItem>
-                          {!isServer && (
-                            <DropdownMenuItem onClick={() => editReport(report)}>
-                              <Edit className="h-4 w-4 mr-2" />
-                              Edit Report
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem onClick={() => cloneReport(report)}>
-                            <Copy className="h-4 w-4 mr-2" />
-                            Clone Report
-                          </DropdownMenuItem>
-                          {connectionInfo.connections.length > 1 && (
-                            <DropdownMenuItem onClick={() => copyToConnection(report)}>
-                              <ArrowRightLeft className="h-4 w-4 mr-2" />
-                              Copy to Connection
-                            </DropdownMenuItem>
-                          )}
-                          {!isServer && (
-                            <>
-                              <DropdownMenuSeparator />
-                              {report.dashboardWidget?.kind === "metric" ? (
-                                <DropdownMenuItem onClick={() => setDashboardWidget(report.id, null)}>
-                                  <PinOff className="h-4 w-4 mr-2" />
-                                  Unpin Metric from Dashboard
-                                </DropdownMenuItem>
-                              ) : (
-                                <DropdownMenuItem onClick={() => setDashboardWidget(report.id, "metric")}>
-                                  <LayoutDashboard className="h-4 w-4 mr-2" />
-                                  Pin as Dashboard Metric
-                                </DropdownMenuItem>
-                              )}
-                              {report.dashboardWidget?.kind === "chart" ? (
-                                <DropdownMenuItem onClick={() => setDashboardWidget(report.id, null)}>
-                                  <PinOff className="h-4 w-4 mr-2" />
-                                  Unpin Chart from Dashboard
-                                </DropdownMenuItem>
-                              ) : (
-                                <DropdownMenuItem onClick={() => setDashboardWidget(report.id, "chart")}>
-                                  <LayoutDashboard className="h-4 w-4 mr-2" />
-                                  Pin as Dashboard Chart
-                                </DropdownMenuItem>
-                              )}
-                            </>
-                          )}
-                          {!isServer && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                className="text-red-600"
-                                onClick={() => deleteReport(report.id)}
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Delete
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant={report.confidence > 0.8 ? "default" : "secondary"}>
-                      {Math.round(report.confidence * 100)}% Confidence
-                    </Badge>
-                    {report.warnings.length > 0 && (
-                      <Badge variant="destructive">
-                        {report.warnings.length} Warning{report.warnings.length !== 1 ? 's' : ''}
-                      </Badge>
-                    )}
-                    <Badge variant="outline" className="gap-1">
-                      <Database className="h-3 w-3" />
-                      {(() => {
-                        const conn = connectionInfo.connections.find(c => c.id === report.connectionId)
-                        return conn ? (conn.name || conn.database) : "Unknown"
-                      })()}
-                    </Badge>
-                    {isServer && (
-                      <Badge variant="secondary" className="gap-1">
-                        <Lock className="h-3 w-3" />
-                        Server Config
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div className="space-y-1 text-sm text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4" />
-                      Created: {formatDate(report.createdAt)}
-                    </div>
-                    {report.lastRun && (
-                      <div className="flex items-center gap-2">
-                        <Play className="h-3 w-3" />
-                        Last run: {formatDate(report.lastRun)}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      className="flex-1 bg-blue-600 hover:bg-blue-700"
-                      onClick={() => runReport(report)}
-                    >
-                      <Play className="h-4 w-4 mr-2" />
-                      Run
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => viewReport(report)}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-              )
-            })}
+            {filteredReports.map(renderReportCard)}
           </div>
         )}
       </div>
@@ -601,6 +654,20 @@ export function SavedReports({ searchTerm }: SavedReportsProps) {
           onOpenChange={handleEditDialogClose}
           report={reportToEdit}
           onSave={saveEditedReport}
+        />
+      )}
+
+      {/* Share Report Dialog (opened from the card dropdown) */}
+      {reportToShare && (
+        <ShareDialog
+          key={reportToShare.id}
+          resourceId={reportToShare.id}
+          resourceType="report"
+          resourceName={reportToShare.name}
+          open={!!reportToShare}
+          onOpenChange={(open) => {
+            if (!open) setReportToShare(null)
+          }}
         />
       )}
 

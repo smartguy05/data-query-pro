@@ -542,6 +542,7 @@ Connection: `localhost:5432`, database: `cloudmetrics`, user: `demo`, password: 
 | Topic | Documentation |
 |-------|---------------|
 | File Map (where things live) | [docs/reference/file-map.md](./docs/reference/file-map.md) |
+| Lessons Learned & Gotchas | [docs/reference/lessons-learned.md](./docs/reference/lessons-learned.md) |
 | System Architecture | [docs/architecture/overview.md](./docs/architecture/overview.md) |
 | State Management | [docs/architecture/state-management.md](./docs/architecture/state-management.md) |
 | Auth & Data Layer | [docs/architecture/auth-and-data-layer.md](./docs/architecture/auth-and-data-layer.md) |
