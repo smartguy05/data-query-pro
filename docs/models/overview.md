@@ -26,16 +26,22 @@ interface DatabaseConnection {
   vectorStoreId?: string;        // OpenAI vector store ID
   source?: "local" | "server";   // Origin: user-created or admin-managed
   createdAt: string;             // ISO timestamp
+
+  // Sharing (auth mode only) — set server-side by getConnectionsForUser
+  accessLevel?: "owner" | "view" | "edit"; // undefined ⇒ owned (localStorage mode)
+  sharedByEmail?: string;        // owner's email, shown on "Shared with you" items
+  sharedByName?: string | null;
 }
 ```
 
 **Notes:**
 - `schemaFileId` and `vectorStoreId` are populated after schema upload
 - `status` is managed by context, not user-set
-- All four database types: `postgresql`, `mysql`, `sqlserver`, `sqlite`
+- All four database types: `postgresql`, `mysql`, `sqlserver`, `sqlite` (typed as `DatabaseType`)
 - `source: 'server'` indicates an admin-managed connection (no owner, stored in app DB)
 - `password` is always empty string on the client in auth mode — credentials resolved server-side
 - Server connections are only visible to non-admin users after a schema has been uploaded
+- `accessLevel`/`sharedBy*` are populated only in auth mode for shared connections; `undefined`/`"owner"` means the current user owns it
 
 ---
 
@@ -147,6 +153,34 @@ interface SavedReport {
 
   // UI state
   isFavorite?: boolean;
+
+  // Saved chart — when set, re-running renders this chart immediately (no AI generation)
+  visualization?: ChartConfig;
+
+  // Pins this report to the dashboard as a KPI metric or trend chart
+  dashboardWidget?: DashboardWidgetConfig;
+
+  // Origin: "local" (user-created) or "server" (loaded from config/reports.json, read-only)
+  source?: "local" | "server";
+
+  // Sharing (auth mode only) — set server-side by getReportsForUser
+  accessLevel?: "owner" | "view" | "edit"; // undefined ⇒ owned (localStorage mode)
+  sharedByEmail?: string;
+  sharedByName?: string | null;
+}
+```
+
+**`DashboardWidgetConfig`** (also in `models/saved-report.interface.ts`) pins a report to the dashboard:
+
+```typescript
+interface DashboardWidgetConfig {
+  kind: 'metric' | 'chart';
+  // metric only — KPI value is rows[0][0] of the report's result
+  target?: number;
+  unit?: 'number' | 'currency' | 'percent';
+  higherIsBetter?: boolean;     // default true
+  // chart only — optional cached config; generated on the fly when absent
+  chartConfig?: ChartConfig;
 }
 ```
 
@@ -237,53 +271,82 @@ interface DatabaseContextType {
   isInitialized: boolean;
   reports: SavedReport[];
 
+  queryAccuracy: QueryAccuracyStats;
+
   // Connection methods
   setConnectionStatus: (status: "idle" | "success" | "error") => void;
-  setCurrentConnection: (conn?: DatabaseConnection) => void;
+  setCurrentConnection: (conn: DatabaseConnection) => void;
   getConnection: (id?: string) => DatabaseConnection | undefined;
   addConnection: (conn: DatabaseConnection) => void;
   updateConnection: (conn: DatabaseConnection) => void;
   deleteConnection: (id: string) => void;
+  duplicateConnection: (id: string) => DatabaseConnection | null;
   importConnections: (conns: DatabaseConnection[]) => void;
   refreshConnections: () => Promise<void>;
 
   // Schema methods
   getSchema: (id?: string) => Schema | undefined;
   setSchema: (schema: Schema) => void;
-  setCurrentSchema: (schema?: Schema) => void;
+  setCurrentSchema: (schema: Schema) => void;
 
   // Report methods
+  loadReports: () => Promise<void>;
   saveReport: (report: SavedReport) => Promise<void>;
   updateReport: (report: SavedReport) => Promise<void>;
   deleteReport: (id: string) => Promise<void>;
+
+  // Query history (device-local)
+  recordQueryHistory: (entry: QueryHistoryEntry) => void;
+  getQueryHistory: () => Promise<QueryHistoryEntry[]>;
+  deleteQueryHistory: (id: string) => Promise<void>;
+  clearQueryHistory: () => Promise<void>;
+
+  // Query accuracy (global per-user; local by default, synced when auth enabled)
+  recordQueryOutcome: (success: boolean) => void;
+  overrideQueryOutcome: (oldSuccess: boolean, newSuccess: boolean) => void;
+
+  // Learned query corrections (failed->revised pairs; pooled by fingerprint in auth mode)
+  recordQueryCorrection: (entry: QueryCorrection) => void;
+  getCorrectionsForFingerprint: (fingerprint: string) => Promise<QueryCorrection[]>;
+  updateQueryCorrection: (id: string, patch: Partial<QueryCorrection>) => Promise<void>;
+  deleteQueryCorrection: (id: string) => Promise<void>;
 }
 ```
 
 **Notes:**
 - `refreshConnections()` re-fetches all connections and schemas from the StorageProvider, useful after admin mutations
-- Reports are now managed through the context (not directly via localStorage)
+- Reports, query history, accuracy, and corrections are all managed through the context (not directly via localStorage)
+- Query history and correction methods are fire-and-forget so they can never break the query-execution flow
 
 ---
 
 ### ChartConfig
 **File:** `models/chart-config.interface.ts`
 
-Configuration for chart rendering.
+Configuration for chart rendering. `ChartConfig` is a **discriminated union** keyed on
+`type`, not a single flat interface — each chart type carries its own column fields.
 
 ```typescript
-interface ChartConfig {
-  type: 'bar' | 'line' | 'pie' | 'area' | 'scatter';
-  title: string;
-  xAxis: string;           // Column for X axis
-  yAxis: string;           // Column for Y axis
-  series: string[];        // Data series columns
-  options?: {
-    stacked?: boolean;
-    showLegend?: boolean;
-    colors?: string[];
-  };
+type ChartType = "bar" | "line" | "pie" | "area" | "scatter" | "composed";
+
+interface BaseChartConfig {
+  type: ChartType;
+  title?: string;
+  description?: string;
 }
+
+type ChartConfig =
+  | BarChartConfig       // xAxisColumn, yAxisColumns[], stacked?, colors?
+  | LineChartConfig      // xAxisColumn, yAxisColumns[], smooth?, showDots?
+  | PieChartConfig       // nameColumn, valueColumn, showLabels?
+  | AreaChartConfig      // xAxisColumn, yAxisColumns[], stacked?
+  | ScatterChartConfig   // xAxisColumn, yAxisColumn, nameColumn?, color?
+  | ComposedChartConfig; // xAxisColumn, bars?[], lines?[], areas?[]  (bar+line+area)
 ```
+
+**Notes:**
+- The `"composed"` type combines bars, lines, and/or areas on shared axes
+- Related types in the same file: `ChartGenerationRequest`, `ChartGenerationResponse`, `ChartToolDefinition`, and the `CHART_TOOLS` OpenAI function-calling definitions
 
 ---
 
@@ -343,6 +406,77 @@ interface AISuggestion {
 
 ---
 
+### QueryHistoryEntry
+**File:** `models/query-history.interface.ts`
+
+A single executed-query history entry. Captured at the execution choke point for every
+query that executes **successfully**; device-local (localStorage) in both auth and no-auth
+modes and never synced to the app DB.
+
+```typescript
+interface QueryHistoryEntry {
+  id: string;
+  connectionId: string;
+  connectionName?: string;   // denormalized so entries read well if the connection is deleted
+  databaseType?: string;
+  question?: string;         // natural-language question (when from generation/follow-up)
+  sql: string;
+  source: 'generated' | 'manual' | 'report' | 'followup';
+  success: boolean;          // new entries are always true (failures aren't recorded)
+  rowCount?: number;
+  executionTimeMs?: number;
+  error?: string;
+  executedAt: string;        // ISO timestamp
+}
+```
+
+---
+
+### QueryAccuracyStats
+**File:** `models/query-accuracy.interface.ts`
+
+Running tally of AI-generated query executions used to compute the "% Query Accuracy"
+dashboard stat. Per-user, global across all connections — counters only, no per-query
+records. Device-local (localStorage `query_accuracy`) by default; synced to Postgres
+(`query_accuracy_stats`) when auth is enabled.
+
+```typescript
+interface QueryAccuracyStats {
+  total: number;        // every AI-generated/follow-up execution counted
+  successful: number;   // of those, how many succeeded (minus user overrides)
+}
+```
+
+`accuracy% = Math.round(successful / total * 100)`.
+
+---
+
+### QueryCorrection
+**File:** `models/query-correction.interface.ts`
+
+A captured failed→revised SQL pair, used to warn the AI generator away from repeating known
+mistakes for a schema. Device-local (localStorage) when auth is disabled; pooled team-wide
+in Postgres keyed by `schemaFingerprint` when auth is enabled (migration
+`006_query_corrections.sql`). `ownerId`/`ownerName` are attribution-only (curation rights).
+
+```typescript
+interface QueryCorrection {
+  id: string;
+  schemaFingerprint: string; // see utils/schema-fingerprint
+  question?: string;         // NL question that produced the bad SQL
+  badSql: string;            // the SQL that failed execution
+  error: string;             // sanitized execution error
+  goodSql: string;           // corrected SQL from the revise endpoint
+  databaseType?: string;
+  createdAt: string;
+  ownerId?: string;          // auth mode only — curation rights (author or admin)
+  ownerName?: string;        // auth mode only — display name/email for the curation UI
+  updatedAt?: string;        // auth mode only
+}
+```
+
+---
+
 ## Model Relationships
 
 ```
@@ -379,7 +513,10 @@ ReportParameter[]
 | `currentDbConnection` | `DatabaseConnection` |
 | `connectionSchemas` | `Schema[]` |
 | `saved_reports` | `SavedReport[]` |
-| `suggestions_{id}` | `Suggestion[]` |
+| `query_history` | `QueryHistoryEntry[]` |
+| `query_accuracy` | `QueryAccuracyStats` |
+| `query_corrections` | `QueryCorrection[]` |
+| `suggestions_{id}` | `AISuggestion[]` |
 
 ---
 

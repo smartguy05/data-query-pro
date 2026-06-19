@@ -23,6 +23,7 @@ DataQuery Pro uses Next.js API routes for server-side operations. All routes are
 | `/api/chart/generate` | POST | Generate chart config | [Dashboard Endpoints](./dashboard-endpoints.md) |
 | `/api/connection/test` | POST | Test database connectivity | [Data Endpoints](./data-endpoints.md#connection-test) |
 | `/api/config/connections` | GET | Get server-configured connections | [Data Endpoints](./data-endpoints.md#config-endpoints-apiconfig) |
+| `/api/config/reports` | GET | Get server-configured shared reports | [Data Endpoints](./data-endpoints.md#config-endpoints-apiconfig) |
 | `/api/config/rate-limit-status` | GET | Check rate limit status | [Data Endpoints](./data-endpoints.md#config-endpoints-apiconfig) |
 | `/api/config/auth-status` | GET | Check if auth is enabled | [Data Endpoints](./data-endpoints.md#config-endpoints-apiconfig) |
 | `/api/auth/[...nextauth]` | GET/POST | Auth.js v5 OIDC handler | [Data Endpoints](./data-endpoints.md#auth-endpoint) |
@@ -38,6 +39,9 @@ DataQuery Pro uses Next.js API routes for server-side operations. All routes are
 | `/api/data/reports` | GET, POST | List/create reports |
 | `/api/data/reports/[id]` | GET, PUT, DELETE | CRUD for individual report |
 | `/api/data/suggestions/[connectionId]` | GET, PUT | Get/update cached suggestions |
+| `/api/data/query-accuracy` | GET, PUT | Get/update per-user query accuracy counters |
+| `/api/data/corrections` | GET, POST | List (by `?fingerprint=`)/create team-wide query corrections |
+| `/api/data/corrections/[id]` | PUT, DELETE | Update/delete a query correction (owner or admin) |
 | `/api/data/preferences` | GET, PUT | User preferences |
 | `/api/data/notifications/dismiss` | POST | Dismiss notification |
 | `/api/data/import-local` | POST | Import localStorage data |

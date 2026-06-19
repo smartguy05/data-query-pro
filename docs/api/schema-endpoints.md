@@ -343,7 +343,8 @@ modes (resolves credentials via `validateConnection()`).
 ```
 
 ### Behavior
-- The table name is escaped via the adapter's `escapeIdentifier()`.
+- The table name is validated against `/^[a-zA-Z0-9_\-. ]+$/` and escaped via the adapter's `escapeIdentifier()`.
+- Sets `config.readOnly = true` so the generated SELECT runs under the adapter's per-dialect read-only enforcement (read-only transaction / always-ROLLBACK / connect-time readonly).
 - Uses `SELECT TOP 10 *` on SQL Server, `SELECT * ... LIMIT 10` elsewhere.
 - Errors are sanitized (`sanitizeDbError`) to avoid leaking credentials.
 

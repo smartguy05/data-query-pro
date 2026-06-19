@@ -18,13 +18,13 @@ DataQuery Pro uses OpenAI for:
 # Required
 OPENAI_API_KEY=sk-...
 
-# Optional (defaults to gpt-5.1)
-OPENAI_MODEL=gpt-5.1
+# Optional (defaults to gpt-5.4)
+OPENAI_MODEL=gpt-5.4
 ```
 
 ### Supported Models
-- `gpt-5.1` - Recommended for best quality
-- `gpt-5` - Faster, slightly lower quality
+- `gpt-5.4` - Recommended default (best quality)
+- `gpt-5.1`, `gpt-5` - Earlier models, lower cost
 - `gpt-5-mini` - Fastest, lowest cost
 
 ## Responses API
@@ -179,6 +179,39 @@ try {
   }
 }
 ```
+
+### Learning From Previous Queries
+
+The query-generation prompt is augmented with two **optional, guarded** sections built
+from the client's device-local history (the "learn from previous queries" feature). When
+no history exists, these sections are empty strings and the base prompt is byte-identical.
+
+**Data flow:**
+1. Client (`app/query/page.tsx` → `buildLearningContext()`) gathers relevance-matched
+   successful examples (same DB type) plus failed→revised corrections for the current
+   schema fingerprint, and sends them as `examples` and `corrections` in the request body.
+2. Server (`app/api/query/generate/route.ts` → `buildLearningSections(examples, corrections)`)
+   renders them into two prompt sections appended after the database-specific syntax hints.
+
+**Injected sections:**
+- **`# Proven examples for this schema`** — past natural-language questions and the SQL
+  that successfully ran. Guidance for table/column names and query patterns; the schema
+  file remains the only source of truth if an example conflicts.
+- **`# Known corrections — avoid these mistakes`** — failed→revised SQL pairs so the model
+  does not repeat past mistakes (especially wrong table/column names).
+
+**Caps (from `lib/constants.ts`):**
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `AI.MAX_FEW_SHOT` | 4 | Past successful queries injected as few-shot examples |
+| `AI.MAX_CORRECTIONS` | 2 | Failed→revised corrections injected as anti-mistake hints |
+| `CORRECTIONS.MAX_ENTRIES` | 50 | Device-local correction ring-buffer size |
+| `CORRECTIONS.MAX_POOL_FETCH` | 200 | Corrections fetched from the team-wide pool per fingerprint (auth mode) |
+
+> Phase 2 (auth mode only) pools failed→revised corrections team-wide by `schema_fingerprint`
+> via `/api/data/corrections`. The captured pool feeds the same `corrections` payload above.
+> See the learning curation UI at `/learning` (`app/learning/page.tsx`).
 
 ## AI Descriptions
 
@@ -346,8 +379,8 @@ try {
 - Cache suggestions in localStorage
 
 ### Model Selection
-- Use `gpt-5.1` for complex queries
-- Use `gpt-5.1` for simple descriptions
+- Use `gpt-5.4` for complex queries
+- Use a smaller model (e.g. `gpt-5-mini`) for simple descriptions
 - Consider model per endpoint
 
 ---

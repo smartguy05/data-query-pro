@@ -256,6 +256,54 @@ Device-local history of every executed query.
 
 ---
 
+## Learning Page
+
+**Route:** `/learning`
+**File:** `app/learning/page.tsx`
+
+Curation UI for the **learned query corrections** that improve future SQL generation
+(failed→fixed query pairs the AI learns from). Reached via the **Query ▾** nav dropdown.
+
+### Features
+- Lists learned corrections for the **current connection's schema fingerprint**
+  (`computeSchemaFingerprint(currentSchema)` from `utils/schema-fingerprint.ts`)
+- Connection selector (shown when more than one connection exists)
+- Search by question, SQL (failed/corrected), or error message
+- Edit a correction (question / error / corrected SQL) and delete a correction
+- Each card shows the failed query + error, the corrected query, database type, and
+  (in auth mode) the contributing author and relative timestamp
+
+### Behaviour
+- Corrections are loaded via context `getCorrectionsForFingerprint(fingerprint)` and
+  mutated via `updateQueryCorrection` / `deleteQueryCorrection`.
+- **Permissions** (`canManage`): with auth disabled everything is device-local and freely
+  editable; in auth mode a correction is editable/deletable only by its author (`ownerId === user.id`)
+  or an admin (`isAdmin`). The server enforces the same rule.
+- In auth mode corrections are pooled team-wide by schema fingerprint; with auth disabled they
+  are device-local. Empty/no-schema states prompt the user to select a connection and load its schema.
+
+---
+
+## Profile Page
+
+**Route:** `/profile`
+**File:** `app/profile/page.tsx`
+
+Account overview and usage summary. Reached from the **Profile** item in the user menu
+(profile dropdown) when auth is enabled.
+
+### Sections
+1. **Account card** - avatar/name/email, an **Admin** badge and OIDC `groups` (from `useAuth()`).
+   When auth is disabled it shows a **"Local mode"** fallback instead.
+2. **Usage stats** - Query Accuracy %, Connections count, and Saved Reports count
+   (from `useDatabaseOptions()`: `queryAccuracy`, `connections`, `reports`).
+3. **Actions** (auth mode, signed in) - **Admin Panel** link (admins only) and **Sign out**.
+
+### Behaviour
+- In auth mode, redirects to `/` if the user is not authenticated.
+
+---
+
 ## Reports Page
 
 **Route:** `/reports`
@@ -394,7 +442,7 @@ Root layout wrapping all pages. Provider nesting (outermost → innermost):
 2. **AuthProvider** - Conditional next-auth `SessionProvider` (auth mode only)
 3. **OpenAIApiProvider** - User API key (BYOK) management
 4. **DatabaseConnectionOptions** - Application state
-5. **Navigation** - Top navigation bar (hidden on `/landing`)
+5. **Navigation** - Top navigation bar (hidden on `/landing` and `/auth/login`)
 6. **ErrorBoundary** → **ContentLoadingGate** - Error catching + init gate around page content
 7. **DataMigrationDialog** + **Toaster** - First-login import prompt and toast notifications
 

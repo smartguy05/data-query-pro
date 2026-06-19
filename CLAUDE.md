@@ -74,6 +74,8 @@ app/                          # Next.js 15 App Router
 ├── history/page.tsx         # Query history (device-local executed queries)
 ├── schema/page.tsx          # Schema explorer with AI descriptions
 ├── reports/page.tsx         # Reports management (with connection selector)
+├── learning/page.tsx        # Learned query corrections curation (list/search/edit/delete)
+├── profile/page.tsx         # Account overview, usage stats, admin/sign-out actions
 ├── admin/page.tsx           # Admin panel: server connections & assignments
 ├── landing/                 # Public landing page
 │   ├── page.tsx             # Landing page with features/screenshots
@@ -91,6 +93,7 @@ app/                          # Next.js 15 App Router
     │   ├── upload-schema/   # Upload schema to OpenAI file storage
     │   ├── update-description/     # Manually update descriptions
     │   ├── start-introspection/    # Background introspection process
+    │   ├── sample-data/     # Read-only sample rows for a table (POST)
     │   └── status/          # Poll introspection status
     ├── connection/
     │   └── test/            # Test database connection
@@ -112,6 +115,9 @@ app/                          # Next.js 15 App Router
     │   ├── reports/[id]/    # GET, PUT, DELETE
     │   ├── suggestions/[connectionId]/ # GET, PUT
     │   ├── preferences/     # GET, PUT
+    │   ├── query-accuracy/  # GET, PUT (per-user accuracy counters)
+    │   ├── corrections/     # GET (?fingerprint=), POST (team-wide query corrections)
+    │   ├── corrections/[id]/ # PUT, DELETE (owner-or-admin gated)
     │   ├── notifications/dismiss/ # POST
     │   └── import-local/    # POST (localStorage migration)
     ├── sharing/
@@ -138,10 +144,12 @@ components/                   # React components
 ├── auth-provider.tsx        # SessionProvider wrapper (conditional)
 ├── share-dialog.tsx         # Share connections/reports with users
 ├── data-migration-dialog.tsx # Import localStorage data on first login
-├── navigation.tsx           # Top navigation bar (with user menu when auth enabled)
+├── navigation.tsx           # Top nav: Dashboard + "Data"/"Query" dropdown groups; Admin/Profile in user menu
 ├── saved-reports.tsx        # Reports list with clone/copy-to-connection
 ├── save-report-dialog.tsx   # Save query as report
 ├── edit-report-dialog.tsx   # Edit report metadata
+├── import-reports-dialog.tsx # Import reports from JSON (both modes)
+├── chart-customizer.tsx     # Chart customization UI (persisted to report visualization)
 ├── parameter-config.tsx     # Configure report parameters
 ├── parameter-input-dialog.tsx # Input parameters when running reports
 ├── error-boundary.tsx       # React error boundary wrapper
@@ -157,6 +165,8 @@ lib/                         # Shared utilities
 ├── csrf.ts                  # CSRF protection utilities
 ├── constants.ts             # Centralized app constants
 ├── server-config.ts         # Server-side config reader
+├── query-log.ts             # Fire-and-forget query audit log (app DB or JSONL file)
+├── query-log-file.ts        # JSONL fallback writer (logs/query-log.jsonl)
 ├── api/
 │   └── response.ts          # API response helpers (success, error, etc.)
 ├── auth/                    # Authentication
@@ -171,7 +181,9 @@ lib/                         # Shared utilities
 │   │   ├── 001_initial_schema.sql   # Core tables (users, connections, schemas, reports, etc.)
 │   │   ├── 002_server_connections.sql # Nullable owner_id, server connection support
 │   │   ├── 003_cascade_connection_deletes.sql # FK cascades on schemas/reports/suggestions
-│   │   └── 004_query_accuracy.sql   # Per-user query accuracy counters
+│   │   ├── 004_query_accuracy.sql   # Per-user query accuracy counters
+│   │   ├── 005_query_log.sql        # Query audit log table (no FK; nullable user_id)
+│   │   └── 006_query_corrections.sql # Team-wide query corrections pooled by schema_fingerprint
 │   └── repositories/        # Data access layer
 │       ├── user-repository.ts
 │       ├── connection-repository.ts
@@ -180,7 +192,10 @@ lib/                         # Shared utilities
 │       ├── suggestion-repository.ts
 │       ├── preference-repository.ts
 │       ├── notification-repository.ts
-│       └── sharing-repository.ts
+│       ├── sharing-repository.ts
+│       ├── query-accuracy-repository.ts   # Per-user accuracy counters
+│       ├── query-log-repository.ts        # Query audit log writes
+│       └── query-correction-repository.ts # Team-wide query corrections (by fingerprint)
 ├── storage/                 # Storage abstraction
 │   ├── storage-provider.ts  # Interface
 │   ├── local-storage-provider.ts  # localStorage impl (default)
@@ -195,6 +210,7 @@ lib/                         # Shared utilities
     ├── factory.ts           # Adapter factory (registry pattern)
     ├── base-adapter.ts      # Abstract base adapter class
     ├── connection-validator.ts # Connection validation utilities
+    ├── sql-validator.ts     # AST-based read-only SQL validation (validateReadOnlySql)
     ├── adapters/            # Database-specific adapters
     │   ├── postgresql.adapter.ts
     │   ├── mysql.adapter.ts
@@ -214,6 +230,8 @@ models/                      # TypeScript interfaces
 ├── column.interface.ts
 ├── saved-report.interface.ts  # Report and parameter interfaces
 ├── query-history.interface.ts # QueryHistoryEntry (device-local query history)
+├── query-accuracy.interface.ts # Query accuracy counter shape
+├── query-correction.interface.ts # QueryCorrection (ownerId/ownerName/updatedAt)
 ├── chart-config.interface.ts
 ├── database-context-type.interface.ts
 ├── connection-form-data.interface.ts # Form data for connections
@@ -224,7 +242,13 @@ utils/                       # Utility functions
 ├── generate-descriptions.ts  # Fallback description generators
 ├── compare-schemas.ts        # Schema change detection
 ├── rate-limiter.ts           # IP-based rate limiting
-└── error-sanitizer.ts        # Database/OpenAI error sanitization
+├── error-sanitizer.ts        # Database/OpenAI error sanitization
+├── schema-fingerprint.ts     # Stable fingerprint of a schema (learning scope key)
+├── example-relevance.ts      # Rank few-shot examples by relevance
+├── query-corrections.ts      # Device-local query corrections (per fingerprint)
+├── copy-descriptions.ts      # Copy descriptions between connections
+├── metric-status.ts          # Dashboard metric status helpers
+└── substitute-params.ts      # Substitute {{parameter}} values in report SQL
 
 hooks/                       # Custom React hooks
 ├── use-mobile.tsx           # Mobile responsive detection
@@ -336,9 +360,30 @@ config/                      # Server configuration
 
 ### Query Execution
 - Route: `/api/query/execute/route.ts`
-- Validates queries to prevent dangerous operations (DROP, DELETE, UPDATE, INSERT, etc.)
+- Validates queries with the AST-based `validateReadOnlySql(sql, dbType)` (`lib/database/sql-validator.ts`) — allows a single `SELECT` only; the old regex keyword blocklist (`DANGEROUS_SQL_KEYWORDS`) was removed
+- Sets `config.readOnly = true` so the adapter enforces read-only execution at the connection/transaction level (see Read-Only Query Execution below)
 - Uses database adapters (`lib/database/adapters/`) for database-specific execution
 - Returns formatted results with columns, rows, execution time
+- Every execution is recorded fire-and-forget via `logQuery()` (see Query Audit Log below)
+
+### Read-Only Query Execution
+- `AdapterConnectionConfig.readOnly` flag, set in `/api/query/execute` and `/api/schema/sample-data`, enforces read-only at the dialect level:
+  - **PostgreSQL**: read-only transaction
+  - **MySQL**: read-only transaction + ROLLBACK
+  - **SQL Server**: wrap + always-ROLLBACK
+  - **SQLite**: connect-time `readonly`
+- Schema introspection stays writable (not affected by the flag)
+
+### SQL Validation (AST)
+- `lib/database/sql-validator.ts` exports `validateReadOnlySql(sql, dbType)`
+- Built on **node-sql-parser** (`^5.4.0`); allows a single `SELECT` statement only
+- Hybrid fallback: when the parser throws, falls back to `heuristicReadOnly()`
+- Replaced the previous regex `DANGEROUS_SQL_KEYWORDS` blocklist
+
+### Query Audit Log
+- `lib/query-log.ts` `logQuery()` is fire-and-forget — never blocks or breaks query execution, and **never logs credentials**
+- When the app DB is enabled, writes to the `query_log` table (migration `005_query_log.sql`, no FK, nullable `user_id`) via `lib/db/repositories/query-log-repository.ts`
+- Otherwise falls back to a JSONL file at `logs/query-log.jsonl` (`lib/query-log-file.ts`)
 
 ### Connection Testing
 - Route: `/api/connection/test/route.ts`
@@ -366,7 +411,9 @@ config/                      # Server configuration
 - Each report linked to a connection via `connectionId`
 - Supports parameterized queries with `{{parameter_name}}` syntax
 - Parameter types: `text`, `number`, `date`, `datetime`, `boolean`
-- Reports can be exported/imported as JSON
+- Reports can be exported (Export Reports dialog) and imported as JSON (`components/import-reports-dialog.tsx` + "Import Reports" button on the Reports page; imports via context `saveReport`, works in both localStorage and auth modes)
+- Optional `visualization?: ChartConfig` persists chart customization (`components/chart-customizer.tsx`), including the composed chart type (bar+line+area); dashboard widgets can pin reports as KPIs/trend charts
+- When shared, reports carry optional `accessLevel?: "owner" | "view" | "edit"`, `sharedByEmail?`, `sharedByName?` (same fields on `DatabaseConnection`)
 
 ### Query History
 - Every **successful** query (ad-hoc, report-run, follow-up) is recorded at the single execution choke point (`executeTabQuery` in `app/query/page.tsx`); failed executions are not kept
@@ -383,6 +430,31 @@ config/                      # Server configuration
 - **Override**: thumbs up/down on the results area (`query-tab-content.tsx`) flips the auto verdict either direction; one vote per execution, toggleable (stored on the tab as `accuracyVote` over `accuracyBaselineSuccess`)
 - **Empty state**: dashboard card hidden until `total >= ACCURACY.MIN_SAMPLE` (5). No reset
 
+### Learning From Previous Queries
+- **Goal**: improve AI SQL generation by feeding back past successes (few-shot examples) and past failures (corrections), scoped per **schema fingerprint** so only relevant knowledge is injected.
+- **Phase 1 (device-local, per schema fingerprint)**:
+  - `utils/schema-fingerprint.ts` (stable fingerprint), `utils/example-relevance.ts` (rank by relevance), `utils/query-corrections.ts` (local corrections store)
+  - The client (`app/query/page.tsx`) builds the learning context — examples capped at `AI.MAX_FEW_SHOT` (4), corrections at `AI.MAX_CORRECTIONS` (2) — and sends it to `/api/query/generate`
+  - The server's `buildLearningSections()` injects two guarded prompt sections: "Proven examples for this schema" (few-shot) and "Known corrections — avoid these mistakes"; the schema file remains the source of truth
+  - Local corrections capped at `CORRECTIONS.MAX_ENTRIES` (50)
+- **Phase 2 (team-wide, auth mode only)**:
+  - Failed→revised corrections are shared across a team, pooled purely by `schema_fingerprint` (NOT per-user)
+  - Migration `006_query_corrections.sql`: `owner_id` is attribution-only with `ON DELETE SET NULL`; a unique dedup index on `(schema_fingerprint, md5(bad_sql), md5(good_sql))`
+  - Repo `lib/db/repositories/query-correction-repository.ts`: `getByFingerprint`, `createCorrection` (`ON CONFLICT DO NOTHING`), update/delete gated by owner-or-admin
+  - API: `/api/data/corrections` (GET `?fingerprint=`, POST) + `/api/data/corrections/[id]` (PUT, DELETE)
+  - `StorageProvider` gained 4 correction methods (`getCorrectionsForFingerprint`, `addQueryCorrection`, `updateQueryCorrection`, `deleteQueryCorrection`); context exposes `recordQueryCorrection` / `getCorrectionsForFingerprint` / `updateQueryCorrection` / `deleteQueryCorrection` (fire-and-forget)
+  - Model `models/query-correction.interface.ts` (`QueryCorrection` has `ownerId` / `ownerName` / `updatedAt`); pool fetch capped at `CORRECTIONS.MAX_POOL_FETCH` (200)
+- **Curation UI**: `/learning` page (nav "Learning") lists/searches/edits/deletes captured corrections for the current connection's schema fingerprint. `canManage = !authEnabled || isAdmin || ownerId === user.id` (server enforces too)
+
+### Profile Page
+- `/profile` page (linked from the navigation user menu): account card (avatar/name/email/admin badge/groups from `useAuth`, "Local mode" fallback when auth disabled) + Usage stats (query accuracy %, connections and reports counts) + Admin Panel / Sign out actions
+- In auth mode, redirects to `/` if the user is not authenticated
+
+### Navigation Structure
+- Top nav has 3 top-level items: **Dashboard** (standalone) plus two Radix `DropdownMenu` groups — **Data** (Database, Schema) and **Query** (Query, History, Learning, Reports)
+- Defined via `standaloneLinks` + `navGroups` (`NavGroup` type) in `components/navigation.tsx`
+- The **Admin** link lives in the profile/user dropdown (gated on `isAdmin`), not the top nav; the **Profile** link points to `/profile`
+
 ### localStorage Keys
 | Key | Description |
 |-----|-------------|
@@ -392,6 +464,7 @@ config/                      # Server configuration
 | `saved_reports` | All saved reports |
 | `query_history` | Executed-query history (device-local, capped at HISTORY.MAX_ENTRIES) |
 | `query_accuracy` | Query accuracy counters `{ total, successful }` (local when auth disabled; synced to Postgres when enabled) |
+| `query_corrections` | Device-local query corrections per schema fingerprint (capped at CORRECTIONS.MAX_ENTRIES) |
 | `suggestions_{connectionId}` | Cached AI suggestions per connection |
 | `dismissed_notifications` | User dismissed notification IDs |
 
@@ -400,7 +473,7 @@ config/                      # Server configuration
 Required in `.env.local`:
 ```
 OPENAI_API_KEY=sk-...        # Required for AI features
-OPENAI_MODEL=gpt-5          # Model for query generation
+OPENAI_MODEL=gpt-5.4        # Model for query generation
 DEMO_RATE_LIMIT=             # Optional: number of free requests per 24h per IP (empty = unlimited)
 TRUSTED_PROXIES=             # Optional: comma-separated trusted proxy IPs for rate limiting
 

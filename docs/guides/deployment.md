@@ -50,7 +50,7 @@ plus a named volume:
   | Variable | Default in Compose |
   |----------|--------------------|
   | `OPENAI_API_KEY` | (passed through, no default) |
-  | `OPENAI_MODEL` | `gpt-4o` |
+  | `OPENAI_MODEL` | `gpt-5.4` |
   | `DEMO_RATE_LIMIT` | empty (disabled) |
   | `TRUSTED_PROXIES` | empty |
   | `AUTH_OIDC_ISSUER` | empty (auth disabled) |
@@ -122,7 +122,7 @@ auth deployment.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `OPENAI_API_KEY` | **Always** | OpenAI API key for all AI features (query generation, descriptions, suggestions, charts). |
-| `OPENAI_MODEL` | For query gen | Model used for SQL generation. **Required (no fallback) by `/api/query/generate`, `/enhance`, `/revise`**; other AI endpoints fall back to a default. Compose defaults it to `gpt-4o`. |
+| `OPENAI_MODEL` | For query gen | Model used for SQL generation. **Required (no fallback) by `/api/query/generate`, `/enhance`, `/revise`**; other AI endpoints fall back to a default. Compose defaults it to `gpt-5.4`. |
 | `DEMO_RATE_LIMIT` | No | Integer — OpenAI requests per IP per 24h. Empty/unset = unlimited. See [single-instance caveat](#single-instance-caveats). |
 | `TRUSTED_PROXIES` | No (recommended behind a proxy) | Comma-separated proxy IPs whose forwarded headers are trusted. See [Reverse Proxy](#reverse-proxy--trusted_proxies). |
 | `AUTH_OIDC_ISSUER` | **Auth mode only** | OIDC issuer URL. Setting the three `AUTH_OIDC_*` vars enables auth mode. |
@@ -155,12 +155,23 @@ step to invoke.
   restarts.
 - Current migration files: `001_initial_schema.sql`,
   `002_server_connections.sql`, `003_cascade_connection_deletes.sql`,
-  `004_query_accuracy.sql`.
+  `004_query_accuracy.sql`, `005_query_log.sql`, `006_query_corrections.sql`.
 - Because the migration `.sql` files are read from disk at runtime, the
   `Dockerfile` explicitly copies `lib/db/migrations` into the runner image.
 
 If `APP_DATABASE_URL` is unset (default/localStorage mode), migrations are
 skipped entirely and no app database is touched.
+
+### Query Audit Log
+
+The query audit log ([`lib/query-log.ts`](../../lib/query-log.ts), fire-and-forget,
+never logs credentials) writes to the app DB table `query_log`
+(migration `005_query_log.sql`, no foreign key) **when `APP_DATABASE_URL` is set**.
+In default/localStorage mode (no app DB), it falls back to appending JSONL to
+**`<cwd>/logs/query-log.jsonl`** ([`lib/query-log-file.ts`](../../lib/query-log-file.ts)).
+If you want to persist the file log across container restarts, mount a volume at
+`/app/logs`. Log rotation is out of scope — pair with an external tool such as
+logrotate if the file grows large.
 
 ## Reverse Proxy / `TRUSTED_PROXIES`
 
