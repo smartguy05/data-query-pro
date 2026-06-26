@@ -15,7 +15,7 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu"
-import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, ChevronLeft, ChevronRight, Loader2, Sparkles, LineChart, PieChart, AreaChart, ScatterChart, ExternalLink, Activity, Settings2, Save } from "lucide-react"
+import { ChevronUp, ChevronDown, Download, Search, BarChart3, TableIcon, ChevronLeft, ChevronRight, Loader2, Sparkles, LineChart, PieChart, AreaChart, ScatterChart, ExternalLink, Activity, Settings2, Save, Copy, Check } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ChartDisplay } from "@/components/chart-display"
 import { ChartCustomizer, reshapeChartConfig } from "@/components/chart-customizer"
@@ -24,6 +24,7 @@ import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
 import { useOpenAIKey } from "@/hooks/use-openai-key"
 import { ApiKeyDialog } from "@/components/api-key-dialog"
 import type { CellValue, DataRows } from "@/models/common-types"
+import { useToast } from "@/hooks/use-toast"
 
 interface QueryResultsProps {
   data: {
@@ -58,6 +59,11 @@ export function QueryResultsDisplay({ data, initialChartConfig, onChartConfigCha
 
   // Manual column type overrides (by column index)
   const [columnTypeOverrides, setColumnTypeOverrides] = useState<Record<number, string>>({})
+
+  // Copy-to-clipboard state
+  const { toast } = useToast()
+  const [copyFormat, setCopyFormat] = useState<"tsv" | "csv">("tsv")
+  const [justCopied, setJustCopied] = useState(false)
 
   // Reset overrides + (re)seed charts when the result data changes.
   // Reads initialChartConfig but does NOT depend on it, so live customization
@@ -303,6 +309,39 @@ export function QueryResultsDisplay({ data, initialChartConfig, onChartConfigCha
     a.download = "query-results.json"
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  // Build clipboard text from the processed (filtered/sorted) rows, using the
+  // same display formatting as the table. Blank cells become empty strings
+  // (not "-") so they paste as blanks.
+  const buildClipboardText = (includeHeaders: boolean): string => {
+    const formatRow = (cells: string[]) =>
+      copyFormat === "tsv"
+        ? cells.join("\t")
+        : cells.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")
+    const lines: string[] = []
+    if (includeHeaders) lines.push(formatRow(data.columns))
+    for (const row of processedData) {
+      lines.push(
+        formatRow(
+          row.map((cell, j) =>
+            cell === null || cell === undefined ? "" : formatCellValue(cell, j),
+          ),
+        ),
+      )
+    }
+    return lines.join("\n")
+  }
+
+  const copyResults = async (includeHeaders: boolean) => {
+    try {
+      await navigator.clipboard.writeText(buildClipboardText(includeHeaders))
+      setJustCopied(true)
+      setTimeout(() => setJustCopied(false), 1500)
+      toast({ title: "Copied", description: `${processedData.length} row(s) copied to clipboard.` })
+    } catch {
+      toast({ title: "Copy failed", description: "Clipboard access was blocked.", variant: "destructive" })
+    }
   }
 
   // Get numeric columns for chart view
@@ -588,6 +627,39 @@ export function QueryResultsDisplay({ data, initialChartConfig, onChartConfigCha
               <Download className="h-4 w-4 mr-2" />
               JSON
             </Button>
+
+            {/* Copy to clipboard: main button copies with headers; menu offers
+                header toggle and TSV/CSV format choice. */}
+            <div className="flex">
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-r-none border-r-0"
+                onClick={() => copyResults(true)}
+              >
+                {justCopied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
+                Copy
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="rounded-l-none px-2">
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => copyResults(true)}>Copy with headers</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => copyResults(false)}>Copy without headers</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuRadioGroup
+                    value={copyFormat}
+                    onValueChange={(v) => setCopyFormat(v as "tsv" | "csv")}
+                  >
+                    <DropdownMenuRadioItem value="tsv">Tab-separated (TSV)</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="csv">Comma-separated (CSV)</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </div>
       </CardHeader>

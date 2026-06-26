@@ -4,6 +4,11 @@
 > **Historical (summarized)** — for full prose, see git history. Durable gotchas live in
 > [docs/reference/lessons-learned.md](../docs/reference/lessons-learned.md).
 
+## Copy query results to clipboard (2026-06-26, branch main)
+- Added a split "Copy" control to the results toolbar in `components/query-results-display.tsx` (next to the CSV/JSON export buttons). Main button copies the current result set **with headers**; an adjacent chevron `DropdownMenu` offers "Copy with/without headers" + a TSV/CSV `DropdownMenuRadioGroup` (default TSV).
+- New helpers `buildClipboardText(includeHeaders)` + `copyResults(includeHeaders)`: maps over `processedData` (respects search/filter/sort) using existing `formatCellValue` so copied cells match the displayed values (currency `$`, localized dates). Null/undefined → empty string (not "-"). CSV path quote-escapes; TSV joins on `\t`. Uses `navigator.clipboard.writeText` with a `useToast` success/failure toast.
+- New state: `copyFormat` ("tsv"|"csv"), `justCopied` (1.5s Check-icon flash). Lint + `tsc --noEmit` clean.
+
 ## Documentation refresh — code-vs-docs audit (2026-06-19, branch more-improvements)
 - Audited all 22 doc files (CLAUDE.md + docs/**) against current code via a fan-out workflow
   (one verify-and-edit agent per file) + a read-only cross-check pass (verdict: clean). 21 files
