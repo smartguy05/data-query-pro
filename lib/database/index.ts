@@ -9,6 +9,9 @@ export type {
   ProgressCallback,
 } from './types';
 
+// Schema/namespace helpers (runtime values, not just types)
+export { defaultSchemaForType, supportsSchemaSwitching } from './types';
+
 // Factory
 export { DatabaseAdapterFactory } from './factory';
 

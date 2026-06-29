@@ -1,15 +1,21 @@
 import type { ParameterizedQuery, QueryBuilder } from './types';
 
+// NOTE on parameter order: the SQL Server adapter binds params positionally to
+// the @-placeholders in the order they first appear in the SQL. Each query below
+// references @tableName (when present) before @schema, matching the params array.
 export const SQLServerQueries: QueryBuilder = {
-  TABLES: `
-    SELECT t.name as table_name
-    FROM sys.tables t
-    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = 'dbo'
-    ORDER BY t.name
-  `,
+  tables: (schema: string): ParameterizedQuery => ({
+    sql: `
+      SELECT t.name as table_name
+      FROM sys.tables t
+      INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+      WHERE s.name = @schema
+      ORDER BY t.name
+    `,
+    params: [schema]
+  }),
 
-  columnsForTable: (tableName: string): ParameterizedQuery => ({
+  columnsForTable: (tableName: string, schema: string): ParameterizedQuery => ({
     sql: `
       SELECT
         c.name as column_name,
@@ -34,13 +40,13 @@ export const SQLServerQueries: QueryBuilder = {
         INNER JOIN sys.indexes i ON ic.object_id = i.object_id AND ic.index_id = i.index_id
         WHERE i.is_primary_key = 1
       ) pk ON c.object_id = pk.object_id AND c.column_id = pk.column_id
-      WHERE t.name = @tableName AND s.name = 'dbo'
+      WHERE t.name = @tableName AND s.name = @schema
       ORDER BY c.column_id
     `,
-    params: [tableName]
+    params: [tableName, schema]
   }),
 
-  foreignKeysForTable: (tableName: string): ParameterizedQuery => ({
+  foreignKeysForTable: (tableName: string, schema: string): ParameterizedQuery => ({
     sql: `
       SELECT
         COL_NAME(fkc.parent_object_id, fkc.parent_column_id) as column_name,
@@ -49,8 +55,8 @@ export const SQLServerQueries: QueryBuilder = {
       FROM sys.foreign_key_columns fkc
       INNER JOIN sys.tables t ON fkc.parent_object_id = t.object_id
       INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-      WHERE t.name = @tableName AND s.name = 'dbo'
+      WHERE t.name = @tableName AND s.name = @schema
     `,
-    params: [tableName]
+    params: [tableName, schema]
   }),
 };

@@ -10,16 +10,18 @@ export interface ParameterizedQuery {
 }
 
 /**
- * Query builder interface that all database query modules should implement.
- * Queries that need dynamic values return ParameterizedQuery objects.
+ * Query builder for databases with a namespace ("schema") concept — PostgreSQL
+ * and SQL Server. Every query is scoped to a schema so the same connection can
+ * introspect different namespaces (e.g. "public" vs "reporting"). Schemas are
+ * passed as bound parameters, never interpolated.
  */
 export interface QueryBuilder {
-  /** Static query for fetching all tables */
-  TABLES: string;
-  /** Parameterized query for columns of a specific table */
-  columnsForTable(tableName: string): ParameterizedQuery;
-  /** Parameterized query for foreign keys of a specific table */
-  foreignKeysForTable(tableName: string): ParameterizedQuery;
+  /** Parameterized query for fetching all tables in a schema */
+  tables(schema: string): ParameterizedQuery;
+  /** Parameterized query for columns of a specific table in a schema */
+  columnsForTable(tableName: string, schema: string): ParameterizedQuery;
+  /** Parameterized query for foreign keys of a specific table in a schema */
+  foreignKeysForTable(tableName: string, schema: string): ParameterizedQuery;
 }
 
 /**

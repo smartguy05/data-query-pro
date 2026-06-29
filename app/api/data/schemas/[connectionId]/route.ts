@@ -13,7 +13,9 @@ export async function GET(
     if (!auth) return unauthorized();
 
     const { connectionId } = await params;
-    const schema = await schemaRepo.getSchemaForConnection(connectionId, auth.userId);
+    // Optional ?schema= selects a specific namespace; omitted ⇒ most recent.
+    const schemaName = request.nextUrl.searchParams.get('schema') || undefined;
+    const schema = await schemaRepo.getSchemaForConnection(connectionId, auth.userId, schemaName);
     return successResponse(schema);
   } catch (error) {
     console.error('[GET /api/data/schemas/[connectionId]]', error);
@@ -33,7 +35,10 @@ export async function PUT(
     const body = await request.json();
     const schema: Schema = {
       connectionId,
+      schema: body.schema || undefined,
       tables: body.tables || [],
+      schemaFileId: body.schemaFileId || undefined,
+      vectorStoreId: body.vectorStoreId || undefined,
     };
 
     await schemaRepo.upsertSchema(auth.userId, schema);

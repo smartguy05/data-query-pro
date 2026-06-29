@@ -10,6 +10,7 @@ import type { QueryAccuracyStats } from '@/models/query-accuracy.interface';
 import type { QueryCorrection } from '@/models/query-correction.interface';
 import { LocalStorageProvider } from '@/lib/storage/local-storage-provider';
 import { ApiStorageProvider } from '@/lib/storage/api-storage-provider';
+import { defaultSchemaForType, supportsSchemaSwitching } from '@/lib/database/types';
 import {
     addQueryCorrection as addLocalCorrection,
     getCorrectionsForFingerprint as getLocalCorrections,
@@ -19,12 +20,25 @@ import {
 
 const DatabaseContext = createContext<DatabaseContextType | undefined>(undefined);
 
+// Resolved namespace a connection is pointed at (falls back to the DB-type
+// default: "public" for PostgreSQL, "dbo" for SQL Server, "public" otherwise).
+const activeNamespace = (conn: DatabaseConnection | undefined): string =>
+    conn?.activeSchema || defaultSchemaForType(conn?.type) || 'public';
+// A stored schema's namespace, normalized so legacy records (no namespace) keep
+// matching a connection whose active schema is the conventional default.
+const storedNamespace = (s: Pick<Schema, 'schema'>): string => s.schema || 'public';
+// Does this stored schema belong to the connection's currently-active namespace?
+const schemaMatchesConn = (s: Schema, conn: DatabaseConnection | undefined): boolean =>
+    !!conn && s.connectionId === conn.id && storedNamespace(s) === activeNamespace(conn);
+
 export function DatabaseConnectionOptions({ children }: { children: ReactNode }) {
     const [connections, setConnections] = useState<DatabaseConnection[]>([]);
     const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle");
     const [connectionSchemas, setConnectionSchemas] = useState<Schema[]>([]);
     const [currentConnection, setCurrentConnection] = useState<DatabaseConnection>();
     const [currentSchema, setCurrentSchema] = useState<Schema>();
+    const [availableSchemas, setAvailableSchemas] = useState<string[]>([]);
+    const [schemaListLoading, setSchemaListLoading] = useState(false);
     const [isInitialized, setIsInitialized] = useState(false);
     const [allReports, setAllReports] = useState<SavedReport[]>([]);
     const [queryAccuracy, setQueryAccuracy] = useState<QueryAccuracyStats>({ total: 0, successful: 0 });
@@ -102,7 +116,7 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
 
                     if (foundConnection) {
                         setCurrentConnection(foundConnection);
-                        const schema = allSchemas.find(s => s.connectionId === foundConnection!.id);
+                        const schema = allSchemas.find(s => schemaMatchesConn(s, foundConnection));
                         if (schema) {
                             setCurrentSchema(schema);
                         }
@@ -143,13 +157,19 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
                 localStorage.setItem("databaseConnections", JSON.stringify(localConnectionsOnly));
             }
 
-            const schema = connectionSchemas.find(s => s.connectionId === currentConnection.id);
+            const schema = connectionSchemas.find(s => schemaMatchesConn(s, currentConnection));
             setCurrentSchema(schema);
         }
         // `connections` is read but intentionally excluded: this effect also sets it,
         // so depending on it would cause an update loop.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentConnection, connectionSchemas]);
+
+    // Reset the cached schema list whenever the active connection changes; the
+    // schema switcher re-fetches it on demand via loadAvailableSchemas().
+    useEffect(() => {
+        setAvailableSchemas([]);
+    }, [currentConnection?.id]);
 
     useEffect(() => {
         if (isInitialized && storageRef.current instanceof LocalStorageProvider) {
@@ -247,11 +267,15 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             }),
         };
 
-        const originalSchema = connectionSchemas.find(s => s.connectionId === id);
-        if (originalSchema) {
+        // Copy every namespace's schema; clear per-schema OpenAI ids so the copy
+        // re-uploads its own index instead of sharing the original's.
+        const originalSchemas = connectionSchemas.filter(s => s.connectionId === id);
+        for (const originalSchema of originalSchemas) {
             const newSchema: Schema = {
                 ...originalSchema,
                 connectionId: newId,
+                schemaFileId: undefined,
+                vectorStoreId: undefined,
                 tables: originalSchema.tables.map(table => ({
                     ...table,
                     columns: table.columns.map(col => ({ ...col })),
@@ -304,10 +328,14 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             throw new Error("No schema supplied!");
         }
 
-        const connectionSchema = connectionSchemas.find(f => f.connectionId === schema.connectionId);
+        // Schemas are keyed by (connection, namespace) so each namespace is stored
+        // independently.
+        const connectionSchema = connectionSchemas.find(
+            f => f.connectionId === schema.connectionId && storedNamespace(f) === storedNamespace(schema)
+        );
         if (!!connectionSchema) {
             const updatedSchemas = connectionSchemas.map((s) => {
-                if (s.connectionId === schema.connectionId) {
+                if (s.connectionId === schema.connectionId && storedNamespace(s) === storedNamespace(schema)) {
                     return schema;
                 }
                 return s;
@@ -317,7 +345,7 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             setConnectionSchemas([...connectionSchemas, schema]);
         }
 
-        if (schema.connectionId === currentConnection?.id) {
+        if (schemaMatchesConn(schema, currentConnection)) {
             setCurrentSchema(schema);
         }
 
@@ -341,12 +369,12 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
                 const stillExists = allConnections.find(c => c.id === currentConnection.id);
                 if (stillExists) {
                     setCurrentConnection(stillExists);
-                    const schema = allSchemas.find(s => s.connectionId === stillExists.id);
+                    const schema = allSchemas.find(s => schemaMatchesConn(s, stillExists));
                     setCurrentSchema(schema);
                 } else if (allConnections.length > 0) {
                     // Current connection was removed, switch to first available
                     setCurrentConnection(allConnections[0]);
-                    const schema = allSchemas.find(s => s.connectionId === allConnections[0].id);
+                    const schema = allSchemas.find(s => schemaMatchesConn(s, allConnections[0]));
                     setCurrentSchema(schema);
                 } else {
                     setCurrentConnection(undefined);
@@ -357,6 +385,79 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             console.error("Error refreshing connections:", error);
         }
     }, [currentConnection]);
+
+    // --- Schema (namespace) switching ---
+
+    // Fetch the list of namespaces available on the current connection so the UI
+    // can offer a switcher. No-op (empty list) for databases without namespaces.
+    const loadAvailableSchemas = useCallback(async () => {
+        const connection = currentConnection;
+        if (!connection || !supportsSchemaSwitching(connection.type)) {
+            setAvailableSchemas([]);
+            return;
+        }
+        setSchemaListLoading(true);
+        try {
+            const authEnabled = !!storageRef.current && !(storageRef.current instanceof LocalStorageProvider);
+            const body = authEnabled
+                ? { connectionId: connection.id, source: connection.source, type: connection.type }
+                : { connection };
+            const res = await fetch('/api/schema/list', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setAvailableSchemas(Array.isArray(data.schemas) ? data.schemas : []);
+            } else {
+                setAvailableSchemas([]);
+            }
+        } catch {
+            setAvailableSchemas([]);
+        } finally {
+            setSchemaListLoading(false);
+        }
+    }, [currentConnection]);
+
+    // Point the current connection at a different namespace and persist it. The
+    // [currentConnection, connectionSchemas] effect then resolves currentSchema
+    // to that namespace's cached tables (or undefined, which makes the schema
+    // explorer introspect it on demand).
+    //
+    // The OpenAI file/vector-store ids live per-namespace on each Schema record;
+    // the connection only mirrors the *active* namespace's ids (so the query
+    // pages keep reading them off the connection unchanged). On switch we (1) save
+    // the departing namespace's current ids back onto its Schema record, then
+    // (2) load the target namespace's ids onto the connection. This also migrates
+    // legacy connections whose ids were only stored on the connection.
+    const switchSchema = (schemaName: string) => {
+        if (!currentConnection) return;
+        if (activeNamespace(currentConnection) === schemaName) return;
+
+        if (currentSchema && (currentConnection.schemaFileId || currentConnection.vectorStoreId)) {
+            setSchema({
+                ...currentSchema,
+                schemaFileId: currentConnection.schemaFileId,
+                vectorStoreId: currentConnection.vectorStoreId,
+            });
+        }
+
+        const target = connectionSchemas.find(
+            s => s.connectionId === currentConnection.id && storedNamespace(s) === (schemaName || 'public')
+        );
+        updateConnection({
+            ...currentConnection,
+            activeSchema: schemaName,
+            schemaFileId: target?.schemaFileId,
+            vectorStoreId: target?.vectorStoreId,
+        });
+        // Set currentSchema in the same batch so consumers (e.g. the schema
+        // explorer's introspect-on-switch effect) see the target namespace's
+        // cached tables — or undefined, which triggers introspection — without
+        // waiting a render for the [currentConnection] effect to catch up.
+        setCurrentSchema(target);
+    };
 
     // --- Report methods ---
     const loadReports = useCallback(async () => {
@@ -523,6 +624,11 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             setCurrentSchema,
             currentConnection,
             connectionSchemas,
+            activeSchema: activeNamespace(currentConnection),
+            availableSchemas,
+            schemaListLoading,
+            loadAvailableSchemas,
+            switchSchema,
             isInitialized,
             refreshConnections,
             reports: allReports,

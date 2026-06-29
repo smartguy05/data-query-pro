@@ -1,14 +1,17 @@
 import type { ParameterizedQuery, QueryBuilder } from './types';
 
 export const PostgreSQLQueries: QueryBuilder = {
-  TABLES: `
-    SELECT tablename as table_name
-    FROM pg_catalog.pg_tables
-    WHERE schemaname = 'public'
-    ORDER BY tablename
-  `,
+  tables: (schema: string): ParameterizedQuery => ({
+    sql: `
+      SELECT tablename as table_name
+      FROM pg_catalog.pg_tables
+      WHERE schemaname = $1
+      ORDER BY tablename
+    `,
+    params: [schema]
+  }),
 
-  columnsForTable: (tableName: string): ParameterizedQuery => ({
+  columnsForTable: (tableName: string, schema: string): ParameterizedQuery => ({
     sql: `
       SELECT
         a.attname as column_name,
@@ -26,15 +29,15 @@ export const PostgreSQLQueries: QueryBuilder = {
         WHERE i.indisprimary
       ) pk ON a.attrelid = pk.indrelid AND a.attnum = pk.attnum
       WHERE c.relname = $1
-      AND n.nspname = 'public'
+      AND n.nspname = $2
       AND a.attnum > 0
       AND NOT a.attisdropped
       ORDER BY a.attnum
     `,
-    params: [tableName]
+    params: [tableName, schema]
   }),
 
-  foreignKeysForTable: (tableName: string): ParameterizedQuery => ({
+  foreignKeysForTable: (tableName: string, schema: string): ParameterizedQuery => ({
     sql: `
       SELECT
         a.attname as column_name,
@@ -47,9 +50,9 @@ export const PostgreSQLQueries: QueryBuilder = {
       JOIN pg_catalog.pg_class fc ON con.confrelid = fc.oid
       JOIN pg_catalog.pg_attribute fa ON fa.attrelid = fc.oid AND fa.attnum = ANY(con.confkey)
       WHERE c.relname = $1
-      AND n.nspname = 'public'
+      AND n.nspname = $2
       AND con.contype = 'f'
     `,
-    params: [tableName]
+    params: [tableName, schema]
   }),
 };

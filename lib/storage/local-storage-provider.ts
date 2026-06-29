@@ -13,6 +13,11 @@ import {
 } from '@/utils/query-corrections';
 import { HISTORY, STORAGE_KEYS } from '@/lib/constants';
 
+// Schemas are keyed by (connection, namespace). Legacy records without a
+// namespace are treated as the conventional default so they keep matching.
+const schemaKey = (s: Pick<Schema, 'connectionId' | 'schema'>): string =>
+  `${s.connectionId}::${s.schema || 'public'}`;
+
 export class LocalStorageProvider implements StorageProvider {
   private serverConnections: DatabaseConnection[] = [];
   private serverSchemas: Schema[] = [];
@@ -140,12 +145,16 @@ export class LocalStorageProvider implements StorageProvider {
       }),
     };
 
-    // Duplicate schema
+    // Duplicate every namespace's schema. Clear the per-schema OpenAI ids so the
+    // copy re-uploads its own index rather than sharing the original's.
     const schemas = await this.getSchemas();
-    const originalSchema = schemas.find(s => s.connectionId === id);
-    if (originalSchema) {
+    const originalSchemas = schemas.filter(s => s.connectionId === id);
+    for (const originalSchema of originalSchemas) {
       const newSchema: Schema = {
         connectionId: newId,
+        schema: originalSchema.schema,
+        schemaFileId: undefined,
+        vectorStoreId: undefined,
         tables: originalSchema.tables.map(table => ({
           ...table,
           columns: table.columns.map(col => ({ ...col })),
@@ -215,8 +224,8 @@ export class LocalStorageProvider implements StorageProvider {
     const storedSchemas: Schema[] = JSON.parse(
       localStorage.getItem('connectionSchemas') || '[]'
     );
-    const serverSchemaIds = new Set(this.serverSchemas.map(s => s.connectionId));
-    const localOnlySchemas = storedSchemas.filter(s => !serverSchemaIds.has(s.connectionId));
+    const serverSchemaKeys = new Set(this.serverSchemas.map(schemaKey));
+    const localOnlySchemas = storedSchemas.filter(s => !serverSchemaKeys.has(schemaKey(s)));
     return [...this.serverSchemas, ...localOnlySchemas];
   }
 
@@ -224,7 +233,7 @@ export class LocalStorageProvider implements StorageProvider {
     const stored: Schema[] = JSON.parse(
       localStorage.getItem('connectionSchemas') || '[]'
     );
-    const existing = stored.findIndex(s => s.connectionId === schema.connectionId);
+    const existing = stored.findIndex(s => schemaKey(s) === schemaKey(schema));
     if (existing >= 0) {
       stored[existing] = schema;
     } else {

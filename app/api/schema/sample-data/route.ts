@@ -19,10 +19,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid table name" }, { status: 400 })
     }
 
+    // Sample data must come from the active namespace (PostgreSQL/SQL Server).
+    const schema = body.schema ?? body.connection?.activeSchema
     // Support both { connectionId } (auth mode) and { connection } (no-auth mode)
     const connection = body.connectionId
-      ? { id: body.connectionId, source: body.source || "local", type: body.type }
-      : body.connection
+      ? { id: body.connectionId, source: body.source || "local", type: body.type, schema }
+      : { ...body.connection, schema }
 
     const validationResult = await validateConnection(connection, {
       validateRequiredFields: false,

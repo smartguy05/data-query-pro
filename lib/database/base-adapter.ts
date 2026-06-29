@@ -27,13 +27,24 @@ export abstract class BaseDatabaseAdapter implements IDatabaseAdapter {
   abstract disconnect(): Promise<void>;
   abstract executeRawQuery(sql: string): Promise<Record<string, unknown>[]>;
   abstract executeParameterizedQuery(query: ParameterizedQuery): Promise<Record<string, unknown>[]>;
-  abstract getTablesQuery(): string;
+  // May be a static string (SQLite) or a schema-scoped parameterized query
+  // (PostgreSQL/SQL Server). introspectSchema() handles both.
+  abstract getTablesQuery(): string | ParameterizedQuery;
   abstract getColumnsQuery(tableName: string): ParameterizedQuery;
   abstract getForeignKeysQuery(tableName: string): ParameterizedQuery;
 
   // Common implementation
   isConnected(): boolean {
     return this.connected;
+  }
+
+  /**
+   * Lists available namespaces ("schemas"). Databases without a namespace
+   * concept (MySQL/SQLite) inherit this empty default; PostgreSQL and SQL Server
+   * override it. Callers treat an empty list as "schema switching unsupported".
+   */
+  async listSchemas(): Promise<string[]> {
+    return [];
   }
 
   async testConnection(config: AdapterConnectionConfig): Promise<ConnectionTestResult> {
@@ -90,7 +101,12 @@ export abstract class BaseDatabaseAdapter implements IDatabaseAdapter {
 
     onProgress?.(10, 'Fetching table list...');
 
-    const tablesResult = await this.executeRawQuery(this.getTablesQuery());
+    // getTablesQuery is a plain string for SQLite, or a schema-scoped
+    // parameterized query for PostgreSQL/SQL Server.
+    const tablesQuery = this.getTablesQuery();
+    const tablesResult = typeof tablesQuery === 'string'
+      ? await this.executeRawQuery(tablesQuery)
+      : await this.executeParameterizedQuery(tablesQuery);
     const tableNames = tablesResult.map((row) => row.table_name as string);
 
     const tables: DatabaseTable[] = [];

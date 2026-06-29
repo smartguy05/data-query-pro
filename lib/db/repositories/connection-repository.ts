@@ -17,6 +17,7 @@ interface DbConnection {
   status: string;
   schema_file_id: string | null;
   vector_store_id: string | null;
+  active_schema: string | null;
   source: string;
   created_at: Date;
   updated_at: Date;
@@ -44,6 +45,7 @@ function toClientConnection(
     status: (row.status || 'disconnected') as 'connected' | 'disconnected',
     schemaFileId: row.schema_file_id || undefined,
     vectorStoreId: row.vector_store_id || undefined,
+    activeSchema: row.active_schema || undefined,
     source: (row.source || 'local') as 'local' | 'server',
     createdAt: row.created_at?.toISOString() || new Date().toISOString(),
     accessLevel,
@@ -147,13 +149,13 @@ export async function createConnection(
     INSERT INTO database_connections (
       id, owner_id, name, type, host, port, database_name, username,
       password_enc, filepath, description, status, schema_file_id,
-      vector_store_id, source, created_at
+      vector_store_id, active_schema, source, created_at
     ) VALUES (
       ${conn.id}, ${userId}, ${conn.name}, ${conn.type}, ${conn.host},
       ${conn.port}, ${conn.database}, ${conn.username}, ${passwordEnc},
       ${conn.filepath || null}, ${conn.description || null},
       ${conn.status || 'disconnected'}, ${conn.schemaFileId || null},
-      ${conn.vectorStoreId || null}, ${'local'},
+      ${conn.vectorStoreId || null}, ${conn.activeSchema || null}, ${'local'},
       ${conn.createdAt || new Date().toISOString()}
     )
     RETURNING *
@@ -193,6 +195,7 @@ export async function updateConnection(
   if (conn.status !== undefined) updates.status = conn.status;
   if (conn.schemaFileId !== undefined) updates.schema_file_id = conn.schemaFileId || null;
   if (conn.vectorStoreId !== undefined) updates.vector_store_id = conn.vectorStoreId || null;
+  if (conn.activeSchema !== undefined) updates.active_schema = conn.activeSchema || null;
 
   if (Object.keys(updates).length === 0) {
     return toClientConnection(existing);
@@ -211,7 +214,8 @@ export async function updateConnection(
       description = ${updates.description !== undefined ? (updates.description as string | null) : existing.description},
       status = COALESCE(${updates.status ?? null}, status),
       schema_file_id = ${updates.schema_file_id !== undefined ? (updates.schema_file_id as string | null) : existing.schema_file_id},
-      vector_store_id = ${updates.vector_store_id !== undefined ? (updates.vector_store_id as string | null) : existing.vector_store_id}
+      vector_store_id = ${updates.vector_store_id !== undefined ? (updates.vector_store_id as string | null) : existing.vector_store_id},
+      active_schema = ${updates.active_schema !== undefined ? (updates.active_schema as string | null) : existing.active_schema}
     WHERE id = ${conn.id}
     RETURNING *
   `;
