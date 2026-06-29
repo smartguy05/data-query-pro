@@ -10,6 +10,10 @@ function getAuthOptions(): NextAuthConfig {
   }
 
   return {
+    // next-auth v5 (5.0.0-beta.30) does not honor the AUTH_TRUST_HOST env var,
+    // so deployments behind a reverse proxy must set this explicitly or
+    // authorize/callback URLs get built for the internal 0.0.0.0:3000 host.
+    trustHost: true,
     providers: [
       {
         id: 'authentik',

@@ -21,6 +21,12 @@ export async function getAuthContext(request: NextRequest): Promise<AuthContext 
     const token = await getToken({
       req: request as Parameters<typeof getToken>[0]['req'],
       secret: process.env.AUTH_SECRET,
+      // Same TLS-proxy fix as middleware.ts: behind the reverse proxy Next sees
+      // the request as http://0.0.0.0:3000, so getToken would look for the
+      // non-secure cookie and never match the __Secure- session cookie the
+      // handler set (AUTH_URL is https) -> every authenticated API route 401s
+      // and the UI shows no connections after a refresh.
+      secureCookie: process.env.AUTH_URL?.startsWith('https://') ?? false,
     });
 
     if (!token) {

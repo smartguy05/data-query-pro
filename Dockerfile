@@ -6,15 +6,19 @@ FROM node:20-alpine AS base
 # Install dependencies for native modules
 RUN apk add --no-cache libc6-compat python3 make g++
 
+# Project is built with pnpm (committed pnpm-lock.yaml v9 + a pnpm-specific
+# .npmrc: node-linker=hoisted, package-import-method=copy). pnpm's
+# autoInstallPeers resolves the React 19 peer ranges (e.g. vaul) that a strict
+# `npm ci` rejects with ERESOLVE.
+RUN npm install -g pnpm@9
+
 # ---- Dependencies ----
 FROM base AS deps
 WORKDIR /app
 
-# Copy package files
-COPY package.json package-lock.json* ./
-
-# Install dependencies
-RUN npm ci
+# Copy manifest + lockfile + .npmrc (the pnpm settings) and install frozen.
+COPY package.json pnpm-lock.yaml .npmrc ./
+RUN pnpm install --frozen-lockfile
 
 # ---- Builder ----
 FROM base AS builder
@@ -29,7 +33,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
 # Build the application
-RUN npm run build
+RUN pnpm run build
 
 # ---- Runner ----
 FROM node:20-alpine AS runner

@@ -16,6 +16,14 @@ services:
       - AUTH_OIDC_CLIENT_SECRET=${AUTH_OIDC_CLIENT_SECRET:-}
       - AUTH_SECRET=${AUTH_SECRET:-}
       - AUTH_ADMIN_GROUP=${AUTH_ADMIN_GROUP:-dataquery-admins}
+      # Reverse-proxy / public-URL vars. Required when the app runs behind a
+      # TLS-terminating proxy so Auth.js v5 builds OIDC callback URLs for the
+      # public hostname (set AUTH_URL to the https origin) instead of
+      # localhost:3000. NEXTAUTH_URL is the legacy alias next-auth/jwt's
+      # getToken() still reads. Default empty -> direct localhost use is unchanged.
+      - AUTH_URL=${AUTH_URL:-}
+      - AUTH_TRUST_HOST=${AUTH_TRUST_HOST:-}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-}
       # App database connection (built from the credentials below)
       - APP_DATABASE_URL=postgres://${APP_DB_USER:-dataquery}:${APP_DB_PASSWORD:-dataquery}@app-db:5432/${APP_DB_NAME:-dataquery_app}
       # Encryption key for stored passwords (required when auth is enabled)

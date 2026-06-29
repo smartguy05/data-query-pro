@@ -67,6 +67,11 @@ export async function middleware(request: NextRequest) {
       const token = await getToken({
         req: request,
         secret: process.env.AUTH_SECRET,
+        // Behind a TLS-terminating reverse proxy, Next standalone reports the
+        // request as http://0.0.0.0:3000, so getToken would default to the
+        // non-secure cookie name and never find the __Secure- session cookie
+        // the handler sets (AUTH_URL is https) -> infinite login redirect loop.
+        secureCookie: process.env.AUTH_URL?.startsWith('https://') ?? false,
       });
 
       if (!token) {
