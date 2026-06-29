@@ -28,6 +28,15 @@ export interface DatabaseContextType {
     setCurrentSchema: (schema: Schema) => void;
     currentSchema: Schema | undefined;
 
+    // Namespace ("schema") switching for the current connection (PostgreSQL/SQL
+    // Server). activeSchema is the resolved selected namespace; availableSchemas
+    // is populated by loadAvailableSchemas() (empty for DBs without namespaces).
+    activeSchema: string | undefined;
+    availableSchemas: string[];
+    schemaListLoading: boolean;
+    loadAvailableSchemas: () => Promise<void>;
+    switchSchema: (schemaName: string) => void;
+
     isInitialized: boolean;
     refreshConnections: () => Promise<void>;
 

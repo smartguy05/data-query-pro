@@ -32,6 +32,10 @@ export interface ConnectionInput {
   username?: string;
   password?: string;
   filepath?: string; // For SQLite
+  // Active namespace to introspect/query (PostgreSQL/SQL Server). This is a
+  // client-side selection, not a stored credential, so it is preserved from the
+  // request rather than resolved from the DB. Unset ⇒ adapter default.
+  schema?: string;
 }
 
 /**
@@ -143,6 +147,8 @@ function buildAdapterConfig(connectionDetails: ConnectionInput): AdapterConnecti
     username: connectionDetails.username || "",
     password: connectionDetails.password || "",
     filepath: connectionDetails.filepath,
+    // Pass the selected namespace through (undefined ⇒ adapter default).
+    schema: connectionDetails.schema || undefined,
     ssl:
       connectionDetails.host?.includes("azure.com") ||
       connectionDetails.host?.includes("azure"),

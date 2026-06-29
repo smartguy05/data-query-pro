@@ -28,10 +28,12 @@ export async function POST(request: NextRequest) {
     const auth = await getAuthContext(request);
     const body = await request.json()
 
+    // Namespace to introspect (PostgreSQL/SQL Server); undefined ⇒ adapter default.
+    const schema = body.schema ?? body.connection?.activeSchema;
     // Support both { connectionId } (auth mode) and { connection } (no-auth mode)
     const connection = body.connectionId
-      ? { id: body.connectionId, source: body.source || 'local', type: body.type }
-      : body.connection;
+      ? { id: body.connectionId, source: body.source || 'local', type: body.type, schema }
+      : { ...body.connection, schema };
 
     if (!connection) {
       return NextResponse.json({ error: "Connection data is required" }, { status: 400 })

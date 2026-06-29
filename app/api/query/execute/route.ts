@@ -10,10 +10,13 @@ export async function POST(request: NextRequest) {
     const auth = await getAuthContext(request);
     const body = await request.json()
     const sql = body.sql;
+    // Active namespace the query targets (PostgreSQL/SQL Server). Threaded into
+    // the adapter config so PostgreSQL sets search_path to this schema.
+    const schema = body.schema ?? body.connection?.activeSchema;
     // Support both { connectionId } (auth mode) and { connection } (no-auth mode)
     const connection = body.connectionId
-      ? { id: body.connectionId, source: body.source || 'local', type: body.type }
-      : body.connection;
+      ? { id: body.connectionId, source: body.source || 'local', type: body.type, schema }
+      : { ...body.connection, schema };
 
     if (!sql) {
       return NextResponse.json({ error: "SQL query is required" }, { status: 400 })

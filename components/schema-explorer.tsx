@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ConfirmationModal } from "@/components/confirmation-modal"
 import { SchemaUpdateModal } from "@/components/schema-update-modal"
 import { CopyDescriptionsDialog } from "@/components/copy-descriptions-dialog"
@@ -83,7 +84,16 @@ export function SchemaExplorer() {
     if (connectionInformation.isInitialized) {
       checkConnectionAndLoadSchema();
     }
-    // checkConnectionAndLoadSchema is recreated each render; run only on init/connection change.
+    // checkConnectionAndLoadSchema is recreated each render; run on init, connection
+    // change, AND active-schema change (switching namespaces loads/introspects it).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionInformation.isInitialized, connectionInformation.currentConnection?.id, connectionInformation.activeSchema])
+
+  // Load the list of available namespaces for the schema switcher.
+  useEffect(() => {
+    if (connectionInformation.isInitialized && connectionInformation.currentConnection) {
+      connectionInformation.loadAvailableSchemas();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionInformation.isInitialized, connectionInformation.currentConnection?.id])
 
@@ -127,6 +137,7 @@ export function SchemaExplorer() {
             if (status.status === "completed") {
               const schema: Schema = {
                 connectionId: connectionInformation.currentConnection?.id ?? "",
+                schema: connectionInformation.activeSchema,
                 tables: status.result.schema.tables
               };
               connectionInformation.setSchema(schema);
@@ -214,10 +225,11 @@ export function SchemaExplorer() {
       setProcessProgress(0)
       setProcessMessage("Starting schema introspection...")
 
-      // When auth is enabled, send only the connection ID — server resolves credentials
+      // When auth is enabled, send only the connection ID — server resolves credentials.
+      // `schema` selects which namespace to introspect.
       const body = authEnabled
-        ? { connectionId: connection.id, source: connection.source, type: connection.type }
-        : { connection };
+        ? { connectionId: connection.id, source: connection.source, type: connection.type, schema: connectionInformation.activeSchema }
+        : { connection, schema: connectionInformation.activeSchema };
 
       const response = await fetch("/api/schema/start-introspection", {
         method: "POST",
@@ -378,8 +390,8 @@ export function SchemaExplorer() {
 
     try {
       const body = authEnabled
-        ? { connectionId: connection.id, source: connection.source, type: connection.type, tableName }
-        : { connection, tableName }
+        ? { connectionId: connection.id, source: connection.source, type: connection.type, tableName, schema: connectionInformation.activeSchema }
+        : { connection, tableName, schema: connectionInformation.activeSchema }
 
       const response = await fetch("/api/schema/sample-data", {
         method: "POST",
@@ -526,9 +538,10 @@ export function SchemaExplorer() {
     setIsSaving(true);
 
     try {
-      // Capture existing IDs BEFORE clearing them
-      const existingFileId = connection.schemaFileId;
-      const existingVectorStoreId = connection.vectorStoreId;
+      // Capture existing IDs for THIS namespace (the schema record is the source
+      // of truth; the connection mirrors the active namespace's ids).
+      const existingFileId = connectionInformation.currentSchema.schemaFileId ?? connection.schemaFileId;
+      const existingVectorStoreId = connectionInformation.currentSchema.vectorStoreId ?? connection.vectorStoreId;
 
       const schemaData = connectionInformation.getSchema();
       if (!schemaData) {
@@ -561,6 +574,17 @@ export function SchemaExplorer() {
 
       if (result.ok) {
         const ids = await result.json();
+        // Persist the per-namespace ids on the schema record…
+        const savedSchema = connectionInformation.getSchema();
+        if (savedSchema) {
+          connectionInformation.setSchema({
+            ...savedSchema,
+            schemaFileId: ids.fileId,
+            vectorStoreId: ids.vectorStoreId,
+          });
+        }
+        // …and mirror them on the connection for the active namespace so the
+        // query pages (which read ids off the connection) pick them up.
         connection.vectorStoreId = ids.vectorStoreId;
         connection.schemaFileId = ids.fileId;
         connectionInformation.updateConnection(connection);
@@ -596,10 +620,10 @@ export function SchemaExplorer() {
     setIsUpdatingSchema(true);
 
     try {
-      // Fetch fresh schema from database
+      // Fetch fresh schema from database for the active namespace
       const introspectBody = authEnabled
-        ? { connectionId: connection.id, source: connection.source, type: connection.type }
-        : { connection };
+        ? { connectionId: connection.id, source: connection.source, type: connection.type, schema: connectionInformation.activeSchema }
+        : { connection, schema: connectionInformation.activeSchema };
 
       const response = await fetch("/api/schema/introspect", {
         method: "POST",
@@ -616,6 +640,7 @@ export function SchemaExplorer() {
       const data = await response.json();
       const freshSchema: Schema = {
         connectionId: connectionInformation.currentConnection?.id ?? "",
+        schema: connectionInformation.activeSchema,
         tables: data.schema.tables
       };
 
@@ -764,6 +789,28 @@ export function SchemaExplorer() {
     });
   }
 
+  // Namespace switcher (PostgreSQL/SQL Server). Hidden when the database has no
+  // switchable namespaces (MySQL/SQLite) or the list hasn't loaded yet.
+  const schemaSwitcher = connectionInformation.availableSchemas.length > 0 ? (
+    <div className="flex items-center gap-2">
+      <span className="text-sm text-muted-foreground">Schema:</span>
+      <Select
+        value={connectionInformation.activeSchema}
+        onValueChange={(v) => connectionInformation.switchSchema(v)}
+        disabled={connectionInformation.schemaListLoading || isProcessing || isUpdatingSchema}
+      >
+        <SelectTrigger className="h-8 w-[180px]">
+          <SelectValue placeholder="Select schema" />
+        </SelectTrigger>
+        <SelectContent>
+          {connectionInformation.availableSchemas.map((s) => (
+            <SelectItem key={s} value={s}>{s}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  ) : null;
+
   if (loading || isProcessing) {
     return (
       <Card>
@@ -821,36 +868,42 @@ export function SchemaExplorer() {
 
   if (!connectionInformation.currentSchema || !connectionInformation.currentSchema.tables || connectionInformation.currentSchema.tables.length === 0) {
     return (
-      <Alert>
-        <AlertCircle className="h-4 w-4" />
-        <AlertDescription>
-          No tables found in the database schema.
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-2"
-            onClick={checkConnectionAndLoadSchema}
-          >
-            Reload Schema
-          </Button>
-        </AlertDescription>
-      </Alert>
+      <div className="space-y-4">
+        {schemaSwitcher && <div className="flex justify-end">{schemaSwitcher}</div>}
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            No tables found in the{connectionInformation.activeSchema ? ` "${connectionInformation.activeSchema}"` : ""} schema.
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-2"
+              onClick={checkConnectionAndLoadSchema}
+            >
+              Reload Schema
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </div>
     )
   }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Database className="w-5 h-5 text-accent" />
-          <span className="text-lg font-semibold">
-            {connectionInformation.currentSchema.tables.length} Tables Found
-            {connectionInformation.currentSchema.tables.filter((t) => t.hidden).length > 0 && (
-              <span className="text-sm text-muted-foreground ml-2">
-                ({connectionInformation.currentSchema.tables.filter((t) => t.hidden).length} hidden from queries)
-              </span>
-            )}
-          </span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Database className="w-5 h-5 text-accent" />
+            <span className="text-lg font-semibold">
+              {connectionInformation.currentSchema.tables.length} Tables Found
+              {connectionInformation.currentSchema.tables.filter((t) => t.hidden).length > 0 && (
+                <span className="text-sm text-muted-foreground ml-2">
+                  ({connectionInformation.currentSchema.tables.filter((t) => t.hidden).length} hidden from queries)
+                </span>
+              )}
+            </span>
+          </div>
+          {schemaSwitcher}
         </div>
         <div className="flex items-center gap-2">
           <Button

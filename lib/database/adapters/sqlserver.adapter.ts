@@ -79,16 +79,40 @@ export class SQLServerAdapter extends BaseDatabaseAdapter {
     return result.recordset as Record<string, unknown>[];
   }
 
-  getTablesQuery(): string {
-    return SQLServerQueries.TABLES;
+  /** Active namespace for this connection; defaults to SQL Server's "dbo". */
+  private schemaName(): string {
+    return this.config?.schema || 'dbo';
+  }
+
+  async listSchemas(): Promise<string[]> {
+    if (!this.pool) {
+      throw new Error('Not connected to SQL Server');
+    }
+    // Exclude SQL Server's built-in/system schemas, leaving dbo + user schemas.
+    const result = await this.pool.request().query(`
+      SELECT name
+      FROM sys.schemas
+      WHERE name NOT IN (
+        'sys', 'INFORMATION_SCHEMA', 'guest',
+        'db_owner', 'db_accessadmin', 'db_securityadmin', 'db_ddladmin',
+        'db_backupoperator', 'db_datareader', 'db_datawriter',
+        'db_denydatareader', 'db_denydatawriter'
+      )
+      ORDER BY name
+    `);
+    return (result.recordset as { name: string }[]).map((r) => r.name);
+  }
+
+  getTablesQuery(): ParameterizedQuery {
+    return SQLServerQueries.tables(this.schemaName());
   }
 
   getColumnsQuery(tableName: string): ParameterizedQuery {
-    return SQLServerQueries.columnsForTable(tableName);
+    return SQLServerQueries.columnsForTable(tableName, this.schemaName());
   }
 
   getForeignKeysQuery(tableName: string): ParameterizedQuery {
-    return SQLServerQueries.foreignKeysForTable(tableName);
+    return SQLServerQueries.foreignKeysForTable(tableName, this.schemaName());
   }
 
   // SQL Server uses square brackets for identifiers

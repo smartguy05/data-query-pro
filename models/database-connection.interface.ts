@@ -12,6 +12,14 @@ export interface DatabaseConnection {
     filepath?: string  // SQLite database file path
     description?: string
     status: "connected" | "disconnected"
+    // Currently-selected database namespace (PostgreSQL/SQL Server schema). When
+    // unset, the adapter default is used ("public" / "dbo"). Switching schemas
+    // updates this; the introspected tables for each namespace are cached
+    // separately keyed by (connectionId, schema). See [[Schema]].
+    activeSchema?: string;
+    // Legacy per-connection OpenAI ids. New code stores these per-namespace on
+    // the Schema record instead; kept here for back-compat with existing data
+    // and as a fallback for the default schema.
     schemaFileId?: string;
     vectorStoreId?: string;
     createdAt: string,

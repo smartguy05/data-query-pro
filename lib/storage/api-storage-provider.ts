@@ -77,26 +77,17 @@ export class ApiStorageProvider implements StorageProvider {
   }
 
   async getSchemas(): Promise<Schema[]> {
-    // Schemas are fetched per-connection, but we need all for initial load
-    // The connections list will tell us which ones have schemas
-    const connections = await this.getConnections();
-    const schemas: Schema[] = [];
-
-    for (const conn of connections) {
-      try {
-        const schema = await apiFetch<Schema | null>(`/api/data/schemas/${conn.id}`);
-        if (schema) {
-          schemas.push(schema);
-        }
-      } catch {
-        // Schema may not exist for this connection
-      }
+    // All of the user's schemas (every connection × namespace) in one call.
+    try {
+      return await apiFetch<Schema[]>('/api/data/schemas');
+    } catch {
+      return [];
     }
-
-    return schemas;
   }
 
   async setSchema(schema: Schema): Promise<void> {
+    // Body carries the namespace + per-schema OpenAI ids; the route keys the
+    // upsert on (connection, namespace).
     await apiFetch(`/api/data/schemas/${schema.connectionId}`, {
       method: 'PUT',
       body: JSON.stringify(schema),

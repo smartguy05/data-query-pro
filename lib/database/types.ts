@@ -8,6 +8,27 @@ export type { ParameterizedQuery } from './queries/types';
 // Supported database types
 export type DatabaseType = 'postgresql' | 'mysql' | 'sqlserver' | 'sqlite';
 
+/**
+ * The default namespace ("schema") used when a connection doesn't specify one.
+ * PostgreSQL/SQL Server have real namespaces; MySQL conflates schema with the
+ * database name; SQLite has no namespace concept.
+ */
+export function defaultSchemaForType(type: DatabaseType | string | undefined): string | undefined {
+  switch (type) {
+    case 'postgresql':
+      return 'public';
+    case 'sqlserver':
+      return 'dbo';
+    default:
+      return undefined;
+  }
+}
+
+/** Whether a database type supports switching between multiple namespaces. */
+export function supportsSchemaSwitching(type: DatabaseType | string | undefined): boolean {
+  return type === 'postgresql' || type === 'sqlserver';
+}
+
 // Connection configuration for adapters
 export interface AdapterConnectionConfig {
   host: string;
@@ -16,6 +37,11 @@ export interface AdapterConnectionConfig {
   username: string;
   password: string;
   ssl?: boolean | { rejectUnauthorized: boolean };
+  // Database namespace to introspect / query against (PostgreSQL/SQL Server
+  // schema). When unset the adapter uses its default ("public" / "dbo").
+  // For PostgreSQL the adapter also sets this as the connection search_path so
+  // unqualified table names in generated SQL resolve to this schema.
+  schema?: string;
   // SQLite-specific
   filepath?: string;
   // When true, the adapter must execute queries in a read-only context so that
@@ -78,6 +104,12 @@ export interface IDatabaseAdapter {
   executeQuery(sql: string): Promise<QueryResult>;
   executeParameterizedQuery(query: ParameterizedQuery): Promise<Record<string, unknown>[]>;
   introspectSchema(onProgress?: ProgressCallback): Promise<IntrospectionResult>;
+  /**
+   * Lists the database namespaces ("schemas") available on this connection that
+   * a user can introspect/query. Returns an empty array for databases without a
+   * namespace concept (MySQL/SQLite). Must be called while connected.
+   */
+  listSchemas(): Promise<string[]>;
 
   // SQL dialect helpers
   escapeIdentifier(identifier: string): string;

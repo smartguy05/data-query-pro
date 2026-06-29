@@ -29,10 +29,12 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await getAuthContext(request);
     const body = await request.json()
+    // Namespace to introspect (PostgreSQL/SQL Server); undefined ⇒ adapter default.
+    const schema = body.schema ?? body.connection?.activeSchema;
     // Support both { connectionId } (auth mode) and { connection } (no-auth mode)
     const connection = body.connectionId
-      ? { id: body.connectionId, source: body.source || 'local', type: body.type }
-      : body.connection;
+      ? { id: body.connectionId, source: body.source || 'local', type: body.type, schema }
+      : { ...body.connection, schema };
 
     console.log("[v0] Connecting to database:", {
       type: connection?.type,
