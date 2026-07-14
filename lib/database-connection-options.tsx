@@ -16,6 +16,7 @@ import {
     updateQueryCorrection as updateLocalCorrection,
     deleteQueryCorrection as deleteLocalCorrection,
 } from '@/utils/query-corrections';
+import { QUERY_LIMIT, STORAGE_KEYS, isDefaultQueryLimit, type DefaultQueryLimit } from '@/lib/constants';
 
 const DatabaseContext = createContext<DatabaseContextType | undefined>(undefined);
 
@@ -28,6 +29,7 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
     const [isInitialized, setIsInitialized] = useState(false);
     const [allReports, setAllReports] = useState<SavedReport[]>([]);
     const [queryAccuracy, setQueryAccuracy] = useState<QueryAccuracyStats>({ total: 0, successful: 0 });
+    const [defaultQueryLimit, setDefaultQueryLimitState] = useState<DefaultQueryLimit>(QUERY_LIMIT.DEFAULT);
     const storageRef = useRef<StorageProvider | null>(null);
 
     useEffect(() => {
@@ -87,6 +89,14 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
                     setQueryAccuracy(await storage.getQueryAccuracy());
                 } catch {
                     // Accuracy stats may not be available
+                }
+
+                // Load the saved default row limit (null = never set → keep default)
+                try {
+                    const savedLimit = await storage.getDefaultQueryLimit();
+                    if (savedLimit !== null) setDefaultQueryLimitState(savedLimit);
+                } catch {
+                    // Preference may not be available
                 }
 
                 if (allConnections.length > 0) {
@@ -505,6 +515,20 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
         deleteLocalCorrection(id);
     }, []);
 
+    // Default row limit for executed queries. State updates immediately;
+    // persistence is fire-and-forget so it can never break the query flow.
+    const setDefaultQueryLimit = useCallback((limit: DefaultQueryLimit) => {
+        if (!isDefaultQueryLimit(limit)) return;
+        setDefaultQueryLimitState(limit);
+        const storage = storageRef.current;
+        const write = storage
+            ? storage.setDefaultQueryLimit(limit)
+            : (async () => {
+                localStorage.setItem(STORAGE_KEYS.DEFAULT_QUERY_LIMIT, JSON.stringify(limit));
+            })();
+        Promise.resolve(write).catch(() => { /* never surface preference errors to the query flow */ });
+    }, []);
+
     return (
         <DatabaseContext.Provider value={{
             setConnectionStatus,
@@ -541,6 +565,8 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             getCorrectionsForFingerprint,
             updateQueryCorrection,
             deleteQueryCorrection,
+            defaultQueryLimit,
+            setDefaultQueryLimit,
     }}>
     {children}
     </DatabaseContext.Provider>

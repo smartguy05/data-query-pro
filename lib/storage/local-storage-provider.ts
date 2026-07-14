@@ -11,7 +11,7 @@ import {
   updateQueryCorrection as localUpdateCorrection,
   deleteQueryCorrection as localDeleteCorrection,
 } from '@/utils/query-corrections';
-import { HISTORY, STORAGE_KEYS } from '@/lib/constants';
+import { HISTORY, STORAGE_KEYS, isDefaultQueryLimit, type DefaultQueryLimit } from '@/lib/constants';
 
 export class LocalStorageProvider implements StorageProvider {
   private serverConnections: DatabaseConnection[] = [];
@@ -78,7 +78,12 @@ export class LocalStorageProvider implements StorageProvider {
       source: conn.source || ('local' as const),
     }));
 
-    return [...this.serverConnections, ...localConnections];
+    // Server connections take precedence over any local connection with the
+    // same id (e.g. a connection exported to databases.json that still exists
+    // in localStorage) — mirrors getSchemas/getReports.
+    const serverConnectionIds = new Set(this.serverConnections.map(c => c.id));
+    const localOnlyConnections = localConnections.filter(c => !serverConnectionIds.has(c.id));
+    return [...this.serverConnections, ...localOnlyConnections];
   }
 
   async addConnection(conn: DatabaseConnection): Promise<void> {
@@ -374,5 +379,20 @@ export class LocalStorageProvider implements StorageProvider {
       dismissed.push(id);
       localStorage.setItem('dismissed_notifications', JSON.stringify(dismissed));
     }
+  }
+
+  async getDefaultQueryLimit(): Promise<DefaultQueryLimit | null> {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.DEFAULT_QUERY_LIMIT);
+      if (raw === null) return null;
+      const parsed: unknown = JSON.parse(raw);
+      return isDefaultQueryLimit(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async setDefaultQueryLimit(limit: DefaultQueryLimit): Promise<void> {
+    localStorage.setItem(STORAGE_KEYS.DEFAULT_QUERY_LIMIT, JSON.stringify(limit));
   }
 }

@@ -4,6 +4,7 @@ import type { SavedReport } from '@/models/saved-report.interface';
 import type { QueryHistoryEntry } from '@/models/query-history.interface';
 import type { QueryAccuracyStats } from '@/models/query-accuracy.interface';
 import type { QueryCorrection } from '@/models/query-correction.interface';
+import type { DefaultQueryLimit } from '@/lib/constants';
 
 export interface StorageProvider {
   getConnections(): Promise<DatabaseConnection[]>;
@@ -48,4 +49,10 @@ export interface StorageProvider {
 
   getDismissedNotifications(): Promise<string[]>;
   dismissNotification(id: string): Promise<void>;
+
+  // Default row limit for executed queries. Device-local (localStorage) when
+  // auth is disabled; stored in the preferences JSONB when auth is enabled.
+  // null = the user has never set one.
+  getDefaultQueryLimit(): Promise<DefaultQueryLimit | null>;
+  setDefaultQueryLimit(limit: DefaultQueryLimit): Promise<void>;
 }
