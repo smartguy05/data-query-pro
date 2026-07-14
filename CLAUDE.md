@@ -139,6 +139,7 @@ components/                   # React components
 ├── query-results-display.tsx # Results with table/chart views
 ├── query-tab-content.tsx    # Individual query tab display
 ├── followup-dialog.tsx      # Follow-up question dialog
+├── default-limit-select.tsx # Default query row limit dropdown (presets + No Limit + custom numeric)
 ├── chart-display.tsx        # Main chart renderer
 ├── content-loading-gate.tsx # Loading gate until context initialized
 ├── auth-provider.tsx        # SessionProvider wrapper (conditional)
@@ -211,6 +212,7 @@ lib/                         # Shared utilities
     ├── base-adapter.ts      # Abstract base adapter class
     ├── connection-validator.ts # Connection validation utilities
     ├── sql-validator.ts     # AST-based read-only SQL validation (validateReadOnlySql)
+    ├── sql-limit.ts         # Dialect-aware default row-limit injection (sanitizeLimit, applyDefaultRowLimit)
     ├── adapters/            # Database-specific adapters
     │   ├── postgresql.adapter.ts
     │   ├── mysql.adapter.ts
@@ -361,6 +363,7 @@ config/                      # Server configuration
 ### Query Execution
 - Route: `/api/query/execute/route.ts`
 - Validates queries with the AST-based `validateReadOnlySql(sql, dbType)` (`lib/database/sql-validator.ts`) — allows a single `SELECT` only; the old regex keyword blocklist (`DANGEROUS_SQL_KEYWORDS`) was removed
+- **Default row limit**: the query page's "Default row limit" dropdown (`components/default-limit-select.tsx`; presets 25/50/100/200/500, No Limit, custom numeric) sends `defaultLimit` with generate + execute requests. Execute injects a dialect-aware limit (`LIMIT n`, or `TOP (n)` for SQL Server) via `applyDefaultRowLimit` (`lib/database/sql-limit.ts`) ONLY when the SQL has no explicit LIMIT/TOP/FETCH — explicit limits always win; fail-open on unparseable SQL. The generate prompt's rule 4 uses the same value. Selection persists (localStorage `default_query_limit`, or preferences JSONB in auth mode) via `defaultQueryLimit`/`setDefaultQueryLimit` on the context. Response includes `limitApplied` when injected
 - Sets `config.readOnly = true` so the adapter enforces read-only execution at the connection/transaction level (see Read-Only Query Execution below)
 - Uses database adapters (`lib/database/adapters/`) for database-specific execution
 - Returns formatted results with columns, rows, execution time
@@ -467,6 +470,7 @@ config/                      # Server configuration
 | `query_corrections` | Device-local query corrections per schema fingerprint (capped at CORRECTIONS.MAX_ENTRIES) |
 | `suggestions_{connectionId}` | Cached AI suggestions per connection |
 | `dismissed_notifications` | User dismissed notification IDs |
+| `default_query_limit` | Default row limit for executed queries (`number` or `'none'`; preferences JSONB in auth mode) |
 
 ## Environment Variables
 

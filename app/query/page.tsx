@@ -29,6 +29,7 @@ import { QueryTab, QueryResult, RowLimitOption, FollowUpResponse } from "@/model
 import type { ChartConfig } from "@/models/chart-config.interface"
 import { QueryTabContent } from "@/components/query-tab-content"
 import { FollowUpDialog } from "@/components/followup-dialog"
+import { DefaultLimitSelect } from "@/components/default-limit-select"
 import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
 import { useOpenAIKey } from "@/hooks/use-openai-key"
 import { ApiKeyDialog } from "@/components/api-key-dialog"
@@ -310,6 +311,7 @@ export default function QueryPage() {
           existingFileId: connection.schemaFileId,
           examples: learning.examples,
           corrections: learning.corrections,
+          defaultLimit: connectionInformation.defaultQueryLimit,
         }),
       })
 
@@ -422,9 +424,12 @@ export default function QueryPage() {
         question: tab.question || undefined,
         querySource: tab.type === 'followup' ? 'followup' : 'generated',
       }
+      // Default row limit: the server injects it only when the SQL has no explicit limit.
+      const limit = connectionInformation.defaultQueryLimit
+      const limitField = limit === 'none' ? {} : { defaultLimit: limit }
       const executeBody = authEnabled
-        ? { sql: tab.editableSql, connectionId: activeConnection?.id, source: activeConnection?.source, type: activeConnection?.type, ...auditFields }
-        : { sql: tab.editableSql, connection: activeConnection, ...auditFields };
+        ? { sql: tab.editableSql, connectionId: activeConnection?.id, source: activeConnection?.source, type: activeConnection?.type, ...auditFields, ...limitField }
+        : { sql: tab.editableSql, connection: activeConnection, ...auditFields, ...limitField };
 
       const response = await fetch("/api/query/execute", {
         method: "POST",
@@ -452,7 +457,7 @@ export default function QueryPage() {
 
       toast({
         title: "Query Executed Successfully",
-        description: `Returned ${result.rowCount} rows in ${result.executionTime}ms`,
+        description: `Returned ${result.rowCount} rows in ${result.executionTime}ms${result.limitApplied ? ` (limited to ${result.limitApplied} rows by default)` : ""}`,
       })
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to execute query"
@@ -813,7 +818,7 @@ export default function QueryPage() {
               onChange={(e) => setNaturalQuery(e.target.value)}
               className="min-h-[100px] resize-none"
             />
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Button
                 onClick={handleGenerateSQLClick}
                 disabled={!naturalQuery.trim() || isGeneratingOriginal || isEnhancingQuery}
@@ -849,6 +854,15 @@ export default function QueryPage() {
                   </>
                 )}
               </Button>
+              <div className="ml-auto flex items-center gap-2">
+                <Label htmlFor="default-limit" className="text-sm text-muted-foreground whitespace-nowrap">
+                  Default row limit
+                </Label>
+                <DefaultLimitSelect
+                  value={connectionInformation.defaultQueryLimit}
+                  onChange={connectionInformation.setDefaultQueryLimit}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -872,18 +886,27 @@ export default function QueryPage() {
                         {tab.isGenerating && (
                           <Loader2 className="h-3 w-3 ml-1 animate-spin" />
                         )}
+                        {/* span, not button: TabsTrigger is already a <button> and nesting them is invalid HTML */}
                         {tab.type === 'followup' && !tab.isGenerating && (
-                          <button
-                            type="button"
+                          <span
+                            role="button"
+                            tabIndex={0}
                             onClick={(e) => {
                               e.stopPropagation()
                               removeTab(tab.id)
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                removeTab(tab.id)
+                              }
                             }}
                             className="ml-1 p-0.5 rounded-sm hover:bg-muted-foreground/20 text-muted-foreground hover:text-foreground transition-colors"
                             aria-label={`Close ${getTabLabel(tab, index)}`}
                           >
                             <X className="h-3 w-3" />
-                          </button>
+                          </span>
                         )}
                       </TabsTrigger>
                     ))}

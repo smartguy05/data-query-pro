@@ -5,7 +5,7 @@ import type { SavedReport } from '@/models/saved-report.interface';
 import type { QueryHistoryEntry } from '@/models/query-history.interface';
 import type { QueryAccuracyStats } from '@/models/query-accuracy.interface';
 import type { QueryCorrection } from '@/models/query-correction.interface';
-import { HISTORY, STORAGE_KEYS } from '@/lib/constants';
+import { HISTORY, STORAGE_KEYS, isDefaultQueryLimit, type DefaultQueryLimit } from '@/lib/constants';
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -221,6 +221,28 @@ export class ApiStorageProvider implements StorageProvider {
     await apiFetch('/api/data/notifications/dismiss', {
       method: 'POST',
       body: JSON.stringify({ notificationId: id }),
+    });
+  }
+
+  async getDefaultQueryLimit(): Promise<DefaultQueryLimit | null> {
+    try {
+      const prefs = await apiFetch<{ preferences: Record<string, unknown> }>('/api/data/preferences');
+      const v = prefs.preferences?.defaultQueryLimit;
+      return isDefaultQueryLimit(v) ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async setDefaultQueryLimit(limit: DefaultQueryLimit): Promise<void> {
+    // The preferences PUT replaces the whole JSONB (COALESCE in
+    // preference-repository.ts), so read-merge-write to preserve sibling keys.
+    const prefs = await apiFetch<{ preferences: Record<string, unknown> }>('/api/data/preferences');
+    await apiFetch('/api/data/preferences', {
+      method: 'PUT',
+      body: JSON.stringify({
+        preferences: { ...(prefs.preferences || {}), defaultQueryLimit: limit },
+      }),
     });
   }
 }

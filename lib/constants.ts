@@ -47,6 +47,32 @@ export const PAGINATION = {
 } as const;
 
 // ============================================================================
+// Query Row Limit Constants
+// ============================================================================
+
+/** 'none' = no automatic limit; a number = injected when SQL has no explicit limit */
+export type DefaultQueryLimit = number | 'none';
+
+export const QUERY_LIMIT = {
+  /** Preset options shown in the default-limit dropdown */
+  PRESETS: [25, 50, 100, 200, 500] as const,
+
+  /** Default when the user has never chosen (matches the AI prompt's historical LIMIT 100) */
+  DEFAULT: PAGINATION.DEFAULT_QUERY_LIMIT as number,
+
+  /** Minimum allowed custom value */
+  MIN_CUSTOM: 1,
+
+  /** Server-side cap for custom values (client input is untrusted) */
+  MAX_CUSTOM: 100_000,
+} as const;
+
+/** Type guard for values read back from storage (localStorage / preferences JSONB). */
+export function isDefaultQueryLimit(v: unknown): v is DefaultQueryLimit {
+  return v === 'none' || (typeof v === 'number' && Number.isInteger(v) && v > 0);
+}
+
+// ============================================================================
 // AI/OpenAI Constants
 // ============================================================================
 
@@ -113,6 +139,9 @@ export const STORAGE_KEYS = {
 
   /** Dismissed notification IDs */
   DISMISSED_NOTIFICATIONS: "dismissed_notifications",
+
+  /** Default row limit for executed queries (device-local; preferences JSONB in auth mode) */
+  DEFAULT_QUERY_LIMIT: "default_query_limit",
 
   /** User's OpenAI API key (stored in sessionStorage) */
   USER_API_KEY: "user_openai_key",

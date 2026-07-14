@@ -4,6 +4,7 @@ import type { SavedReport } from './saved-report.interface';
 import type { QueryHistoryEntry } from './query-history.interface';
 import type { QueryAccuracyStats } from './query-accuracy.interface';
 import type { QueryCorrection } from './query-correction.interface';
+import type { DefaultQueryLimit } from '@/lib/constants';
 
 export interface DatabaseContextType {
     importConnections: (connections: DatabaseConnection[]) => void;
@@ -65,4 +66,9 @@ export interface DatabaseContextType {
     getCorrectionsForFingerprint: (fingerprint: string) => Promise<QueryCorrection[]>;
     updateQueryCorrection: (id: string, patch: Partial<QueryCorrection>) => Promise<void>;
     deleteQueryCorrection: (id: string) => Promise<void>;
+
+    // Default row limit for executed queries ('none' = no automatic limit).
+    // Persisted per device (localStorage) or per user (preferences JSONB in auth mode).
+    defaultQueryLimit: DefaultQueryLimit;
+    setDefaultQueryLimit: (limit: DefaultQueryLimit) => void;
 }

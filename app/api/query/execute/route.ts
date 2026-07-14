@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { validateConnection } from "@/lib/database/connection-validator"
 import { validateReadOnlySql } from "@/lib/database/sql-validator"
+import { applyDefaultRowLimit, sanitizeLimit } from "@/lib/database/sql-limit"
 import { sanitizeDbError } from "@/utils/error-sanitizer"
 import { getAuthContext } from '@/lib/auth/require-auth';
 import { logQuery } from "@/lib/query-log"
@@ -44,6 +45,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: sqlCheck.error }, { status: 400 })
     }
 
+    // Inject the user's default row limit when the SQL has none — an explicit
+    // LIMIT/TOP/FETCH in the SQL always wins (see lib/database/sql-limit.ts).
+    const requestedLimit = sanitizeLimit(body.defaultLimit)
+    let effectiveSql: string = sql
+    let limitApplied: number | undefined
+    if (requestedLimit !== null) {
+      const limitResult = applyDefaultRowLimit(sql, dbType, requestedLimit)
+      effectiveSql = limitResult.sql
+      if (limitResult.applied) limitApplied = requestedLimit
+    }
+
     // Defense-in-depth: run the query in a read-only context so even a statement
     // that slips past the validator cannot mutate data.
     config.readOnly = true
@@ -55,15 +67,15 @@ export async function POST(request: NextRequest) {
       connectionName: typeof connection?.name === "string" ? connection.name : undefined,
       databaseType: dbType,
       question: typeof body.question === "string" ? body.question : undefined,
-      sql,
+      sql: effectiveSql,
       source: typeof body.querySource === "string" ? body.querySource : undefined,
     }
 
     try {
       await adapter.connect(config)
-      console.log(`[v0] Executing SQL query on ${adapter.displayName}:`, sql)
+      console.log(`[v0] Executing SQL query on ${adapter.displayName}:`, effectiveSql)
 
-      const result = await adapter.executeQuery(sql)
+      const result = await adapter.executeQuery(effectiveSql)
       console.log(`[v0] Query executed successfully, returned ${result.rowCount} rows`)
 
       logQuery({
@@ -83,6 +95,8 @@ export async function POST(request: NextRequest) {
         rows: formattedRows,
         rowCount: result.rowCount,
         executionTime: result.executionTime,
+        // Present only when a default row limit was injected into the SQL.
+        limitApplied,
       })
     } catch (execError) {
       // Log the execution failure (sanitized) before re-throwing to the outer handler.

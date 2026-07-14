@@ -30,7 +30,7 @@ export interface SqlValidationResult {
 }
 
 // Map our DatabaseType to node-sql-parser's `database` option.
-const DIALECT_MAP: Record<DatabaseType, string> = {
+export const DIALECT_MAP: Record<DatabaseType, string> = {
   postgresql: "postgresql",
   mysql: "mysql",
   sqlserver: "transactsql",
@@ -45,7 +45,7 @@ const WRITE_KEYWORDS =
   /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|merge|replace|call|exec|execute|into|vacuum|comment|copy|set|lock|reindex|cluster|analyze)\b/i;
 
 /** Remove comments, string literals, and quoted identifiers so keyword/`;` scans are accurate. */
-function stripNonCode(sql: string): string {
+export function stripNonCode(sql: string): string {
   return sql
     .replace(/\/\*[\s\S]*?\*\//g, " ") // block comments
     .replace(/--[^\n]*/g, " ") // line comments

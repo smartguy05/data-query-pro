@@ -3,6 +3,8 @@ import OpenAI from "openai";
 import { checkRateLimit, getOpenAIKey } from "@/utils/rate-limiter";
 import { uploadSchemaToOpenAI } from "@/lib/openai/schema-upload";
 import { getAuthContext } from '@/lib/auth/require-auth';
+import { sanitizeLimit } from "@/lib/database/sql-limit";
+import { QUERY_LIMIT } from "@/lib/constants";
 
 // SQL dialect-specific hints for different database types
 const dialectHints: Record<string, string> = {
@@ -111,7 +113,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { query, databaseType, vectorStoreId, schemaData, existingFileId, examples, corrections } = await request.json();
+    const { query, databaseType, vectorStoreId, schemaData, existingFileId, examples, corrections, defaultLimit } = await request.json();
     console.log("Received query:", query);
     console.log("Received database type:", databaseType);
     console.log("Received VectorStore Id:", vectorStoreId);
@@ -124,6 +126,13 @@ export async function POST(request: NextRequest) {
     // corrections supplied by the client (device-local history). Rendered into the
     // prompt only when present, so the prompt is unchanged when there's no history.
     const { examplesSection, correctionsSection } = buildLearningSections(examples, corrections);
+
+    // User-chosen default row limit ('none' = no automatic limit). Invalid or
+    // absent values fall back to the historical default of LIMIT 100.
+    const limitRule =
+      defaultLimit === 'none'
+        ? "4. Do not add an automatic row limit; only limit results when the user explicitly asks for a specific number of rows"
+        : `4. Limit result sets to at most ${sanitizeLimit(defaultLimit) ?? QUERY_LIMIT.DEFAULT} rows using the dialect-appropriate syntax (LIMIT/TOP per the rules below), unless the user explicitly requests a different number of rows`;
 
     // Get API key (user-provided or server key)
     const apiKey = getOpenAIKey(request);
@@ -185,7 +194,7 @@ export async function POST(request: NextRequest) {
               1. Only generate SELECT statements for safety
               2. Use proper JOIN syntax when needed
               3. Include appropriate WHERE clauses for filtering
-              4. Use LIMIT for large result sets (default to LIMIT 100 if not specified)
+              ${limitRule}
               5. Use table and column descriptions from the schema to understand business context
               6. Prefer meaningful column aliases for better readability
               7. Primary keys are often named "Id" (capitalized) - but VERIFY in schema first
