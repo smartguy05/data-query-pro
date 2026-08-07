@@ -40,6 +40,21 @@ const dialectHints: Record<string, string> = {
     - Limited date functions: date(), time(), datetime(), strftime()`,
 };
 
+// Reasoning effort values accepted by the Responses API (openai SDK
+// `Shared.ReasoningEffort`). Only gpt-5 / o-series models support the
+// `reasoning` parameter, and not every model supports every value — an
+// unsupported combination surfaces as an OpenAI error, not a local one.
+const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+type ReasoningEffortValue = (typeof REASONING_EFFORTS)[number];
+
+/** Narrow an unknown/env value to a valid effort, or undefined to omit the parameter. */
+const asReasoningEffort = (value: unknown): ReasoningEffortValue | undefined => {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return (REASONING_EFFORTS as readonly string[]).includes(trimmed)
+    ? (trimmed as ReasoningEffortValue)
+    : undefined;
+};
+
 // Shapes of the client-supplied learning context.
 interface FewShotExample { question?: string; sql?: string }
 interface QueryCorrectionHint { question?: string; badSql?: string; error?: string; goodSql?: string }
@@ -113,7 +128,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { query, databaseType, vectorStoreId, schemaData, existingFileId, examples, corrections, defaultLimit, model } = await request.json();
+    const { query, databaseType, vectorStoreId, schemaData, existingFileId, examples, corrections, defaultLimit, model, effort } = await request.json();
     console.log("Received query:", query);
     console.log("Received database type:", databaseType);
     console.log("Received VectorStore Id:", vectorStoreId);
@@ -128,6 +143,14 @@ export async function POST(request: NextRequest) {
       typeof model === "string" && /^[a-zA-Z0-9._:-]{1,64}$/.test(model)
         ? model
         : undefined;
+
+    // Reasoning effort (gpt-5 / o-series models only). Configured via
+    // OPENAI_REASONING_EFFORT; the request-level override rides the same
+    // eval flag as the model override. When nothing resolves, the `reasoning`
+    // key is omitted entirely so the request is unchanged from the default.
+    const effortOverride =
+      process.env.EVAL_ALLOW_MODEL_OVERRIDE === "true" ? asReasoningEffort(effort) : undefined;
+    const resolvedEffort = effortOverride ?? asReasoningEffort(process.env.OPENAI_REASONING_EFFORT);
 
     // "Learn from previous queries": optional few-shot examples and failed->revised
     // corrections supplied by the client (device-local history). Rendered into the
@@ -161,6 +184,7 @@ export async function POST(request: NextRequest) {
     const makeOpenAIRequest = async (vsId: string) => {
       return await client.responses.create({
         model: modelOverride ?? process.env.OPENAI_MODEL,
+        ...(resolvedEffort ? { reasoning: { effort: resolvedEffort } } : {}),
         tools: [{
           type: "file_search",
           vector_store_ids: [vsId]

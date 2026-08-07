@@ -4,6 +4,14 @@
 > **Historical (summarized)** — for full prose, see git history. Durable gotchas live in
 > [docs/reference/lessons-learned.md](../docs/reference/lessons-learned.md).
 
+## Reasoning effort support + eval sweep (2026-08-07, branch llm-evals)
+- **Why**: eval found gpt-5.6-sol matched gpt-5.4 on accuracy but was 2x SLOWER (median 10.5s vs 5.2s, slower on 16/16 questions; terra ran between them and was fast, ruling out drift). Sol emits *shorter* SQL yet takes longer → time goes to internal reasoning, so effort is the lever.
+- **Production** (`app/api/query/generate/route.ts`): `OPENAI_REASONING_EFFORT` env var + optional `effort` request param (gated by the same `EVAL_ALLOW_MODEL_OVERRIDE` flag as `model`). `asReasoningEffort()` narrows to the SDK's `Shared.ReasoningEffort` union (none|minimal|low|medium|high|xhigh|max); the `reasoning` key is **spread in only when set** so default behavior is byte-identical. Config added to `.env.example`, `.env.local` (empty), `docker-compose.yml`. Applies to the generate route ONLY — the other 6 OPENAI_MODEL routes untouched.
+- **Eval** (`evals/`): `--efforts` flag crosses models × efforts into `ModelVariant {model, effort, label}`; label is `model@effort`. Report needed ZERO changes — it groups by `TrialResult.model`, so variant labels rank against each other automatically. TrialResult gained `baseModel`/`effort` for JSONL analysis. Fail-fast message widened to name an unsupported model/effort pairing as a likely cause (API validates, SDK doesn't).
+- **SDK ground truth** (openai 7.4.0): `reasoning?: Shared.Reasoning|null` at responses.d.ts:7117, "gpt-5 and o-series models only"; `ReasoningEffort` union at shared.d.ts:195; also available but unused: `text.verbosity` (low|medium|high) and `service_tier` ('fast'/'priority' = latency knob).
+- **Probe (4 calls)**: sol@low median 6291ms vs sol@high 8647ms, both 2/2 pass; Q16 7.4s vs 11.2s. Directionally confirms effort drives sol's latency (vs ~10.5s at default) but n=2 — needs a real run to be conclusive.
+- Verified: tsc clean, lint clean on the route, JSONL records baseModel/effort correctly.
+
 ## Eval dataset split core/extended (2026-08-07, branch llm-evals)
 - `evals/dataset.ts` restructured into `QUESTIONS` (core 16: all 8 phase4-tagged Q01/Q08/Q11/Q15/Q20/Q23/Q26/Q30 + Q05,Q06,Q13,Q16,Q18,Q27,Q28,Q31 — every mode/bucket covered) and `EXTENDED_QUESTIONS` (other 16), entries preserved verbatim. Motivation: halve default OpenAI cost (16 q × 3 trials ≈ 48 generate calls).
 - `run-eval.ts`: new `--extended` boolean flag (RunConfig.extended); default pool = core, `--extended` = all 32; `--questions` ids always resolve against the combined pool. `verify-goldens.ts` always verifies the combined 32. README updated (baseline 95/96 was on the full 32-question set).

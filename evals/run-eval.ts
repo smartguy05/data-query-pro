@@ -17,6 +17,7 @@ import type {
   DbConnectionConfig,
   EvalQuestion,
   ExecuteSuccess,
+  ModelVariant,
   ResultSet,
   RunConfig,
   TrialResult,
@@ -51,6 +52,22 @@ process.on("exit", () => {
   }
 });
 
+// Mirrors the openai SDK's Shared.ReasoningEffort union (gpt-5 / o-series only).
+const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/**
+ * Cross models with efforts. With no --efforts the variant is the bare model
+ * (no reasoning parameter sent), so labels stay comparable with older runs.
+ */
+function buildVariants(models: string[], efforts: string[]): ModelVariant[] {
+  if (efforts.length === 0) {
+    return models.map((model) => ({ model, effort: null, label: model }));
+  }
+  return models.flatMap((model) =>
+    efforts.map((effort) => ({ model, effort, label: `${model}@${effort}` }))
+  );
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
 function parseCli(): RunConfig {
@@ -64,6 +81,7 @@ function parseCli(): RunConfig {
       trials: { type: "string", default: "3" },
       "base-url": { type: "string", default: "http://localhost:3000" },
       questions: { type: "string" },
+      efforts: { type: "string" },
       extended: { type: "boolean", default: false },
       concurrency: { type: "string", default: "1" },
       "db-host": { type: "string", default: "localhost" },
@@ -84,8 +102,20 @@ function parseCli(): RunConfig {
     return n;
   };
 
+  const efforts = values.efforts
+    ? values.efforts.split(",").map((e) => e.trim()).filter(Boolean)
+    : [];
+  const unknownEfforts = efforts.filter((e) => !REASONING_EFFORTS.includes(e));
+  if (unknownEfforts.length > 0) {
+    throw new Error(
+      `--efforts contains unsupported value(s): ${unknownEfforts.join(", ")}. ` +
+        `Valid values: ${REASONING_EFFORTS.join(", ")}`
+    );
+  }
+
   return {
     models: values.models!.split(",").map((m) => m.trim()).filter(Boolean),
+    efforts,
     trials: toPositiveInt(values.trials!, "trials"),
     baseUrl: values["base-url"]!,
     questionIds: values.questions
@@ -211,6 +241,13 @@ async function main(): Promise<void> {
     console.error("No questions selected.");
     process.exitCode = 1;
     return;
+  }
+
+  const variants = buildVariants(config.models, config.efforts);
+  if (config.efforts.length > 0) {
+    console.log(
+      `Sweeping ${variants.length} variant(s): ${variants.map((v) => v.label).join(", ")}`
+    );
   }
 
   const apiKey = resolveOpenAiKey();
@@ -371,19 +408,22 @@ async function main(): Promise<void> {
     }
     console.log("All goldens verified.");
 
-    // 6. Sweep (models sequential; question-trials pooled within a model).
-    const runTrial = async (model: string, q: EvalQuestion, trial: number): Promise<TrialResult> => {
+    // 6. Sweep (variants sequential; question-trials pooled within a variant).
+    const runTrial = async (v: ModelVariant, q: EvalQuestion, trial: number): Promise<TrialResult> => {
       const gen = await generateSql(baseUrl, {
         query: q.question,
         vectorStoreId,
         schemaData: schema,
-        model,
+        model: v.model,
+        effort: v.effort,
       });
       adoptReupload(gen.body);
 
       const result: TrialResult = {
         runId,
-        model,
+        model: v.label,
+        baseModel: v.model,
+        ...(v.effort ? { effort: v.effort } : {}),
         questionId: q.id,
         trial,
         question: q.question,
@@ -446,19 +486,21 @@ async function main(): Promise<void> {
 
     // A thrown fetch error (e.g. AbortSignal timeout) must fail the TRIAL, not
     // the run: retry once for transient network hiccups, then record a failure.
-    const runTrialSafe = async (model: string, q: EvalQuestion, trial: number): Promise<TrialResult> => {
+    const runTrialSafe = async (v: ModelVariant, q: EvalQuestion, trial: number): Promise<TrialResult> => {
       let lastError: unknown;
       for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-          return await runTrial(model, q, trial);
+          return await runTrial(v, q, trial);
         } catch (err) {
           lastError = err;
-          console.warn(`[${model}] ${q.id} trial ${trial}: attempt ${attempt} threw (${(err as Error).message}); ${attempt === 1 ? "retrying" : "recording as failure"}`);
+          console.warn(`[${v.label}] ${q.id} trial ${trial}: attempt ${attempt} threw (${(err as Error).message}); ${attempt === 1 ? "retrying" : "recording as failure"}`);
         }
       }
       return {
         runId,
-        model,
+        model: v.label,
+        baseModel: v.model,
+        ...(v.effort ? { effort: v.effort } : {}),
         questionId: q.id,
         trial,
         question: q.question,
@@ -477,33 +519,44 @@ async function main(): Promise<void> {
       };
     };
 
-    const makeTask = (model: string, q: EvalQuestion, trial: number) => async (): Promise<TrialResult> => {
-      const t = await runTrialSafe(model, q, trial);
+    const makeTask = (v: ModelVariant, q: EvalQuestion, trial: number) => async (): Promise<TrialResult> => {
+      const t = await runTrialSafe(v, q, trial);
       record(t);
       const ms = t.generateMs + (t.executeMs ?? 0);
       const status = t.pass ? "PASS" : `FAIL (${t.failureClass})`;
-      console.log(`[${model}] ${t.questionId} trial ${trial}/${config.trials}: ${status} (${ms}ms)`);
+      console.log(`[${v.label}] ${t.questionId} trial ${trial}/${config.trials}: ${status} (${ms}ms)`);
       return t;
     };
 
-    for (const model of config.models) {
+    for (const variant of variants) {
+      const model = variant.label;
       console.log(`\n=== Model: ${model} (${questions.length} questions × ${config.trials} trials) ===`);
       const modelTrials: TrialResult[] = [];
 
       // Fail-fast probe: run the first question's trials first.
       const firstQ = questions[0];
-      const firstTasks = Array.from({ length: config.trials }, (_, i) => makeTask(model, firstQ, i + 1));
+      const firstTasks = Array.from({ length: config.trials }, (_, i) => makeTask(variant, firstQ, i + 1));
       const firstResults = await runPool(firstTasks, config.concurrency);
       modelTrials.push(...firstResults);
       if (firstResults.every((t) => t.failureClass === "generation-mock-fallback")) {
-        console.error(`[${model}] all ${firstQ.id} trials hit the mock fallback — model likely invalid — skipping`);
+        // The route converts OpenAI errors into a 200 mock, so an unknown model
+        // name AND an unsupported model/effort pairing both land here.
+        console.error(
+          `[${model}] all ${firstQ.id} trials hit the mock fallback — skipping. Likely causes: ` +
+            `unknown model name` +
+            (variant.effort
+              ? `, or model "${variant.model}" does not support reasoning effort "${variant.effort}" ` +
+                `(the reasoning parameter is gpt-5 / o-series only, and not every model supports every value)`
+              : "") +
+            `. Check the dev server console for the underlying OpenAI error.`
+        );
         continue;
       }
 
       const rest: Array<() => Promise<TrialResult>> = [];
       for (const q of questions.slice(1)) {
         for (let trial = 1; trial <= config.trials; trial++) {
-          rest.push(makeTask(model, q, trial));
+          rest.push(makeTask(variant, q, trial));
         }
       }
       modelTrials.push(...(await runPool(rest, config.concurrency)));
@@ -513,14 +566,21 @@ async function main(): Promise<void> {
       console.log(`[${model}] summary: ${passed}/${modelTrials.length} passed (${rate}%)`);
     }
 
-    // 7. Report.
-    const html = renderHtmlReport({ runId, timestamp, config, questions, trials });
+    // 7. Report. The report groups by TrialResult.model, so it must see the
+    // variant labels (e.g. "gpt-5.6-sol@low"), not the bare model names.
+    const html = renderHtmlReport({
+      runId,
+      timestamp,
+      config: { ...config, models: variants.map((v) => v.label) },
+      questions,
+      trials,
+    });
     fs.mkdirSync(RESULTS_DIR, { recursive: true });
     fs.writeFileSync(htmlPath, html);
 
     console.log("\n=== Final per-model pass rates ===");
     console.log("Model".padEnd(28) + "Pass rate".padEnd(20) + "Median gen ms (passing)");
-    for (const model of config.models) {
+    for (const model of variants.map((v) => v.label)) {
       const mt = trials.filter((t) => t.model === model);
       const passed = mt.filter((t) => t.pass).length;
       const rate = mt.length > 0 ? `${passed}/${mt.length} (${((passed / mt.length) * 100).toFixed(1)}%)` : "— (no trials)";

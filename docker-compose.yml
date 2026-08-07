@@ -8,6 +8,8 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-5.4}
+      # Optional; gpt-5 / o-series only. none|minimal|low|medium|high|xhigh|max
+      - OPENAI_REASONING_EFFORT=${OPENAI_REASONING_EFFORT:-}
       - DEMO_RATE_LIMIT=${DEMO_RATE_LIMIT:-}
       - TRUSTED_PROXIES=${TRUSTED_PROXIES:-}
       # Authentication (optional - set all AUTH_OIDC_* vars to enable)

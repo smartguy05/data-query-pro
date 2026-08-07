@@ -58,7 +58,33 @@ pnpm eval -- --models gpt-5.4 --trials 3 --extended
 
 # multi-model comparison sweep
 pnpm eval -- --models gpt-5.4,gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol --trials 3
+
+# reasoning-effort sweep (gpt-5 / o-series models only)
+pnpm eval -- --models gpt-5.6-sol --efforts "low,medium,high" --trials 3
 ```
+
+### Reasoning effort
+
+`--efforts` crosses each model with each effort value, producing variants
+labelled `model@effort` (e.g. `gpt-5.6-sol@low`) that rank against each other
+like separate models — so the "equally accurate but faster wins" rule answers
+"which effort setting should we ship?" directly. Valid values: `none`,
+`minimal`, `low`, `medium`, `high`, `xhigh`, `max`. Omitting `--efforts` sends
+no reasoning parameter at all (provider default), identical to earlier runs.
+
+**Cost multiplies**: models × efforts × questions × trials. Two models at three
+efforts over the core 16 with 3 trials is 288 generate calls. Probe with
+`--trials 1` and a couple of `--questions` ids first.
+
+The reasoning parameter is **gpt-5 / o-series only**, and not every model
+supports every value — the API validates, not the SDK. An unsupported pairing
+throws inside the route, which converts it to the HTTP 200 mock fallback, so
+the harness fail-fasts after the first question and names the effort value as a
+likely cause.
+
+In production, the same knob is set by `OPENAI_REASONING_EFFORT` in the
+environment (empty = omit the parameter). It currently applies to
+`/api/query/generate` only, not the other OpenAI routes.
 
 The dataset is split into a **core** set of 16 questions (`QUESTIONS` — all 8
 phase4-tagged questions plus at least one of every bucket/mode) and an
@@ -74,6 +100,7 @@ without `--extended`.
 | `--models` | `gpt-5.4` | comma-separated list, run sequentially |
 | `--trials` | `3` | trials per question (generation is nondeterministic) |
 | `--questions` | core 16 | comma-separated ids for subset/smoke runs (matched against all 32) |
+| `--efforts` | none | reasoning efforts to cross with `--models` (gpt-5/o-series only) |
 | `--extended` | off | include the 16 extended questions (full 32-question run) |
 | `--base-url` | `http://localhost:3000` | dev server |
 | `--concurrency` | `1` | parallel trials within a model |

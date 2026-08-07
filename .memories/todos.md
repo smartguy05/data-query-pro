@@ -7,6 +7,18 @@
       date-relative goldens have data, EVAL_ALLOW_MODEL_OVERRIDE=true). gpt-5.4 baseline
       DONE 2026-08-07: 95/96 (99.0%), median gen 5.4s — run-2026-08-07T20-38-41-622Z.
 - [ ] Consider a CI smoke eval (3 questions × 1 trial) to catch prompt/schema regressions.
+- [ ] **Confirm the reasoning-effort finding with a real run** (probe was only 4 calls):
+      `pnpm eval -- --models "gpt-5.4,gpt-5.6-sol" --efforts "low,high" --trials 3`
+      (~192 calls). If sol@low matches gpt-5.4 on accuracy at comparable speed,
+      set OPENAI_REASONING_EFFORT accordingly. Note the eval question set currently
+      SATURATES (31/32 for multiple models = statistical noise) — accuracy can't
+      discriminate top models; harder questions (window functions, nested
+      aggregations, self-joins) are needed for that.
+- [ ] Consider `service_tier: 'fast'` and `text.verbosity` as additional latency
+      knobs (both exist on the Responses API, neither is wired up).
+- [ ] Decide whether OPENAI_REASONING_EFFORT should apply to the other 6 OpenAI
+      routes (currently generate-only) — low effort may help SQL but hurt
+      description/suggestion quality.
 - [ ] **Schema introspection excludes views** (found by the eval): `postgresql.queries.ts`
       reads `pg_catalog.pg_tables` only, so views (e.g. demo `monthly_revenue`,
       `customer_health`) never reach the OpenAI schema file — NL questions about views

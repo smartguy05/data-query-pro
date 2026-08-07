@@ -53,7 +53,12 @@ export interface ResultSet {
 
 export interface TrialResult {
   runId: string;
+  /** Variant label — "gpt-5.4" or "gpt-5.6-sol@low" when sweeping efforts. */
   model: string;
+  /** Raw model name sent to the API (differs from `model` when effort is set). */
+  baseModel?: string;
+  /** Reasoning effort used, when the run swept efforts. */
+  effort?: string;
   questionId: string;
   trial: number; // 1-based
   question: string;
@@ -80,8 +85,20 @@ export interface DbConnectionConfig {
   password: string;
 }
 
+/** One sweep unit: a model, optionally pinned to a reasoning effort. */
+export interface ModelVariant {
+  /** Model name sent to the API. */
+  model: string;
+  /** Reasoning effort, or null to omit the parameter (server default). */
+  effort: string | null;
+  /** Display/grouping key: "gpt-5.4" or "gpt-5.6-sol@low". */
+  label: string;
+}
+
 export interface RunConfig {
   models: string[];
+  /** Reasoning efforts to cross with `models`; empty = no effort parameter. */
+  efforts: string[];
   trials: number;
   baseUrl: string;
   questionIds: string[] | null; // null = all

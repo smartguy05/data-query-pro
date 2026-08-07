@@ -72,7 +72,14 @@ export async function introspectSchema(
  */
 export async function generateSql(
   baseUrl: string,
-  opts: { query: string; vectorStoreId: string; schemaData: unknown; model: string }
+  opts: {
+    query: string;
+    vectorStoreId: string;
+    schemaData: unknown;
+    model: string;
+    /** Reasoning effort; omitted from the body when null/undefined. */
+    effort?: string | null;
+  }
 ): Promise<TimedResponse<GenerateResponse>> {
   const { status, body, ms } = await postJson(
     joinUrl(baseUrl, "/api/query/generate"),
@@ -82,6 +89,7 @@ export async function generateSql(
       vectorStoreId: opts.vectorStoreId,
       schemaData: opts.schemaData,
       model: opts.model,
+      ...(opts.effort ? { effort: opts.effort } : {}),
       defaultLimit: "none",
     },
     GENERATE_TIMEOUT_MS
