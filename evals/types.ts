@@ -85,6 +85,8 @@ export interface RunConfig {
   trials: number;
   baseUrl: string;
   questionIds: string[] | null; // null = all
+  /** Include EXTENDED_QUESTIONS in the default pool (full 32-question run). */
+  extended: boolean;
   concurrency: number;
   db: DbConnectionConfig;
   /** Podman container to auto-start/reseed/stop for the demo DB ("" disables management). */

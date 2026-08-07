@@ -12,7 +12,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import OpenAI from "openai";
-import { QUESTIONS } from "./dataset";
+import { EXTENDED_QUESTIONS, QUESTIONS } from "./dataset";
 import type {
   DbConnectionConfig,
   EvalQuestion,
@@ -64,6 +64,7 @@ function parseCli(): RunConfig {
       trials: { type: "string", default: "3" },
       "base-url": { type: "string", default: "http://localhost:3000" },
       questions: { type: "string" },
+      extended: { type: "boolean", default: false },
       concurrency: { type: "string", default: "1" },
       "db-host": { type: "string", default: "localhost" },
       "db-port": { type: "string", default: "5433" },
@@ -90,6 +91,7 @@ function parseCli(): RunConfig {
     questionIds: values.questions
       ? values.questions.split(",").map((q) => q.trim()).filter(Boolean)
       : null,
+    extended: values.extended!,
     concurrency: toPositiveInt(values.concurrency!, "concurrency"),
     db: {
       type: "postgresql",
@@ -189,10 +191,13 @@ async function main(): Promise<void> {
   const config = parseCli();
   const { baseUrl, db } = config;
 
-  // Question selection.
-  let questions: EvalQuestion[] = QUESTIONS;
+  // Question selection. `--questions` ids always filter the COMBINED pool
+  // (explicit ids are explicit intent — Q02 works without --extended);
+  // otherwise the default pool is core-only unless --extended is set.
+  const combinedPool: EvalQuestion[] = [...QUESTIONS, ...EXTENDED_QUESTIONS];
+  let questions: EvalQuestion[] = config.extended ? combinedPool : QUESTIONS;
   if (config.questionIds !== null) {
-    const known = new Set(QUESTIONS.map((q) => q.id));
+    const known = new Set(combinedPool.map((q) => q.id));
     const unknown = config.questionIds.filter((id) => !known.has(id));
     if (unknown.length > 0) {
       console.error(`Unknown question ids: ${unknown.join(", ")}`);
@@ -200,7 +205,7 @@ async function main(): Promise<void> {
       return;
     }
     const wanted = new Set(config.questionIds);
-    questions = QUESTIONS.filter((q) => wanted.has(q.id));
+    questions = combinedPool.filter((q) => wanted.has(q.id));
   }
   if (questions.length === 0) {
     console.error("No questions selected.");

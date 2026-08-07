@@ -7,7 +7,11 @@
 //   - scalar goldens return exactly 1 row and >= 1 column
 //   - ordered goldens produce an identical row order across two executions
 
-import { QUESTIONS } from "./dataset";
+import { EXTENDED_QUESTIONS, QUESTIONS } from "./dataset";
+
+// Always verify the COMBINED pool — extended goldens must stay green even
+// though the default eval run only sweeps the core set.
+const ALL_QUESTIONS = [...QUESTIONS, ...EXTENDED_QUESTIONS];
 
 const BASE_URL = process.env.EVAL_BASE_URL ?? "http://localhost:3000";
 
@@ -40,7 +44,7 @@ async function execute(sql: string): Promise<{ status: number; body: ExecuteResp
 async function main(): Promise<void> {
   let failures = 0;
 
-  for (const q of QUESTIONS) {
+  for (const q of ALL_QUESTIONS) {
     const problems: string[] = [];
     const { status, body } = await execute(q.goldenSql);
     const rowCount = body.rowCount ?? 0;
@@ -75,7 +79,7 @@ async function main(): Promise<void> {
     );
   }
 
-  console.log(`\n${QUESTIONS.length - failures}/${QUESTIONS.length} goldens passed`);
+  console.log(`\n${ALL_QUESTIONS.length - failures}/${ALL_QUESTIONS.length} goldens passed`);
   if (failures > 0) process.exit(1);
 }
 

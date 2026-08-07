@@ -49,12 +49,23 @@ and `/api/query/execute` routes. Built to compare `gpt-5.4` against newer models
 # smoke test (3 questions × 1 trial, ~3 OpenAI calls)
 pnpm eval -- --models gpt-5.4 --trials 1 --questions Q01,Q23,Q30
 
-# single-model baseline (32 questions × 3 trials ≈ 96 generate calls, ~13 min, ~$1–3)
+# single-model default run (core 16 questions × 3 trials ≈ 48 generate calls,
+# roughly half the previous cost of the full set)
 pnpm eval -- --models gpt-5.4 --trials 3
+
+# full 32-question run (core + extended, ≈ 96 generate calls, ~13 min, ~$1–3)
+pnpm eval -- --models gpt-5.4 --trials 3 --extended
 
 # multi-model comparison sweep
 pnpm eval -- --models gpt-5.4,gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol --trials 3
 ```
+
+The dataset is split into a **core** set of 16 questions (`QUESTIONS` — all 8
+phase4-tagged questions plus at least one of every bucket/mode) and an
+**extended** set of 16 (`EXTENDED_QUESTIONS` — verified goldens excluded from
+the default run to halve API cost). `--extended` sweeps all 32. `--questions`
+ids always resolve against the combined pool, so e.g. `--questions Q02` works
+without `--extended`.
 
 ### CLI flags (all optional)
 
@@ -62,7 +73,8 @@ pnpm eval -- --models gpt-5.4,gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol --trials 3
 |------|---------|-------|
 | `--models` | `gpt-5.4` | comma-separated list, run sequentially |
 | `--trials` | `3` | trials per question (generation is nondeterministic) |
-| `--questions` | all 32 | comma-separated ids for subset/smoke runs |
+| `--questions` | core 16 | comma-separated ids for subset/smoke runs (matched against all 32) |
+| `--extended` | off | include the 16 extended questions (full 32-question run) |
 | `--base-url` | `http://localhost:3000` | dev server |
 | `--concurrency` | `1` | parallel trials within a model |
 | `--db-host/-port/-user/-password/-name` | `localhost/5433/demo/demo/cloudmetrics` | demo DB |
@@ -92,7 +104,8 @@ Each run writes two files to `evals/results/` (gitignored):
   matrix, and an appendix of every failing trial's SQL.
 
 Baseline on record: **gpt-5.4 — 95/96 (99.0%), median generation 5.4s**
-(`run-2026-08-07T20-38-41-622Z`).
+(`run-2026-08-07T20-38-41-622Z`) — measured on the **full 32-question set**
+(before the core/extended split; equivalent to a `--extended` run today).
 
 ## Gotchas
 

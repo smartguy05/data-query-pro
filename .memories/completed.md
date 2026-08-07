@@ -4,6 +4,11 @@
 > **Historical (summarized)** — for full prose, see git history. Durable gotchas live in
 > [docs/reference/lessons-learned.md](../docs/reference/lessons-learned.md).
 
+## Eval dataset split core/extended (2026-08-07, branch llm-evals)
+- `evals/dataset.ts` restructured into `QUESTIONS` (core 16: all 8 phase4-tagged Q01/Q08/Q11/Q15/Q20/Q23/Q26/Q30 + Q05,Q06,Q13,Q16,Q18,Q27,Q28,Q31 — every mode/bucket covered) and `EXTENDED_QUESTIONS` (other 16), entries preserved verbatim. Motivation: halve default OpenAI cost (16 q × 3 trials ≈ 48 generate calls).
+- `run-eval.ts`: new `--extended` boolean flag (RunConfig.extended); default pool = core, `--extended` = all 32; `--questions` ids always resolve against the combined pool. `verify-goldens.ts` always verifies the combined 32. README updated (baseline 95/96 was on the full 32-question set).
+- Verified: tsc clean; verify-goldens 32/32 (container started/stopped around it; no reseed needed). Not committed.
+
 ## LLM eval harness for NL→SQL generation (2026-08-07, branch llm-evals)
 - Built `evals/` — a standalone tsx CLI harness (`pnpm eval -- --models gpt-5.4,gpt-5.6-luna --trials 3`) that measures how well a model turns NL questions into SQL that executes and returns correct results, for comparing gpt-5.4 vs the 5.6 family.
 - **Only production change**: `/api/query/generate` accepts an optional `model` body param, honored ONLY when `EVAL_ALLOW_MODEL_OVERRIDE=true` (env flag, off by default; `.env.example` documented). Everything else lives under `evals/`.
