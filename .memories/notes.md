@@ -28,6 +28,31 @@
 - Server connections (config/databases.json): passwords stripped before client; server-side
   uses `getServerConnectionCredentials()`. `owner_id` nullable (migration 002).
 
+## Eval harness gotchas (evals/, 2026-08-07)
+- `/api/query/generate` swallows ALL errors and returns **HTTP 200 with mock SQL**
+  (confidence 0.3, warning contains "mock response", information_schema query) — any client
+  that only checks response.ok scores failures as passes. `evals/lib/classify.ts` detects it.
+  A JSON-parse failure similarly returns `SELECT 1 as parsing_error` at 200.
+- `lib/openai/schema-upload.ts` does NOT wait for vector-store ingestion — a generate call
+  right after upload can hit an unindexed store. `evals/lib/vector-store.ts` polls to "completed".
+- Demo DB seed data is **randomized per load AND time-anchored** (last-90-days events):
+  a container seeded weeks ago returns 0 rows for "last 7 days" questions. Reseed before eval
+  runs; golden + generated SQL must run against the same live instance in the same run.
+- `dataquery-demo-db` container password is **demo** (docker-compose's demo-db block says demo123).
+- `pnpm eval -- --flags`: pnpm forwards the literal `--` token; node:util parseArgs treats it
+  as option terminator — run-eval.ts strips it before parsing. On PowerShell, comma lists
+  must be quoted (`--questions "Q01,Q20"`) or PS splits them into separate args.
+- Runner manages the demo DB container (start → wait → reseed → stop-on-exit, only if IT
+  started it; also auto-reseeds a running-but-stale DB). First introspect fetch right after
+  a container start reproducibly fails once ("fetch failed") — runner retries 3× with 3s gaps.
+- Next dev must be (re)started AFTER adding EVAL_ALLOW_MODEL_OVERRIDE to .env.local; the
+  runner's canary (bogus model name → expects mock fallback) catches an inactive flag.
+- **Eval question authoring rule learned the hard way**: any literal the model must filter
+  on (status/priority values, casing, underscores) MUST be quoted verbatim in the question,
+  because the uploaded schema is structure-only (no example values, and NO VIEWS — see todos).
+  Two baseline runs were invalidated by unknowable-literal/view-blindness dataset defects
+  (Q12 'Critical' casing, Q27 customer_health view + 'in_progress').
+
 ## Environment (this dev machine)
 - **better-sqlite3 native binding may be missing** after pnpm install (build scripts not run).
   Symptom: `Could not locate the bindings file`. Fix: `cd node_modules/better-sqlite3 && npx prebuild-install`
@@ -60,3 +85,12 @@
   and `LocalStorageProvider.getConnections()` concatenated them without dedup.
 - Fix: getConnections now filters local connections whose id exists in serverConnections
   (server wins), mirroring getSchemas/getReports. Connection ids are bare Date.now() strings.
+
+## 2026-08-07: Eval harness smoke test (live)
+- `pnpm eval -- --models ...` broke: pnpm forwards the literal `--` separator, which
+  parseArgs treats as an option terminator, turning all flags into rejected positionals.
+  Fix: parseCli in evals/run-eval.ts strips the first `--` from argv before parseArgs.
+- checkServerUp's 10s timeout can fail on a cold Next dev server (first GET / triggers
+  page compile > 10s). Warm the server (curl /) before running the eval.
+- Live smoke (gpt-5.4, Q01/Q23/Q30, 1 trial): 3/3 PASS; JSONL + HTML written; HTML has
+  no credentials; tsc clean.

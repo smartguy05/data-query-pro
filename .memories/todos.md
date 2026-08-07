@@ -1,6 +1,20 @@
 # TODO / Remaining Tasks
 
 ## Open
+- [ ] **Run the 4-model eval sweep** once 5.6 API access is confirmed:
+      `pnpm eval -- --models gpt-5.4,gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol --trials 3`
+      (needs: dev server up, `dataquery-demo-db` container running + freshly reseeded so
+      date-relative goldens have data, EVAL_ALLOW_MODEL_OVERRIDE=true). gpt-5.4 baseline
+      DONE 2026-08-07: 95/96 (99.0%), median gen 5.4s — run-2026-08-07T20-38-41-622Z.
+- [ ] Consider a CI smoke eval (3 questions × 1 trial) to catch prompt/schema regressions.
+- [ ] **Schema introspection excludes views** (found by the eval): `postgresql.queries.ts`
+      reads `pg_catalog.pg_tables` only, so views (e.g. demo `monthly_revenue`,
+      `customer_health`) never reach the OpenAI schema file — NL questions about views
+      can't be answered. Consider adding views (flagged as such) to introspection.
+- [ ] **Schema file has no example values** (found by the eval): status/priority literals
+      like 'in_progress' or 'Critical' are undiscoverable, so the model coin-flips casing
+      and separators. Consider sampling distinct values for low-cardinality text columns
+      into the schema upload.
 - [ ] **End-to-end auth-mode verification** against a real Authentik instance. Biggest open
       risk: two shipped features are unverified against live infra — connection/report
       **sharing** (share view → "Shared with you" w/ disabled Edit/Delete; upgrade to edit;

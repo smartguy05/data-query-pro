@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { query, databaseType, vectorStoreId, schemaData, existingFileId, examples, corrections, defaultLimit } = await request.json();
+    const { query, databaseType, vectorStoreId, schemaData, existingFileId, examples, corrections, defaultLimit, model } = await request.json();
     console.log("Received query:", query);
     console.log("Received database type:", databaseType);
     console.log("Received VectorStore Id:", vectorStoreId);
@@ -121,6 +121,13 @@ export async function POST(request: NextRequest) {
     if (!query) {
       return NextResponse.json({ error: "Query is required" }, { status: 400})
     }
+
+    // Eval-only escape hatch: honor a client-requested model only when explicitly enabled.
+    const modelOverride =
+      process.env.EVAL_ALLOW_MODEL_OVERRIDE === "true" &&
+      typeof model === "string" && /^[a-zA-Z0-9._:-]{1,64}$/.test(model)
+        ? model
+        : undefined;
 
     // "Learn from previous queries": optional few-shot examples and failed->revised
     // corrections supplied by the client (device-local history). Rendered into the
@@ -153,7 +160,7 @@ export async function POST(request: NextRequest) {
     // Function to make the OpenAI request
     const makeOpenAIRequest = async (vsId: string) => {
       return await client.responses.create({
-        model: process.env.OPENAI_MODEL,
+        model: modelOverride ?? process.env.OPENAI_MODEL,
         tools: [{
           type: "file_search",
           vector_store_ids: [vsId]
