@@ -43,6 +43,7 @@ it maps every route, feature, and component to its source path and doc.
 - [File Map](./reference/file-map.md) - Feature/route/component → source path → doc
 - [Lessons Learned & Gotchas](./reference/lessons-learned.md) - Non-obvious traps (postgres.js, introspection, SQL safety, auth testing, build)
 - [Testing Plan](./testing/README.md) - Phased Playwright MCP test plan
+- [NL→SQL Eval Harness](../evals/README.md) - Standalone `pnpm eval` harness: accuracy, latency, and cost across models and reasoning efforts
 
 ## Key Concepts
 
@@ -106,6 +107,8 @@ OPENAI_MODEL=gpt-5.4         # Model for query generation
 # Optional
 DEMO_RATE_LIMIT=             # API requests per IP per 24h (empty = unlimited)
 TRUSTED_PROXIES=             # Comma-separated trusted proxy IPs
+OPENAI_REASONING_EFFORT=     # none|minimal|low|medium|high|xhigh|max (empty = provider default; gpt-5/o-series only)
+EVAL_ALLOW_MODEL_OVERRIDE=   # "true" lets /api/query/generate honor request-level model/effort (eval harness only)
 
 # Authentication (all 3 required to enable auth mode)
 AUTH_OIDC_ISSUER=            # e.g. https://auth.example.com/application/o/app/

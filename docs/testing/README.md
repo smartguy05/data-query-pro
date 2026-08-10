@@ -16,6 +16,33 @@ Error-handling tests are included at the end of [Phase 1](./phase-1-baseline.md#
 
 ---
 
+## Automated NL→SQL Eval Harness
+
+The phases above are driven by hand (or by Playwright MCP). Alongside them, the
+**[NL→SQL eval harness](../../evals/README.md)** (`evals/`, run with `pnpm eval`) measures
+AI query-generation *quality* automatically: it drives the real `/api/query/generate` and
+`/api/query/execute` routes against the same CloudMetrics demo database, and a trial passes
+only when the generated SQL executes and its result set matches authored golden SQL.
+
+- **Dataset**: 32 questions — a core set of 16 (the default run) plus 16 extended.
+- **Overlap with Phase 4**: all 8 AI query-generation cases (AI-01..AI-08) are in the
+  dataset tagged `phase4` and live in the core set — see
+  [Phase 4](./phase-4-ai-integration.md#ai-query-generation-quality).
+- **Compares**: models, reasoning efforts, latency, and cost; output is a `.jsonl` log plus
+  a self-contained HTML report in `evals/results/` (gitignored).
+- **Extra setup**: demo Postgres on port **5433**, a running dev server, and
+  `EVAL_ALLOW_MODEL_OVERRIDE=true` in `.env.local`. Full instructions live in
+  [evals/README.md](../../evals/README.md).
+
+**Baseline on record**: `gpt-5.4` scored **95/96 (99.0%)** with a median generation latency
+of **5.4s**, measured on the full 32-question set.
+
+The harness does not replace the manual phases — it covers only SQL generation correctness.
+Descriptions (AD-01..AD-04), suggestions (AS-01..AS-05), and everything in Phases 1-3 remain
+manual.
+
+---
+
 ## Test Environment Setup
 
 ### Prerequisites
@@ -103,7 +130,8 @@ DEMO_RATE_LIMIT=2            # Low limit for testing (2 requests per 24h)
 1. **Phase 1** — [baseline](./phase-1-baseline.md): Landing, Dashboard, Database, Schema, Query, Reports, Navigation, Error handling
 2. **Phase 2** — [server config](./phase-2-server-config.md): create `config/databases.json`, restart, SC-01..SC-08
 3. **Phase 3** — [rate limiting](./phase-3-rate-limiting.md): set `DEMO_RATE_LIMIT=2`, restart, fresh session, RL-01..RL-11
-4. **Phase 4** — [AI integration](./phase-4-ai-integration.md): AI-01..AI-08, AD-01..AD-04, AS-01..AS-05
+4. **Phase 4** — [AI integration](./phase-4-ai-integration.md): AI-01..AI-08 (automated via
+   `pnpm eval`), AD-01..AD-04, AS-01..AS-05
 
 ### Post-Test
 - [ ] All screenshots captured
@@ -195,3 +223,4 @@ for the window to expire.
 - [Getting Started](../guides/getting-started.md) - Setup
 - [Authentication Testing](../guides/authentication-testing.md) - OIDC test environment
 - [API Overview](../api/overview.md) - Endpoints under test
+- [NL→SQL Eval Harness](../../evals/README.md) - Automated AI query-generation eval

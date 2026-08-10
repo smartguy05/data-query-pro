@@ -388,7 +388,16 @@ Remember: Every table and column in your SQL must exactly match what exists in t
       if (jsonMatch) {
         try {
           const jsonResult = JSON.parse(jsonMatch[1].trim())
-          return NextResponse.json(jsonResult)
+          // Same envelope as every other success path — this branch previously
+          // dropped both, which understated cost accounting for these responses.
+          return NextResponse.json({
+            ...jsonResult,
+            ...usageField,
+            rateLimit: {
+              remaining: rateLimitResult.remaining,
+              limit: rateLimitResult.limit,
+            },
+          })
         } catch (e) {
           console.log("Found JSON block but couldn't parse it")
         }

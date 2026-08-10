@@ -53,7 +53,7 @@ pnpm eval -- --models gpt-5.4 --trials 1 --questions Q01,Q23,Q30
 # roughly half the previous cost of the full set)
 pnpm eval -- --models gpt-5.4 --trials 3
 
-# full 32-question run (core + extended, ≈ 96 generate calls, ~13 min, ~$1–3)
+# full 32-question run (core + extended, ≈ 96 generate calls, ~13 min)
 pnpm eval -- --models gpt-5.4 --trials 3 --extended
 
 # multi-model comparison sweep
@@ -118,8 +118,12 @@ model. Ship with `input` and `output` filled in per model; until both are set,
 the harness still reports token counts but shows cost as `—`.
 
 ```json
-"gpt-5.4": { "input": 1.25, "output": 10.0, "cachedInput": 0.125, "cacheWrite": null }
+"<model-name>": { "input": 0.00, "output": 0.00, "cachedInput": null, "cacheWrite": null }
 ```
+
+> The numbers above are a **format example only** — they are not any model's
+> real prices. Look up current rates and fill them in yourself; the file ships
+> with `null` everywhere precisely so nothing invented gets reported as fact.
 
 `cachedInput` and `cacheWrite` are optional — leave them `null` to bill those
 tokens at the plain `input` rate.

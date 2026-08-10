@@ -39,6 +39,10 @@ npm start            # Start production server
 
 # Code Quality
 npm run lint         # Run Next.js linter
+npm run test         # Run the Vitest suite
+
+# Evals
+pnpm eval            # Run the NL→SQL eval harness (see evals/README.md)
 ```
 
 ## Architecture Overview
@@ -263,6 +267,16 @@ hooks/                       # Custom React hooks
 
 instrumentation.ts           # Next.js 15 startup hook (runs DB migrations)
 
+evals/                       # Standalone NL→SQL eval harness (tsx CLI, `pnpm eval`)
+├── README.md                # Full usage docs (prerequisites, flags, output, gotchas)
+├── run-eval.ts              # Runner: sweeps models × efforts × questions × trials
+├── dataset.ts               # 32 questions with golden SQL (core 16 + extended 16)
+├── types.ts                 # Eval result/record types
+├── pricing.json             # USD per 1M tokens per model (ships with null rates)
+├── verify-goldens.ts        # Sanity-check golden SQL against the demo DB
+├── lib/                     # api-client, classify, compare, pricing, report, vector-store
+└── results/                 # Run output: .jsonl + self-contained .html (gitignored)
+
 docs/                        # Developer documentation
 ├── README.md                # Documentation index
 ├── architecture/            # System design docs (overview, state, auth-and-data-layer)
@@ -340,8 +354,12 @@ config/                      # Server configuration
 - Route: `/api/query/generate/route.ts`
 - Uses OpenAI Responses API with vector store for schema context
 - Only generates SELECT statements for safety
-- Returns: `{ sql, explanation, confidence, warnings }`
+- Returns: `{ sql, explanation, confidence, warnings }`, plus `usage` when OpenAI reports it
 - Handles non-JSON responses with fallback parsing
+- **Reasoning effort**: set server-side via `OPENAI_REASONING_EFFORT` (`none|minimal|low|medium|high|xhigh|max`). The `reasoning` parameter is **gpt-5 / o-series models only**, and not every reasoning model supports every value — the API validates, not the SDK. When nothing resolves, the `reasoning` key is omitted from the request entirely, so default behavior is unchanged
+- **Model / effort overrides (eval-only)**: the request body accepts optional `model` and `effort`. Both are honored **only** when `EVAL_ALLOW_MODEL_OVERRIDE=true`; otherwise they are ignored entirely. These exist for the eval harness, not for normal clients
+- **`usage` shape**: `{ model, inputTokens, cachedInputTokens, cacheWriteTokens, outputTokens, reasoningTokens, totalTokens }`. `model` is the model OpenAI *actually served* — typically a dated snapshot like `gpt-5.4-2026-03-05`, not the requested alias. Token semantics: `reasoningTokens` is a **subset** of `outputTokens`; `cachedInputTokens` and `cacheWriteTokens` are **subsets** of `inputTokens` — breakdowns, never additive
+- This applies to the **generate route only**. The other OpenAI routes (enhance, revise, followup, suggestions, generate-descriptions, chart) are unchanged and still discard usage
 
 ### Query Enhancement
 - Route: `/api/query/enhance/route.ts`
@@ -480,6 +498,12 @@ OPENAI_API_KEY=sk-...        # Required for AI features
 OPENAI_MODEL=gpt-5.4        # Model for query generation
 DEMO_RATE_LIMIT=             # Optional: number of free requests per 24h per IP (empty = unlimited)
 TRUSTED_PROXIES=             # Optional: comma-separated trusted proxy IPs for rate limiting
+OPENAI_REASONING_EFFORT=     # Optional: none|minimal|low|medium|high|xhigh|max (gpt-5 / o-series only)
+                             # Applies to /api/query/generate only. Empty = omit the
+                             # `reasoning` parameter entirely (provider default)
+EVAL_ALLOW_MODEL_OVERRIDE=   # Optional, default off. When "true", /api/query/generate honors
+                             # client-supplied `model` + `effort` in the request body.
+                             # For the eval harness only — leave unset in production
 
 # Authentication (optional - all 3 required to enable auth mode)
 AUTH_OIDC_ISSUER=              # e.g. https://auth.example.com/application/o/dataquery-pro/
@@ -614,6 +638,18 @@ cat scripts/demo-database.sql | podman exec -i demo-postgres psql -U demo -d clo
 
 Connection: `localhost:5432`, database: `cloudmetrics`, user: `demo`, password: `demo`
 
+### NL→SQL Eval Harness
+
+A standalone harness in `evals/` measures how well a model turns natural language into SQL, driving the app's real `/api/query/generate` and `/api/query/execute` routes against the CloudMetrics demo database.
+
+- **Run it**: `pnpm eval` (tsx CLI). Requires a running dev server, `EVAL_ALLOW_MODEL_OVERRIDE=true` in `.env.local`, and `DEMO_RATE_LIMIT` unset
+- **What a pass means**: the generated SQL executes without error, returns at least one row, and its result set matches the question's authored golden SQL (`evals/dataset.ts` — 32 questions: core 16 + extended 16)
+- **Ranking**: by pass count, ties broken by median generation latency of passing trials (equally accurate but faster ranks higher). **Cost is reported alongside but never affects ranking**
+- **Pricing caveat**: `evals/pricing.json` ships with **null rates**, so cost renders as `—` until per-model `input`/`output` rates are filled in; token counts are still reported
+- **Output**: `evals/results/` (gitignored) gets a per-trial `.jsonl` plus a self-contained `.html` report
+- **Baseline on record**: gpt-5.4 scored **95/96 (99.0%)** with median generation latency **5.4s**, measured on the full 32-question set
+- Full usage docs — prerequisites, CLI flags, reasoning-effort sweeps, failure classification, gotchas — live in [evals/README.md](./evals/README.md)
+
 ## Documentation Reference
 
 | Topic | Documentation |
@@ -637,3 +673,4 @@ Connection: `localhost:5432`, database: `cloudmetrics`, user: `demo`, password: 
 | Common Tasks | [docs/guides/common-tasks.md](./docs/guides/common-tasks.md) |
 | Claude Design System (claude.ai/design) | [docs/guides/design-system.md](./docs/guides/design-system.md) |
 | Testing Plan | [docs/testing/README.md](./docs/testing/README.md) |
+| NL→SQL Eval Harness | [evals/README.md](./evals/README.md) |

@@ -19,8 +19,34 @@ interface GenerateRequest {
   existingFileId?: string;    // Optional: for cleanup
   examples?: { question?: string; sql?: string }[];                        // Optional: proven few-shot examples (learning)
   corrections?: { question?: string; badSql?: string; error?: string; goodSql?: string }[]; // Optional: failed→fixed corrections (learning)
+  defaultLimit?: number | 'none';  // Optional: user's default row limit; shapes prompt rule 4
+  model?: string;             // Optional: eval-only model override (see note)
+  effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'; // Optional: eval-only (see note)
 }
 ```
+
+**`defaultLimit`** comes from the query page's "Default row limit" dropdown. It rewrites
+generation rule 4: a number asks the model for at most that many rows using the
+dialect-appropriate syntax; `'none'` tells the model not to add an automatic row limit.
+Invalid or absent values fall back to `QUERY_LIMIT.DEFAULT` (100). The same value is sent
+to `/api/query/execute`, which enforces it independently.
+
+**`model` / `effort` are for the eval harness, not for normal clients.** Both are honored
+**only** when the server env `EVAL_ALLOW_MODEL_OVERRIDE=true`; otherwise they are ignored
+entirely and the route uses `OPENAI_MODEL`. `model` must additionally match
+`/^[a-zA-Z0-9._:-]{1,64}$/`. See [evals/README.md](../../evals/README.md).
+
+### Reasoning Effort
+
+Reasoning effort is configured server-side via the optional `OPENAI_REASONING_EFFORT` env
+variable. Accepted values: `none | minimal | low | medium | high | xhigh | max`. The
+per-request `effort` override rides the same `EVAL_ALLOW_MODEL_OVERRIDE` flag and takes
+precedence over the env variable.
+
+The `reasoning` parameter applies to **gpt-5 / o-series models only**, and not every
+reasoning model supports every value — the OpenAI API validates the combination, not the
+SDK. When nothing resolves (env unset/invalid and no honored override), the `reasoning`
+key is **omitted from the request entirely**, so default behavior is unchanged.
 
 ### Response
 
@@ -35,11 +61,39 @@ interface GenerateResponse {
   newFileId?: string;
   newVectorStoreId?: string;
   schemaReuploaded?: boolean;
+  // Present when OpenAI reports token usage:
+  usage?: {
+    model: string;              // Model OpenAI actually served (often a dated snapshot)
+    inputTokens: number;
+    cachedInputTokens: number;  // subset of inputTokens
+    cacheWriteTokens: number;   // subset of inputTokens
+    outputTokens: number;
+    reasoningTokens: number;    // subset of outputTokens
+    totalTokens: number;
+  };
+  // Rate-limit info; `Infinity` when DEMO_RATE_LIMIT is unset (serializes to null over JSON).
+  // Omitted on the two fallback paths: a JSON code block salvaged from a non-JSON
+  // reply, and the HTTP 200 mock response returned when the request itself throws.
+  rateLimit?: { remaining: number | null; limit: number | null };
 }
 
 // Error
 { "error": "Error message" }
 ```
+
+### Token Usage (`usage`)
+
+Included whenever OpenAI reports usage on the response, for cost accounting.
+
+- `model` is the model OpenAI **actually served**, which is typically a dated snapshot
+  (e.g. `gpt-5.4-2026-03-05`) rather than the requested alias.
+- **The breakdowns are subsets, never additive**: `reasoningTokens` is part of
+  `outputTokens`; `cachedInputTokens` and `cacheWriteTokens` are parts of `inputTokens`.
+  Do not add them together when computing totals.
+
+`usage` is returned by the **generate route only**. The other OpenAI routes (`enhance`,
+`revise`, `followup`, `dashboard/suggestions`, `schema/generate-descriptions`,
+`chart/generate`) still discard usage.
 
 ### Behavior
 
@@ -147,6 +201,7 @@ interface ExecuteRequest {
   connectionId?: string;
   source?: "local" | "server";
   type?: string;
+  defaultLimit?: number | 'none'; // Optional: inject a row limit when the SQL has none
   // Optional audit-log metadata (never required)
   question?: string;              // Natural-language prompt behind the SQL
   querySource?: string;           // e.g. "report", "followup"
@@ -162,6 +217,7 @@ interface ExecuteResponse {
   rows: string[][];          // Row data (all values as strings)
   rowCount: number;          // Number of rows returned
   executionTime: number;     // Milliseconds to execute
+  limitApplied?: number;     // Present only when a default row limit was injected
 }
 
 // Error

@@ -18,14 +18,56 @@ DataQuery Pro uses OpenAI for:
 # Required
 OPENAI_API_KEY=sk-...
 
-# Optional (defaults to gpt-5.4)
+# Required by /api/query/generate, /enhance, /revise (no fallback);
+# other AI routes fall back to a per-route default
 OPENAI_MODEL=gpt-5.4
+
+# Optional - reasoning effort for query generation (empty = provider default)
+OPENAI_REASONING_EFFORT=
+
+# Optional - allow the eval harness to override model/effort per request (default off)
+EVAL_ALLOW_MODEL_OVERRIDE=
 ```
 
 ### Supported Models
 - `gpt-5.4` - Recommended default (best quality)
 - `gpt-5.1`, `gpt-5` - Earlier models, lower cost
 - `gpt-5-mini` - Fastest, lowest cost
+
+### Reasoning Effort
+
+**Applies to:** `app/api/query/generate/route.ts` only. No other OpenAI route reads it.
+
+`OPENAI_REASONING_EFFORT` sets the `reasoning.effort` passed to the Responses API.
+
+| Aspect | Behavior |
+|--------|----------|
+| Valid values | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` |
+| Unset / empty / unrecognized | The `reasoning` key is **omitted from the request entirely** — default provider behavior, unchanged |
+| Model support | The `reasoning` parameter is **gpt-5 / o-series models only** (per the openai SDK's own doc comment) |
+| Value support | Not every reasoning model supports every value — **OpenAI validates, the SDK does not** |
+
+```typescript
+// Omitted entirely when nothing resolves
+await client.responses.create({
+  model: modelOverride ?? process.env.OPENAI_MODEL,
+  ...(resolvedEffort ? { reasoning: { effort: resolvedEffort } } : {}),
+  // ...
+});
+```
+
+> **Gotcha:** an unsupported model/effort pair fails at the OpenAI API, not locally. The
+> generate route catches request errors and returns its **HTTP 200 mock fallback**, so a bad
+> `OPENAI_REASONING_EFFORT` looks like a mock response (`"This is a mock response…"` warning,
+> confidence 0.3) rather than an error. Check the server logs for the real cause.
+
+### Model / Effort Overrides (eval harness only)
+
+The generate route accepts optional `model` and `effort` fields in the request body. **Both are
+honored only when the server env `EVAL_ALLOW_MODEL_OVERRIDE=true`; otherwise they are ignored
+entirely.** They exist so the eval harness can sweep models and reasoning efforts against one
+running server — normal clients should never send them, and the flag should stay off in
+production.
 
 ## Responses API
 
@@ -124,6 +166,40 @@ try {
 
 **File:** `app/api/query/generate/route.ts`
 
+### Request Body
+
+| Field | Required | Purpose |
+|-------|----------|---------|
+| `query` | Yes | The natural language question |
+| `databaseType` | No | Dialect for syntax hints (defaults to `postgresql`) |
+| `vectorStoreId` | No | Vector store holding the uploaded schema |
+| `schemaData`, `existingFileId` | No | Used to re-upload and retry on a vector store 404 |
+| `examples`, `corrections` | No | Learning context (see below) |
+| `defaultLimit` | No | User-chosen row limit (`number` or `'none'`) that shapes prompt rule 4 |
+| `model` | No | **Eval only** — ignored unless `EVAL_ALLOW_MODEL_OVERRIDE=true` |
+| `effort` | No | **Eval only** — ignored unless `EVAL_ALLOW_MODEL_OVERRIDE=true` |
+
+### Response Body
+
+```jsonc
+{
+  "sql": "SELECT ...",
+  "explanation": "tables and columns used",
+  "confidence": 0.8,
+  "warnings": [],
+
+  // Present only when the schema was re-uploaded after a vector store 404
+  "newFileId": "file_...",
+  "newVectorStoreId": "vs_...",
+  "schemaReuploaded": true,
+
+  // Present when OpenAI reports usage (see Token Usage below)
+  "usage": { /* ... */ },
+
+  "rateLimit": { "remaining": 42, "limit": 50 }
+}
+```
+
 ### System Prompt
 
 ```typescript
@@ -179,6 +255,33 @@ try {
   }
 }
 ```
+
+### Token Usage
+
+When OpenAI reports usage, the generate response includes a `usage` object for cost accounting:
+
+```typescript
+usage: {
+  model: string,              // model OpenAI ACTUALLY served
+  inputTokens: number,
+  cachedInputTokens: number,  // subset of inputTokens
+  cacheWriteTokens: number,   // subset of inputTokens
+  outputTokens: number,
+  reasoningTokens: number,    // subset of outputTokens
+  totalTokens: number,
+}
+```
+
+**Subset semantics — these are breakdowns, never additive:**
+- `reasoningTokens` is a **subset of** `outputTokens` (do not add them)
+- `cachedInputTokens` and `cacheWriteTokens` are **subsets of** `inputTokens`
+
+`usage.model` is the ID OpenAI actually used, which is typically a **dated snapshot** of the
+requested alias (e.g. requesting `gpt-5.4` reports back something like `gpt-5.4-2026-03-05`).
+Attribute cost to this value, not to the alias you asked for.
+
+> This applies to the **generate route only**. The other OpenAI routes (enhance, revise,
+> followup, suggestions, generate-descriptions, chart) do not surface usage.
 
 ### Learning From Previous Queries
 
@@ -383,9 +486,19 @@ try {
 - Use a smaller model (e.g. `gpt-5-mini`) for simple descriptions
 - Consider model per endpoint
 
+### Measuring Cost Per Model
+
+Per-model accuracy, latency, and cost measurement lives in the standalone NL→SQL eval harness
+(`evals/`, run with `pnpm eval`). It sweeps models and reasoning efforts, uses the generate
+route's `usage` field for token accounting, and prices it from `evals/pricing.json` (which ships
+with unset rates, so cost renders as `—` until you fill them in).
+
+See [evals/README.md](../../evals/README.md) for setup and usage.
+
 ---
 
 ## Related Documentation
 - [Query Endpoints](../api/query-endpoints.md) - Query API details
 - [Schema Endpoints](../api/schema-endpoints.md) - Schema API details
 - [Dashboard Endpoints](../api/dashboard-endpoints.md) - Suggestions API
+- [Eval Harness](../../evals/README.md) - NL→SQL accuracy, latency, and cost measurement

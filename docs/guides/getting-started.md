@@ -178,6 +178,8 @@ hooks/               # Custom React hooks
 |----------|----------|-------------|
 | `OPENAI_API_KEY` | Yes | OpenAI API key for AI features |
 | `OPENAI_MODEL` | For query gen | Model name. **Required by `/api/query/generate`, `/enhance`, `/revise`** (no fallback). Other AI endpoints fall back to a default if unset — see [API Overview](../api/overview.md#openai-api-integration). |
+| `OPENAI_REASONING_EFFORT` | No (optional) | Reasoning effort for `/api/query/generate`: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. gpt-5 / o-series models only. Empty/invalid = parameter omitted entirely (provider default). |
+| `EVAL_ALLOW_MODEL_OVERRIDE` | No (optional, off) | Set to `true` to let `/api/query/generate` honor per-request `model` and `effort` fields. For the [eval harness](../../evals/README.md) only — leave unset in normal use. |
 | `DEMO_RATE_LIMIT` | No | API requests per IP per 24h (empty = unlimited) |
 | `AUTH_OIDC_ISSUER` | For auth | OIDC issuer URL (enables auth mode) |
 | `AUTH_OIDC_CLIENT_ID` | For auth | OIDC client ID |
