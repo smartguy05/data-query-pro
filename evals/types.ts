@@ -27,11 +27,28 @@ export type FailureClass =
   | "empty-result" // execute 200 but rowCount === 0
   | "result-mismatch"; // executed fine but result set does not match golden
 
+/**
+ * Token counts from the generate route. `reasoningTokens` is a subset of
+ * `outputTokens`; `cachedInputTokens`/`cacheWriteTokens` are subsets of
+ * `inputTokens`. They are breakdowns — never add them to the totals.
+ */
+export interface TokenUsage {
+  /** Model OpenAI actually served (may be a dated snapshot of the alias). */
+  model: string;
+  inputTokens: number;
+  cachedInputTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+}
+
 export interface GenerateResponse {
   sql?: string;
   explanation?: string;
   confidence?: number;
   warnings?: unknown[];
+  usage?: TokenUsage;
   newFileId?: string;
   newVectorStoreId?: string;
   schemaReuploaded?: boolean;
@@ -70,6 +87,10 @@ export interface TrialResult {
   generateMs: number;
   executeMs: number | null;
   rowCount: number | null;
+  /** Token usage for this generation, when the route reported it. */
+  usage?: TokenUsage;
+  /** Cost of this generation in USD; null when the model has no configured rates. */
+  costUsd: number | null;
   pass: boolean;
   failureClass: FailureClass | null; // null when pass
   failureDetail: string | null; // sanitized error / mismatch description; never credentials

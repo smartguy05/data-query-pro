@@ -107,6 +107,38 @@ without `--extended`.
 | `--db-host/-port/-user/-password/-name` | `localhost/5433/demo/demo/cloudmetrics` | demo DB |
 | `--db-container` | `dataquery-demo-db` | podman container to auto-start/reseed/stop; `""` disables |
 
+## Cost
+
+Every run reports **total cost per model/effort variant** in the final console
+table and in the HTML report (ranking and per-model summary), alongside pass
+rate and median latency. Cost does not affect ranking order.
+
+Rates live in **`evals/pricing.json`** — USD per 1,000,000 tokens, keyed by
+model. Ship with `input` and `output` filled in per model; until both are set,
+the harness still reports token counts but shows cost as `—`.
+
+```json
+"gpt-5.4": { "input": 1.25, "output": 10.0, "cachedInput": 0.125, "cacheWrite": null }
+```
+
+`cachedInput` and `cacheWrite` are optional — leave them `null` to bill those
+tokens at the plain `input` rate.
+
+Lookup handles dated snapshots: OpenAI reports the model it actually served
+(e.g. `gpt-5.4-2026-03-05`), so the price table falls back to the longest
+matching prefix key (`gpt-5.4`). Unknown models report `priced: false` rather
+than silently costing zero.
+
+**Token semantics** (verified against openai@7.4.0 types): `reasoningTokens` is
+a subset of `outputTokens`, and `cachedInputTokens`/`cacheWriteTokens` are
+subsets of `inputTokens`. They are breakdowns — the cost math never adds them
+on top of the totals.
+
+**What the numbers look like in practice**: a single generation runs roughly
+18,000 input tokens against ~140 output tokens — about 130:1 — because the
+schema context dominates the prompt. Cost is therefore almost entirely
+input-driven, so reasoning effort moves *latency* far more than it moves cost.
+
 ## What a "pass" means
 
 A trial passes only if the generated SQL **executes without error, returns ≥ 1 row,

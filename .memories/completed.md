@@ -4,6 +4,14 @@
 > **Historical (summarized)** — for full prose, see git history. Durable gotchas live in
 > [docs/reference/lessons-learned.md](../docs/reference/lessons-learned.md).
 
+## Per-model cost reporting in evals (2026-08-10, branch llm-evals)
+- **Production**: `/api/query/generate` now returns `usage` (model actually served + inputTokens/cachedInputTokens/cacheWriteTokens/outputTokens/reasoningTokens/totalTokens) on all 4 success paths. Previously ALL 6 `responses.create` call sites discarded `response.usage`. Additive field, returned to every caller (chosen over eval-only gating so the query audit log can record tokens later).
+- **Harness**: `evals/pricing.json` (USD per 1M tokens, committed with **null rates — fill in before cost appears**), `evals/lib/pricing.ts` (`computeCost`/`formatUsd`/`hasAnyPricing`). Cost added to the final console table + HTML ranking and summary; **does NOT affect ranking order** (still pass count → median latency, per user's rule).
+- **Token semantics (openai@7.4.0, verified)**: `reasoning_tokens` ⊂ `output_tokens`; `cached_tokens` and `cache_write_tokens` ⊂ `input_tokens`. Breakdowns, never additive. Fresh input = input − cached − cacheWrite.
+- **Price lookup** keys off the model OpenAI actually served — real responses report a dated snapshot (`gpt-5.4-2026-03-05`), NOT the requested alias — then falls back to longest prefix key. Unknown model ⇒ `priced:false` ⇒ renders "—" rather than a silent $0.
+- **KEY FINDING**: a generation is ~18,364 input vs ~139 output tokens (**~130:1**) because the schema context dominates. Cost is therefore almost entirely input-driven — reasoning effort is a *latency* lever, not a cost lever. Also `cachedInputTokens` came back **0**, so no prompt caching is occurring across trials despite the identical large system prompt.
+- Verified offline (no API spend): cost math matches hand computation exactly, dated-snapshot prefix match resolves, unknown model unpriced, cached discount applies; report rendering verified with synthetic priced/unpriced/partially-priced models.
+
 ## Reasoning effort support + eval sweep (2026-08-07, branch llm-evals)
 - **Why**: eval found gpt-5.6-sol matched gpt-5.4 on accuracy but was 2x SLOWER (median 10.5s vs 5.2s, slower on 16/16 questions; terra ran between them and was fast, ruling out drift). Sol emits *shorter* SQL yet takes longer → time goes to internal reasoning, so effort is the lever.
 - **Production** (`app/api/query/generate/route.ts`): `OPENAI_REASONING_EFFORT` env var + optional `effort` request param (gated by the same `EVAL_ALLOW_MODEL_OVERRIDE` flag as `model`). `asReasoningEffort()` narrows to the SDK's `Shared.ReasoningEffort` union (none|minimal|low|medium|high|xhigh|max); the `reasoning` key is **spread in only when set** so default behavior is byte-identical. Config added to `.env.example`, `.env.local` (empty), `docker-compose.yml`. Applies to the generate route ONLY — the other 6 OPENAI_MODEL routes untouched.

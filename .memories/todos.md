@@ -7,6 +7,13 @@
       date-relative goldens have data, EVAL_ALLOW_MODEL_OVERRIDE=true). gpt-5.4 baseline
       DONE 2026-08-07: 95/96 (99.0%), median gen 5.4s — run-2026-08-07T20-38-41-622Z.
 - [ ] Consider a CI smoke eval (3 questions × 1 trial) to catch prompt/schema regressions.
+- [ ] **Fill in `evals/pricing.json` rates** — committed with nulls, so cost shows "—"
+      until real $/1M input+output rates are added per model.
+- [ ] **Investigate zero prompt caching**: eval runs show `cachedInputTokens: 0` even
+      though every call resends the same ~18K-token schema prompt. Input tokens are
+      ~130x output, so caching is by far the biggest available cost lever for the app —
+      much bigger than model or effort choice. Check whether file_search/vector-store
+      requests are cacheable and whether prompt ordering blocks it.
 - [ ] **Confirm the reasoning-effort finding with a real run** (probe was only 4 calls):
       `pnpm eval -- --models "gpt-5.4,gpt-5.6-sol" --efforts "low,high" --trials 3`
       (~192 calls). If sol@low matches gpt-5.4 on accuracy at comparable speed,

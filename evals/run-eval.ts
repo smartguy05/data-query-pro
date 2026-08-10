@@ -33,6 +33,7 @@ import { classifyExecution, classifyGeneration } from "./lib/classify";
 import { compareResults } from "./lib/compare";
 import { renderHtmlReport } from "./lib/report";
 import { cleanupEvalResources, uploadSchemaForEval } from "./lib/vector-store";
+import { computeCost, formatUsd, hasAnyPricing } from "./lib/pricing";
 
 const RESULTS_DIR = path.join(__dirname, "results");
 const ENV_LOCAL_PATH = path.join(__dirname, "..", ".env.local");
@@ -418,6 +419,8 @@ async function main(): Promise<void> {
         effort: v.effort,
       });
       adoptReupload(gen.body);
+      // Cost is attributed even to failed generations — a wrong answer still bills.
+      const cost = computeCost(gen.body.usage, v.model);
 
       const result: TrialResult = {
         runId,
@@ -435,6 +438,8 @@ async function main(): Promise<void> {
         generateMs: gen.ms,
         executeMs: null,
         rowCount: null,
+        ...(gen.body.usage ? { usage: gen.body.usage } : {}),
+        costUsd: cost.priced ? cost.usd : null,
         pass: false,
         failureClass: null,
         failureDetail: null,
@@ -512,6 +517,7 @@ async function main(): Promise<void> {
         generateMs: 0,
         executeMs: null,
         rowCount: null,
+        costUsd: null,
         pass: false,
         failureClass: "generation-error",
         failureDetail: `harness request failed after retry: ${(lastError as Error)?.message ?? String(lastError)}`,
@@ -578,8 +584,13 @@ async function main(): Promise<void> {
     fs.mkdirSync(RESULTS_DIR, { recursive: true });
     fs.writeFileSync(htmlPath, html);
 
-    console.log("\n=== Final per-model pass rates ===");
-    console.log("Model".padEnd(28) + "Pass rate".padEnd(20) + "Median gen ms (passing)");
+    console.log("\n=== Final per-model results ===");
+    if (!hasAnyPricing()) {
+      console.log('(no rates configured in evals/pricing.json — cost shown as "—")');
+    }
+    console.log(
+      "Model".padEnd(28) + "Pass rate".padEnd(20) + "Median gen ms".padEnd(16) + "Total cost"
+    );
     for (const model of variants.map((v) => v.label)) {
       const mt = trials.filter((t) => t.model === model);
       const passed = mt.filter((t) => t.pass).length;
@@ -596,7 +607,13 @@ async function main(): Promise<void> {
                   : (passingGen[mid - 1] + passingGen[mid]) / 2
               )
             );
-      console.log(model.padEnd(28) + rate.padEnd(20) + medianGen);
+      const priced = mt.filter((t) => typeof t.costUsd === "number");
+      const totalCost =
+        priced.length === 0
+          ? "—"
+          : formatUsd(priced.reduce((sum, t) => sum + (t.costUsd ?? 0), 0)) +
+            (priced.length < mt.length ? ` (${priced.length}/${mt.length} priced)` : "");
+      console.log(model.padEnd(28) + rate.padEnd(20) + medianGen.padEnd(16) + totalCost);
     }
     console.log(`\nJSONL:  ${path.resolve(jsonlPath)}`);
     console.log(`Report: ${path.resolve(htmlPath)}`);

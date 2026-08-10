@@ -8,6 +8,7 @@ import type {
   RunConfig,
   TrialResult,
 } from "../types";
+import { formatUsd } from "./pricing";
 
 const FAILURE_CLASSES: FailureClass[] = [
   "generation-mock-fallback",
@@ -78,7 +79,26 @@ function fmtLatency(ms: number | null): string {
   return ms >= 1000 ? (ms / 1000).toFixed(1) + "s" : Math.round(ms) + "ms";
 }
 
-interface ModelStats {
+/**
+ * Sum of `costUsd` over trials that carried a price, plus the token totals over
+ * trials that reported usage. `totalCostUsd` is null when NO trial for the model
+ * was priced (the model has no rates in evals/pricing.json).
+ *
+ * Token semantics (see evals/types.ts): reasoning tokens are a SUBSET of output
+ * tokens and cached input tokens are a SUBSET of input tokens — these totals are
+ * breakdowns and must never be added on top of each other.
+ */
+interface CostStats {
+  totalCostUsd: number | null;
+  pricedTrials: number;
+  meanCostUsd: number | null;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalReasoningTokens: number;
+  totalCachedInputTokens: number;
+}
+
+interface ModelStats extends CostStats {
   model: string;
   total: number;
   passed: number;
@@ -88,6 +108,55 @@ interface ModelStats {
   p95GenerateMs: number | null;
   meanExecuteMs: number | null;
   failureCounts: Record<FailureClass, number>;
+}
+
+function computeCostStats(trials: TrialResult[]): CostStats {
+  let costSum = 0;
+  let pricedTrials = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalReasoningTokens = 0;
+  let totalCachedInputTokens = 0;
+  for (const t of trials) {
+    if (t.costUsd !== null) {
+      costSum += t.costUsd;
+      pricedTrials++;
+    }
+    if (t.usage) {
+      totalInputTokens += t.usage.inputTokens;
+      totalOutputTokens += t.usage.outputTokens;
+      totalReasoningTokens += t.usage.reasoningTokens;
+      totalCachedInputTokens += t.usage.cachedInputTokens;
+    }
+  }
+  const totalCostUsd = pricedTrials > 0 ? costSum : null;
+  return {
+    totalCostUsd,
+    pricedTrials,
+    meanCostUsd: totalCostUsd !== null ? totalCostUsd / pricedTrials : null,
+    totalInputTokens,
+    totalOutputTokens,
+    totalReasoningTokens,
+    totalCachedInputTokens,
+  };
+}
+
+/** "$0.0421" or "$0.0421 (3/6 priced)" when only some trials carried a price. */
+function fmtCostCell(
+  usd: number | null,
+  pricedTrials: number,
+  totalTrials: number
+): string {
+  if (usd === null) return "—";
+  const cost = escapeHtml(formatUsd(usd));
+  if (pricedTrials < totalTrials) {
+    return `${cost} <span class="partial-note">(${pricedTrials}/${totalTrials} priced)</span>`;
+  }
+  return cost;
+}
+
+function fmtTokens(count: number): string {
+  return count.toLocaleString("en-US");
 }
 
 function computeModelStats(model: string, trials: TrialResult[]): ModelStats {
@@ -115,6 +184,7 @@ function computeModelStats(model: string, trials: TrialResult[]): ModelStats {
     p95GenerateMs: p95(generateMs),
     meanExecuteMs: mean(executeMs),
     failureCounts,
+    ...computeCostStats(trials),
   };
 }
 
@@ -152,6 +222,7 @@ function rankingSection(models: string[], byModel: Map<string, TrialResult[]>): 
       passed: passing.length,
       medianGen,
       medianExec,
+      ...computeCostStats(trials),
     };
   });
   entries.sort((a, b) => {
@@ -171,11 +242,23 @@ function rankingSection(models: string[], byModel: Map<string, TrialResult[]>): 
         <td>${e.passed}/${e.total} (${pct(e.passed, e.total)})</td>
         <td class="num">${fmtNum(e.medianGen)}</td>
         <td class="num">${fmtNum(e.medianExec)}</td>
+        <td class="num">${fmtCostCell(e.totalCostUsd, e.pricedTrials, e.total)}</td>
+        <td class="num">${e.meanCostUsd !== null ? escapeHtml(formatUsd(e.meanCostUsd)) : "—"}</td>
       </tr>`
     )
     .join("\n");
+
+  const unpriced = entries.filter((e) => e.totalCostUsd === null);
+  let pricingNote = "";
+  if (unpriced.length === entries.length && entries.length > 0) {
+    pricingNote = `<p class="rank-note">No costs are shown: <code>evals/pricing.json</code> has no rates for any model in this run. Add rates there to see cost per model.</p>`;
+  } else if (unpriced.length > 0) {
+    const names = unpriced.map((e) => escapeHtml(e.model)).join(", ");
+    pricingNote = `<p class="rank-note">Cost shows &mdash; for ${names} because <code>evals/pricing.json</code> has no rates configured for ${unpriced.length === 1 ? "that model" : "those models"}.</p>`;
+  }
+
   return `<h2>Model ranking</h2>
-  <p class="rank-note">Ranked by pass count (descending), then by median generate latency over passing trials (ascending) — a model that returns equally good SQL but faster ranks higher; failing trials are excluded from the ranking latency because fallbacks distort timings.</p>
+  <p class="rank-note">Ranked by pass count (descending), then by median generate latency over passing trials (ascending) — a model that returns equally good SQL but faster ranks higher; failing trials are excluded from the ranking latency because fallbacks distort timings. Cost is reported for reference only and does not affect the ranking.</p>
   <div class="scroll">
   <table>
     <thead>
@@ -185,11 +268,14 @@ function rankingSection(models: string[], byModel: Map<string, TrialResult[]>): 
         <th>Pass rate</th>
         <th>Median generate ms (passing)</th>
         <th>Median execute ms (passing)</th>
+        <th>Total cost</th>
+        <th>Cost / query</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
   </table>
-  </div>`;
+  </div>
+  ${pricingNote}`;
 }
 
 function calibrationSection(models: string[], byModel: Map<string, TrialResult[]>): string {
@@ -273,6 +359,10 @@ export function renderHtmlReport(opts: {
         <td class="num">${fmtNum(s.medianGenerateMs)}</td>
         <td class="num">${fmtNum(s.p95GenerateMs)}</td>
         <td class="num">${fmtNum(s.meanExecuteMs)}</td>
+        <td class="num">${fmtCostCell(s.totalCostUsd, s.pricedTrials, s.total)}</td>
+        <td class="num">${fmtTokens(s.totalInputTokens)}</td>
+        <td class="num">${fmtTokens(s.totalOutputTokens)}</td>
+        <td class="num">${fmtTokens(s.totalReasoningTokens)}</td>
         ${failureCells}
       </tr>`;
     })
@@ -425,6 +515,8 @@ export function renderHtmlReport(opts: {
   .fc-note { font-size: 0.68rem; font-weight: 400; color: var(--muted); }
   .lat-note { font-size: 0.68rem; font-weight: 400; color: var(--muted); }
   .rank-note { font-size: 0.85rem; color: var(--muted); margin: 0 0 10px; }
+  .rank-note code { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: 0.8rem; background: var(--zebra); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+  .partial-note { font-size: 0.68rem; font-weight: 400; color: var(--muted); white-space: nowrap; }
   td.qid, .qid { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; white-space: nowrap; }
   td.tags, td.mode { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
   .failure {
@@ -480,6 +572,10 @@ ${configItems}
         <th>Median generate ms</th>
         <th>p95 generate ms</th>
         <th>Mean execute ms</th>
+        <th>Total cost</th>
+        <th>Input tokens</th>
+        <th>Output tokens</th>
+        <th>Reasoning tokens</th>
         ${failureHeaders}
       </tr>
     </thead>

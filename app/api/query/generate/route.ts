@@ -321,6 +321,23 @@ Remember: Every table and column in your SQL must exactly match what exists in t
     const output = response.output_text;
     console.log("OpenAI response content:", output);
 
+    // Token usage for cost accounting. `reasoning` tokens are a subset of
+    // `output`, and `cachedInput`/`cacheWrite` are subsets of `input` — they
+    // are breakdowns, never additive. `model` is the ID OpenAI actually used,
+    // which may be a dated snapshot of the requested alias.
+    const usage = response.usage
+      ? {
+          model: response.model,
+          inputTokens: response.usage.input_tokens,
+          cachedInputTokens: response.usage.input_tokens_details?.cached_tokens ?? 0,
+          cacheWriteTokens: response.usage.input_tokens_details?.cache_write_tokens ?? 0,
+          outputTokens: response.usage.output_tokens,
+          reasoningTokens: response.usage.output_tokens_details?.reasoning_tokens ?? 0,
+          totalTokens: response.usage.total_tokens,
+        }
+      : undefined;
+    const usageField = usage ? { usage } : {};
+
     try {
       let jsonContent = output;
 
@@ -341,6 +358,7 @@ Remember: Every table and column in your SQL must exactly match what exists in t
           newFileId,
           newVectorStoreId,
           schemaReuploaded: true,
+          ...usageField,
           rateLimit: {
             remaining: rateLimitResult.remaining,
             limit: rateLimitResult.limit,
@@ -350,6 +368,7 @@ Remember: Every table and column in your SQL must exactly match what exists in t
 
       return NextResponse.json({
         ...result,
+        ...usageField,
         rateLimit: {
           remaining: rateLimitResult.remaining,
           limit: rateLimitResult.limit,
@@ -422,6 +441,7 @@ Remember: Every table and column in your SQL must exactly match what exists in t
           newFileId,
           newVectorStoreId,
           schemaReuploaded: true,
+          ...usageField,
           rateLimit: {
             remaining: rateLimitResult.remaining,
             limit: rateLimitResult.limit,
@@ -431,6 +451,7 @@ Remember: Every table and column in your SQL must exactly match what exists in t
 
       return NextResponse.json({
         ...fallbackResult,
+        ...usageField,
         rateLimit: {
           remaining: rateLimitResult.remaining,
           limit: rateLimitResult.limit,
