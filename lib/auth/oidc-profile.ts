@@ -100,14 +100,16 @@ export function hasGroupsOverage(profile: OidcProfileClaims): boolean {
 }
 
 /**
- * Does any of the user's identities match the configured admin spec?
+ * Does any of the user's identities match a comma-separated spec?
  *
- * `adminSpec` is a comma-separated list so a single deployment can accept, say,
- * both an Authentik group name and an Entra App Role. Matching is
- * case-insensitive, which also makes GUID casing irrelevant.
+ * A spec entry can be an Authentik group name, an Entra group object GUID, or an
+ * Entra App Role value, so a single deployment can accept any mix. Matching is
+ * exact (never substring) and case-insensitive, which also makes GUID casing
+ * irrelevant. An empty/blank spec matches nothing — callers own the semantics of
+ * "no spec configured".
  */
-export function matchesAdmin(identities: string[], adminSpec: string | undefined): boolean {
-  const wanted = (adminSpec ?? '')
+export function matchesAnyIdentity(identities: string[], spec: string | undefined): boolean {
+  const wanted = (spec ?? '')
     .split(',')
     .map(entry => entry.trim().toLowerCase())
     .filter(entry => entry.length > 0);
@@ -116,4 +118,29 @@ export function matchesAdmin(identities: string[], adminSpec: string | undefined
 
   const held = new Set(identities.map(entry => entry.trim().toLowerCase()));
   return wanted.some(entry => held.has(entry));
+}
+
+/**
+ * Does any of the user's identities match the configured admin spec?
+ * Empty spec means nobody is admin.
+ */
+export function matchesAdmin(identities: string[], adminSpec: string | undefined): boolean {
+  return matchesAnyIdentity(identities, adminSpec);
+}
+
+/**
+ * Sign-in gate against AUTH_ALLOWED_GROUPS. Unlike the admin spec, an
+ * empty/unset spec means the gate is off and everyone may sign in — the
+ * restriction is opt-in. An Entra groups overage arrives here as an empty
+ * identities list, so a gated deployment fails closed for that user.
+ */
+export function isSignInAllowed(identities: string[], allowedSpec: string | undefined): boolean {
+  const wanted = (allowedSpec ?? '')
+    .split(',')
+    .map(entry => entry.trim())
+    .filter(entry => entry.length > 0);
+
+  if (wanted.length === 0) return true;
+
+  return matchesAnyIdentity(identities, allowedSpec);
 }

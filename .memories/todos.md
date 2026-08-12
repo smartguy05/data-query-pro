@@ -1,5 +1,15 @@
 # TODO / Remaining Tasks
 
+## Open — AUTH_ALLOWED_GROUPS sign-in gate (added 2026-08-12)
+- [ ] **Manual verification against a live IdP** (local Authentik stack per
+      docs/guides/authentication-testing.md, or a real Entra tenant):
+      1. Var unset → login unchanged.
+      2. Set to a held group/role → login succeeds.
+      3. Set to a non-held group → lands on `/auth/error` with the Access denied message;
+         "Back to sign in" works (no redirect loop).
+      4. While logged in, change the var to a non-held group and restart → next page load
+         redirects to `/auth/error`; API calls return 401.
+
 ## Open — cancellation / dirty reads (added 2026-08-12)
 - [ ] **Manual verification still outstanding.** Neither driver-level cancellation nor
       isolation behavior can be unit-tested (mocking would test the mock), so these are

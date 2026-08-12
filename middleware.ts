@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { validateCSRFToken, shouldSkipCSRF } from '@/lib/csrf';
+import { getAllowedGroupsSpec } from '@/lib/auth/config';
+import { isSignInAllowed } from '@/lib/auth/oidc-profile';
 
 const AUTH_ENABLED =
   !!process.env.AUTH_OIDC_ISSUER &&
@@ -10,6 +12,7 @@ const AUTH_ENABLED =
 const PUBLIC_PATHS = [
   '/landing',
   '/auth/login',
+  '/auth/error',
   '/api/auth/',
   '/api/config/auth-status',
 ];
@@ -92,6 +95,29 @@ export async function middleware(request: NextRequest) {
         const loginUrl = new URL('/auth/login', request.url);
         loginUrl.searchParams.set('callbackUrl', request.url);
         return NextResponse.redirect(loginUrl);
+      }
+
+      // AUTH_ALLOWED_GROUPS gate for existing sessions: a token minted before
+      // the var was set (or before the user was removed from the group) must
+      // not keep working. This is the primary request-time enforcement — it
+      // runs before every route, including ones that treat a missing auth
+      // context as local-mode pass-through.
+      if (!isSignInAllowed((token.groups as string[]) || [], getAllowedGroupsSpec())) {
+        if (pathname.startsWith('/api/')) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: {
+                code: 'UNAUTHORIZED',
+                message: 'Authentication required',
+              },
+            },
+            { status: 401 }
+          );
+        }
+        // Not /auth/login: that would silent-SSO straight back into another
+        // denial. The error page explains the situation and offers a retry.
+        return NextResponse.redirect(new URL('/auth/error?error=AccessDenied', request.url));
       }
     } catch (error) {
       console.error('[middleware] Auth check failed:', error);

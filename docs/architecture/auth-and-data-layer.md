@@ -41,7 +41,9 @@ provider-specific logic is isolated in `lib/auth/oidc-profile.ts` as pure functi
 | `resolveName()` | `name` → `preferred_username` |
 | `extractClaimIdentities()` | merges `groups` (Authentik names / Entra GUIDs) with `roles` (Entra App Roles) |
 | `hasGroupsOverage()` | detects Entra dropping `groups` for `_claim_names`/`_claim_sources` |
-| `matchesAdmin()` | case-insensitive match against the comma-separated `AUTH_ADMIN_GROUP` |
+| `matchesAnyIdentity()` | case-insensitive exact match of held identities against a comma-separated spec |
+| `matchesAdmin()` | `matchesAnyIdentity` against `AUTH_ADMIN_GROUP` (empty spec ⇒ nobody) |
+| `isSignInAllowed()` | sign-in gate against `AUTH_ALLOWED_GROUPS` (empty spec ⇒ everyone allowed) |
 
 **Admin detection** therefore accepts a group name, a group object GUID, *or* an App Role
 value, with no code change per deployment.
@@ -55,6 +57,7 @@ Authentik-only behavior so existing deployments upgrade untouched:
 | `getProviderName()` | `AUTH_OIDC_PROVIDER_NAME` | `Authentik` |
 | `getScopes()` | `AUTH_OIDC_SCOPES` | `openid email profile groups` |
 | `getAdminSpec()` | `AUTH_ADMIN_GROUP` | `dataquery-admins` |
+| `getAllowedGroupsSpec()` | `AUTH_ALLOWED_GROUPS` | *(none — empty means everyone may sign in)* |
 
 The provider id forms the callback URL (`/api/auth/callback/<id>`), which is why it defaults
 to `authentik` — changing it requires re-registering the redirect URI at the IdP. Clients

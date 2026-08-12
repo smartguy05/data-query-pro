@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { isAuthEnabled } from './config';
+import { isAuthEnabled, getAllowedGroupsSpec } from './config';
+import { isSignInAllowed } from './oidc-profile';
 import { forbidden } from '@/lib/api/response';
 
 export interface AuthContext {
@@ -30,6 +31,14 @@ export async function getAuthContext(request: NextRequest): Promise<AuthContext 
     });
 
     if (!token) {
+      return null;
+    }
+
+    // Defense-in-depth behind the middleware's AUTH_ALLOWED_GROUPS check: a
+    // session whose groups no longer pass the gate is treated as
+    // unauthenticated, pushing the user back through login where the signIn
+    // callback gives the definitive denial.
+    if (!isSignInAllowed((token.groups as string[]) || [], getAllowedGroupsSpec())) {
       return null;
     }
 

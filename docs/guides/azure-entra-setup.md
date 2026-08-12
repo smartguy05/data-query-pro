@@ -90,6 +90,35 @@ ID token (Entra admin center → *Sign-in logs*, or jwt.ms) and check:
 
 Set `AUTH_ADMIN_GROUP` from what the token actually contains.
 
+## 5. Restricting who can sign in (optional)
+
+By default, anyone who can authenticate at the IdP can use the app. Two complementary
+controls restrict that:
+
+**App-side: `AUTH_ALLOWED_GROUPS`.** A comma-separated list of group names, group object
+GUIDs, or App Role values (matched exactly like `AUTH_ADMIN_GROUP` — case-insensitive,
+against the merged `groups` + `roles` claims). When set, a user holding none of the listed
+identities is denied at sign-in and lands on `/auth/error` with an "Access denied" message;
+existing sessions are also cut off on their next request. Empty/unset leaves the gate off.
+
+```
+AUTH_ALLOWED_GROUPS=DataQuery.User          # an App Role value (recommended for Entra)
+AUTH_ALLOWED_GROUPS=8f4c1d2e-0000-...       # or a group object GUID
+```
+
+**Prefer an App Role here on Entra.** If a user hits the groups overage (below), their
+`groups` claim is missing and the gate **fails closed** — they are locked out even if they
+are in the allowed group. App Roles ride the `roles` claim, which is never subject to
+overage. The server logs a distinct `[auth] Sign-in denied ... groups overage` warning when
+this happens.
+
+**IdP-side: "Assignment required?".** In the Entra admin center, under *Enterprise
+applications → your app → Properties*, set **Assignment required?** to *Yes*, then assign
+users/groups under *Users and groups*. Microsoft then refuses to issue tokens to unassigned
+users before the app is ever involved. This is the strongest control; `AUTH_ALLOWED_GROUPS`
+works with any provider and adds the in-app enforcement for already-issued sessions. Using
+both is a good defense-in-depth setup.
+
 ## Gotchas
 
 **Groups overage.** Past a membership threshold (~150 groups for an ID token) Entra omits the

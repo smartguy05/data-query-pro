@@ -4,6 +4,15 @@
 > **Historical (summarized)** — for full prose, see git history. Durable gotchas live in
 > [docs/reference/lessons-learned.md](../docs/reference/lessons-learned.md).
 
+## Group-based sign-in restriction — AUTH_ALLOWED_GROUPS (2026-08-12)
+User-requested access gate: when set (comma-separated group names / Entra GUIDs / App Role values, same matching as AUTH_ADMIN_GROUP), only members may log in. Empty/unset = everyone (opt-in, backward compatible). Works on both providers.
+- **Helpers**: `matchesAnyIdentity()` extracted from `matchesAdmin` (now a wrapper) + `isSignInAllowed()` in `lib/auth/oidc-profile.ts` — the empty-spec semantics INVERT between the two (admin: empty ⇒ nobody; gate: empty ⇒ everyone), which is why the gate is a separate function, not a flag. `getAllowedGroupsSpec()` in `lib/auth/config.ts` (no default, blank ⇒ undefined).
+- **Sign-in enforcement**: new `signIn({ profile })` callback in `auth-options.ts` returns `false` ⇒ Auth.js (verified in installed `next-auth@5.0.0-beta.30` / `@auth/core`) throws `AccessDenied` and redirects to `pages.error` + `?error=AccessDenied`. `pages.error = '/auth/error'` added. Distinct warn log when denial coincides with a groups overage.
+- **Existing sessions**: middleware.ts is the PRIMARY request-time check (runs before routes that treat a null auth context as local-mode pass-through) — API 401, pages redirect to `/auth/error?error=AccessDenied` (NOT /auth/login: silent SSO would loop). `getAuthContext()` also returns null on gate failure (defense in depth). `/auth/error` added to `PUBLIC_PATHS` — **mandatory or the denial redirect loops**.
+- **Error page**: new `app/auth/error/page.tsx`, server component (searchParams is a Promise in Next 15), message map keyed on `?error=`, styled after the login page.
+- **Overage fails closed** by design (fail-open would let any 150+-group Entra user bypass the gate); docs everywhere recommend App Role values for the gate on Entra.
+- Tests: +13 in `tests/unit/oidc-profile.test.ts` (314/314 pass). Docs: `.env.example`, `azure-entra-setup.md` (new §5 incl. Entra "Assignment required?" toggle), `auth-and-data-layer.md` tables, `azure-deployment-guide.html`, CLAUDE.md.
+
 ## Query cancellation + dirty reads (2026-08-12, branch llm-evals)
 Two user-requested features, plus prerequisite fixes the user explicitly approved bundling.
 
@@ -288,3 +297,30 @@ failed next as `integer + text`) and `Math.trunc()` in JS so a float from the ro
 throwaway probe: insert path, ON CONFLICT path, successful≤total, counters≥0, and float
 truncation all pass. Details in `.memories/notes.md`.
 
+
+### Azure deployment guide HTML (2026-08-12)
+Researched (via exploration agents) everything needed to self-host on Azure with Entra ID and
+produced `docs/guides/azure-deployment-guide.html` — self-contained HTML runbook covering:
+provisioning (App Service/Container Apps single instance + PG Flexible Server + ACR + Key
+Vault; Redis confirmed NOT needed — only the Authentik test stack uses it), full Entra .env
+sample (`AUTH_OIDC_SCOPES=openid email profile` mandatory; callback stays
+`/api/auth/callback/authentik` unless AUTH_OIDC_PROVIDER_ID is changed; `?sslmode=require` on
+APP_DATABASE_URL since lib/db/pool.ts sets no ssl option), Entra app-registration steps (App
+Role recommended over groups claim to dodge ~150-group overage), Azure settings
+(WEBSITES_PORT=3000, Key Vault refs, PG firewall/VNet), go-live steps, and gotchas
+(migrations log-but-don't-crash on failure; single-instance in-process state).
+
+### Adversarial review of Azure deployment guide (2026-08-12)
+Three adversarial agents reviewed `docs/guides/azure-deployment-guide.html` (codebase claims vs
+repo, Azure/Entra claims vs Microsoft Learn, end-to-end runbook walkthrough). Refuted & fixed:
+KV firewall "trusted Microsoft services" checkbox does NOT cover Key Vault references (VNet
+integration is the reliable path); broken KV reference passes the LITERAL string through (never
+empty) so auth activates with garbage — not a localStorage fallback; `flexible-server db create`
+takes `-n` not `-d`; groups overage is 200 for JWT (150 is SAML); migrations are now 001–007
+(007_connection_schema_namespace.sql exists); OPENAI_MODEL has no fallback only on
+generate/enhance/revise — 4 other AI routes silently fall back to hardcoded gpt-5.6-terra;
+sslmode=require works but Microsoft recommends verify-full. Also added: ACR pull auth step
+(admin user disabled by default on Basic — AcrPull via managed identity), literal
+`az webapp config appsettings set` command, pick-hostname-first step, KV creation in the
+numbered steps, expected-migration-failure note before firewall opens, health check is
+liveness-only caveat.

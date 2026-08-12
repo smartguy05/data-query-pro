@@ -5,6 +5,8 @@ import {
   extractClaimIdentities,
   hasGroupsOverage,
   matchesAdmin,
+  matchesAnyIdentity,
+  isSignInAllowed,
 } from "@/lib/auth/oidc-profile"
 
 // Representative claim sets. Authentik sends group names in `groups`; Entra sends
@@ -165,5 +167,63 @@ describe("matchesAdmin", () => {
 
   it("does not match on a substring", () => {
     expect(matchesAdmin(["dataquery-admins-readonly"], "dataquery-admins")).toBe(false)
+  })
+})
+
+describe("matchesAnyIdentity", () => {
+  // The core matching behavior is exercised through the matchesAdmin suite
+  // above (matchesAdmin is a thin wrapper); these pin the direct contract.
+  it("matches exactly and case-insensitively", () => {
+    expect(matchesAnyIdentity(["Team-A"], "team-a")).toBe(true)
+  })
+
+  it("matches nothing on an empty or undefined spec", () => {
+    expect(matchesAnyIdentity(["team-a"], "")).toBe(false)
+    expect(matchesAnyIdentity(["team-a"], undefined)).toBe(false)
+  })
+})
+
+describe("isSignInAllowed", () => {
+  it("allows everyone when the spec is empty or undefined (gate off)", () => {
+    expect(isSignInAllowed([], undefined)).toBe(true)
+    expect(isSignInAllowed([], "")).toBe(true)
+    expect(isSignInAllowed(["anything"], undefined)).toBe(true)
+  })
+
+  it("treats a whitespace/comma-only spec as gate off (unlike matchesAdmin)", () => {
+    expect(isSignInAllowed([], "  ,  ")).toBe(true)
+    expect(matchesAdmin(["dataquery-users"], "  ,  ")).toBe(false)
+  })
+
+  it("allows an Authentik group name match", () => {
+    expect(isSignInAllowed(extractClaimIdentities(authentikProfile), "everyone")).toBe(true)
+  })
+
+  it("allows an Entra group GUID match regardless of casing", () => {
+    expect(
+      isSignInAllowed(extractClaimIdentities(entraProfile), "8F4C1D2E-0000-4A1B-9C3D-111122223333")
+    ).toBe(true)
+  })
+
+  it("allows an Entra App Role match from the roles claim", () => {
+    expect(isSignInAllowed(extractClaimIdentities(entraProfile), "DataQuery.Admin")).toBe(true)
+  })
+
+  it("accepts a comma-separated list so one config serves both providers", () => {
+    const spec = "everyone, DataQuery.Admin"
+    expect(isSignInAllowed(extractClaimIdentities(authentikProfile), spec)).toBe(true)
+    expect(isSignInAllowed(extractClaimIdentities(entraProfile), spec)).toBe(true)
+  })
+
+  it("denies a user holding none of the listed identities", () => {
+    expect(isSignInAllowed(["some-other-team"], "dataquery-users")).toBe(false)
+  })
+
+  it("does not match on a substring", () => {
+    expect(isSignInAllowed(["dataquery-users-readonly"], "dataquery-users")).toBe(false)
+  })
+
+  it("fails closed for an empty identities list (Entra groups overage shape)", () => {
+    expect(isSignInAllowed([], "dataquery-users")).toBe(false)
   })
 })

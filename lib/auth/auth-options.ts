@@ -5,6 +5,7 @@ import {
   getProviderName,
   getScopes,
   getAdminSpec,
+  getAllowedGroupsSpec,
 } from './config';
 import {
   resolveEmail,
@@ -12,6 +13,7 @@ import {
   extractClaimIdentities,
   hasGroupsOverage,
   matchesAdmin,
+  isSignInAllowed,
   type OidcProfileClaims,
 } from './oidc-profile';
 
@@ -58,8 +60,36 @@ function getAuthOptions(): NextAuthConfig {
     },
     pages: {
       signIn: '/auth/login',
+      error: '/auth/error',
     },
     callbacks: {
+      async signIn({ profile }) {
+        const allowedSpec = getAllowedGroupsSpec();
+        if (!allowedSpec) return true;
+
+        const claims = (profile ?? {}) as OidcProfileClaims;
+        const identities = extractClaimIdentities(claims);
+        if (isSignInAllowed(identities, allowedSpec)) return true;
+
+        const who =
+          resolveEmail(claims) || (typeof claims.sub === 'string' ? claims.sub : '<unknown>');
+        if (hasGroupsOverage(claims)) {
+          console.warn(
+            `[auth] Sign-in denied for ${who}: AUTH_ALLOWED_GROUPS is set, but the identity ` +
+              'provider reported a groups overage (_claim_names/_claim_sources), so group ' +
+              'membership could not be read and the gate fails closed. Use an Entra App Role ' +
+              '(the `roles` claim, never subject to overage) in AUTH_ALLOWED_GROUPS instead.'
+          );
+        } else {
+          console.warn(
+            `[auth] Sign-in denied for ${who}: none of [${identities.join(', ')}] ` +
+              'match AUTH_ALLOWED_GROUPS.'
+          );
+        }
+        // false -> Auth.js throws AccessDenied and redirects to
+        // /auth/error?error=AccessDenied (pages.error above).
+        return false;
+      },
       async jwt({ token, profile, account }) {
         if (account && profile) {
           const claims = profile as OidcProfileClaims;

@@ -1,0 +1,449 @@
+<title>DataQuery Pro on Azure</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #f5f7fa;
+    --surface: #ffffff;
+    --surface-alt: #eef2f7;
+    --ink: #1b2733;
+    --ink-soft: #51606f;
+    --line: #d7dee7;
+    --accent: #0b64b8;
+    --accent-ink: #ffffff;
+    --code-bg: #10202e;
+    --code-ink: #d9e6f2;
+    --code-comment: #7d97ad;
+    --warn-bg: #fdf3e3;
+    --warn-edge: #c07a1a;
+    --warn-ink: #6d4508;
+    --good: #1a7a4a;
+  }
+  :root:not([data-theme="light"]) { }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1620;
+      --surface: #16222e;
+      --surface-alt: #1c2a38;
+      --ink: #dde7f0;
+      --ink-soft: #93a5b6;
+      --line: #2b3b4b;
+      --accent: #4da3e8;
+      --accent-ink: #0e1620;
+      --code-bg: #0a141d;
+      --code-ink: #cfe0ee;
+      --code-comment: #6e8aa1;
+      --warn-bg: #2b2312;
+      --warn-edge: #d99a3d;
+      --warn-ink: #ecc98a;
+      --good: #4fc48a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1620;
+    --surface: #16222e;
+    --surface-alt: #1c2a38;
+    --ink: #dde7f0;
+    --ink-soft: #93a5b6;
+    --line: #2b3b4b;
+    --accent: #4da3e8;
+    --accent-ink: #0e1620;
+    --code-bg: #0a141d;
+    --code-ink: #cfe0ee;
+    --code-comment: #6e8aa1;
+    --warn-bg: #2b2312;
+    --warn-edge: #d99a3d;
+    --warn-ink: #ecc98a;
+    --good: #4fc48a;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 "Segoe UI Variable Text", "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif;
+  }
+  main { max-width: 900px; margin: 0 auto; padding: 0 24px 96px; }
+
+  header.masthead {
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+    padding: 40px 24px 32px;
+  }
+  .masthead-inner { max-width: 900px; margin: 0 auto; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600; margin: 0 0 8px;
+  }
+  h1 { font-size: 34px; line-height: 1.15; margin: 0 0 10px; text-wrap: balance; font-weight: 650; }
+  .subtitle { color: var(--ink-soft); margin: 0; max-width: 62ch; }
+
+  nav.toc { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 22px; font-size: 14px; }
+  nav.toc a { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; }
+  nav.toc a:hover, nav.toc a:focus-visible { border-bottom-color: var(--accent); outline: none; }
+
+  h2 {
+    font-size: 23px; margin: 56px 0 6px; font-weight: 650; text-wrap: balance;
+    padding-top: 14px; border-top: 1px solid var(--line);
+  }
+  h2 .sec { color: var(--ink-soft); font-weight: 400; font-variant-numeric: tabular-nums; margin-right: 10px; }
+  h3 { font-size: 17px; margin: 30px 0 6px; font-weight: 650; }
+  p { margin: 10px 0; max-width: 72ch; }
+  .lede { color: var(--ink-soft); margin-top: 0; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; margin: 14px 0; }
+  .table-wrap { overflow-x: auto; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); font-weight: 600; }
+  td:first-child { white-space: nowrap; }
+
+  code {
+    font: 13.5px/1.5 "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+    background: var(--surface-alt); border: 1px solid var(--line);
+    border-radius: 4px; padding: 1px 5px;
+  }
+  pre {
+    background: var(--code-bg); color: var(--code-ink);
+    border-radius: 8px; padding: 18px 20px; overflow-x: auto;
+    font: 13.5px/1.7 "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+    margin: 14px 0;
+  }
+  pre code { background: none; border: none; padding: 0; color: inherit; font: inherit; }
+  pre .c { color: var(--code-comment); }
+
+  .callout {
+    background: var(--warn-bg); border-left: 3px solid var(--warn-edge);
+    color: var(--warn-ink); border-radius: 0 6px 6px 0;
+    padding: 12px 16px; margin: 16px 0; font-size: 14.5px;
+  }
+  .callout strong { color: inherit; }
+  .pill {
+    display: inline-block; font-size: 11.5px; font-weight: 600; letter-spacing: .05em;
+    text-transform: uppercase; border-radius: 999px; padding: 2px 10px;
+    background: var(--accent); color: var(--accent-ink); vertical-align: 2px;
+  }
+  .pill.skip { background: var(--surface-alt); color: var(--ink-soft); border: 1px solid var(--line); }
+
+  ol.steps { counter-reset: step; list-style: none; padding: 0; margin: 16px 0; }
+  ol.steps > li {
+    counter-increment: step; position: relative;
+    padding: 0 0 22px 52px; margin: 0;
+  }
+  ol.steps > li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 1px;
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--surface); border: 1.5px solid var(--accent); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 650; font-size: 15px; font-variant-numeric: tabular-nums;
+  }
+  ol.steps > li:not(:last-child)::after {
+    content: ""; position: absolute; left: 15.5px; top: 38px; bottom: 4px;
+    width: 1.5px; background: var(--line);
+  }
+  ol.steps h3 { margin: 3px 0 6px; }
+  ul { padding-left: 22px; }
+  li { margin: 4px 0; }
+  .src { font-size: 13px; color: var(--ink-soft); }
+  a { color: var(--accent); }
+  footer { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: 13.5px; }
+</style>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <p class="eyebrow">Deployment runbook · Auth mode · Microsoft Entra ID</p>
+    <h1>DataQuery Pro on Azure</h1>
+    <p class="subtitle">What to provision, how to register the app in Entra, a complete environment file, and the exact order of operations to get the service running — verified against the repository as of 2026‑08‑12.</p>
+    <nav class="toc">
+      <a href="#provision">1 · Provision</a>
+      <a href="#entra">2 · Entra setup</a>
+      <a href="#env">3 · Environment file</a>
+      <a href="#azure">4 · Azure settings</a>
+      <a href="#run">5 · Getting it running</a>
+      <a href="#gotchas">6 · Gotchas</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<h2 id="provision"><span class="sec">1</span>What to provision</h2>
+<p class="lede">The app is a single Node 20 container (multi‑stage <code>Dockerfile</code>, Next.js standalone output, listens on port 3000 as a non‑root user) plus one PostgreSQL database. That's the whole footprint.</p>
+
+<div class="table-wrap"><table>
+  <tr><th>Resource</th><th>Needed?</th><th>Notes</th></tr>
+  <tr>
+    <td>App host <span class="pill">Required</span></td>
+    <td>Azure App Service (Web App for Containers) or Azure Container Apps</td>
+    <td>Runs the repo's own <code>Dockerfile</code> (node:20-alpine, <code>EXPOSE 3000</code>, <code>CMD ["node","server.js"]</code>). <strong>Scale to exactly 1 instance</strong> — rate limiting, query cancellation, and schema‑introspection status are all in‑process state (see Gotchas).</td>
+  </tr>
+  <tr>
+    <td>App database <span class="pill">Required</span></td>
+    <td>Azure Database for PostgreSQL — Flexible Server</td>
+    <td>Required in auth mode (<code>APP_DATABASE_URL</code>). Stores users, connections (AES‑256‑GCM‑encrypted credentials), schemas, reports, query log. Smallest burstable tier (B1ms) is fine to start. Migrations run automatically at app startup from <code>lib/db/migrations/*.sql</code>.</td>
+  </tr>
+  <tr>
+    <td>Container registry <span class="pill">Required</span></td>
+    <td>Azure Container Registry (Basic)</td>
+    <td>To hold the image you build from the repo's Dockerfile.</td>
+  </tr>
+  <tr>
+    <td>Entra app registration <span class="pill">Required</span></td>
+    <td>Entra ID → App registrations</td>
+    <td>OIDC client for sign‑in. Details in section 2.</td>
+  </tr>
+  <tr>
+    <td>Key Vault <span class="pill">Recommended</span></td>
+    <td>Azure Key Vault</td>
+    <td>Hold the five secrets (<code>OPENAI_API_KEY</code>, <code>AUTH_OIDC_CLIENT_SECRET</code>, <code>AUTH_SECRET</code>, <code>APP_ENCRYPTION_KEY</code>, DB connection string) and reference them from app settings.</td>
+  </tr>
+  <tr>
+    <td>Redis <span class="pill skip">Not needed</span></td>
+    <td>—</td>
+    <td>Verified: no <code>redis</code>/<code>ioredis</code> dependency anywhere in the app. The Redis in <code>docker-compose.auth-test.yml</code> belongs to the Authentik <em>test</em> stack, not the app.</td>
+  </tr>
+  <tr>
+    <td>Storage / file share <span class="pill skip">Not needed</span></td>
+    <td>—</td>
+    <td>In auth mode the query audit log writes to the <code>query_log</code> table, not to disk. (The JSONL fallback at <code>logs/query-log.jsonl</code> only applies when <code>APP_DATABASE_URL</code> is unset.) The <code>config/databases.json</code> mount is likewise a no‑auth‑mode feature you won't need.</td>
+  </tr>
+  <tr>
+    <td>Queue / cache / object storage <span class="pill skip">Not needed</span></td>
+    <td>—</td>
+    <td>Dependency scan found no queue, cache, S3, or message‑broker clients.</td>
+  </tr>
+</table></div>
+
+<p><strong>External egress the app needs:</strong> <code>api.openai.com</code> (all AI features), <code>login.microsoftonline.com</code> (OIDC), the app PostgreSQL server, and network reachability to every <em>target</em> database your team will connect to and query (these are the customer databases the tool exists to explore — plan firewall/VNet paths for them too).</p>
+
+<h2 id="entra"><span class="sec">2</span>Microsoft Entra ID setup</h2>
+
+<ol class="steps">
+  <li>
+    <h3>Create the app registration</h3>
+    <p>Entra admin center → App registrations → New registration. Add a <strong>Web</strong> redirect URI:</p>
+    <pre><code>https://&lt;your-host&gt;/api/auth/callback/authentik</code></pre>
+    <p>That path is not a typo — the app's OIDC provider id defaults to <code>authentik</code>, and Auth.js builds the callback path from it. If you'd rather see <code>/api/auth/callback/entra</code>, set <code>AUTH_OIDC_PROVIDER_ID=entra</code> in the env <em>and</em> register that URI instead. Changing the provider id later invalidates the registered redirect URI, so pick once.</p>
+  </li>
+  <li>
+    <h3>Create a client secret</h3>
+    <p>Certificates &amp; secrets → New client secret. Copy the <strong>value</strong> (not the secret ID) into <code>AUTH_OIDC_CLIENT_SECRET</code>. Note the expiry (the portal caps it at 24 months; tenant policy may force shorter) and put a rotation reminder on the calendar — expiry silently breaks all sign‑ins.</p>
+  </li>
+  <li>
+    <h3>Decide how admins are identified — App Role recommended</h3>
+    <p><code>AUTH_ADMIN_GROUP</code> is matched case‑insensitively against the merged <code>groups</code> + <code>roles</code> token claims. Two options:</p>
+    <ul>
+      <li><strong>App Role (recommended):</strong> App registration → App roles → create a role with value <code>DataQuery.Admin</code>. Assign users/groups under Enterprise applications → Users and groups. Set <code>AUTH_ADMIN_GROUP=DataQuery.Admin</code>. Roles arrive in the <code>roles</code> claim automatically and are never subject to the groups‑overage limit.</li>
+      <li><strong>Security group:</strong> App registration → Token configuration → Add groups claim → Security groups (make sure the <em>ID token</em> box is checked). Entra emits group <strong>object GUIDs</strong>, not names, so set <code>AUTH_ADMIN_GROUP=&lt;group-object-id-guid&gt;</code>.</li>
+    </ul>
+  </li>
+  <li>
+    <h3>Restrict who can sign in (optional)</h3>
+    <p>By default anyone in the tenant who can authenticate may use the app. Two complementary controls:</p>
+    <ul>
+      <li><strong>App‑side — <code>AUTH_ALLOWED_GROUPS</code>:</strong> comma‑separated group names, group object GUIDs, or App Role values, matched exactly like <code>AUTH_ADMIN_GROUP</code>. When set, users holding none of the listed identities are denied at sign‑in (they land on <code>/auth/error</code> with an "Access denied" message), and already‑signed‑in sessions are cut off on their next request. Empty/unset = everyone allowed. <strong>Use an App Role value here</strong> (e.g. create a second role <code>DataQuery.User</code>) — a user hitting the groups‑overage limit has no <code>groups</code> claim and the gate <em>fails closed</em>, but the <code>roles</code> claim is never subject to overage.</li>
+      <li><strong>IdP‑side — "Assignment required?":</strong> Enterprise applications → your app → Properties → set <strong>Assignment required?</strong> to <em>Yes</em>, then assign users/groups under <em>Users and groups</em>. Entra then refuses to issue tokens to unassigned users before the app is ever involved. Strongest control; combining both is good defense in depth.</li>
+    </ul>
+  </li>
+  <li>
+    <h3>Verify the token</h3>
+    <p>After first sign‑in, decode the ID token (Entra sign‑in logs, or jwt.ms) and confirm: an email is present (<code>email</code>, falling back to <code>preferred_username</code>, then <code>upn</code>); your <code>roles</code> or <code>groups</code> claim is present; and <code>_claim_names</code>/<code>_claim_sources</code> do <em>not</em> appear in place of <code>groups</code> (that's the overage indicator — see Gotchas).</p>
+  </li>
+</ol>
+
+<div class="callout"><strong>Scopes are mandatory to override.</strong> The app's default scope string is <code>openid email profile groups</code> — Authentik's shape. Entra has no <code>groups</code> scope and will reject the authorization request. You must set <code>AUTH_OIDC_SCOPES=openid email profile</code>.</div>
+
+<h2 id="env"><span class="sec">3</span>Sample <code>.env</code> for Entra</h2>
+<p class="lede">Every variable below is read by the app (verified against the code). Generate the two random keys with <code>openssl rand -hex 32</code>.</p>
+
+<pre><code><span class="c"># ── OpenAI (always required) ─────────────────────────────────────────</span>
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5.6-sol            <span class="c"># must be set: generate/enhance/revise have NO fallback;</span>
+                                    <span class="c"># the other AI routes silently fall back to a hardcoded gpt-5.6-terra</span>
+OPENAI_REASONING_EFFORT=            <span class="c"># optional: none|minimal|low|medium|high|xhigh|max (gpt-5/o-series)</span>
+
+<span class="c"># ── Auth: Microsoft Entra ID (all three OIDC_* enable auth mode) ─────</span>
+AUTH_OIDC_ISSUER=https://login.microsoftonline.com/&lt;tenant-id&gt;/v2.0
+AUTH_OIDC_CLIENT_ID=&lt;application-client-id&gt;
+AUTH_OIDC_CLIENT_SECRET=&lt;client-secret-value&gt;
+AUTH_OIDC_PROVIDER_NAME=Microsoft   <span class="c"># sign-in button label</span>
+AUTH_OIDC_SCOPES=openid email profile   <span class="c"># REQUIRED for Entra (no "groups" scope)</span>
+<span class="c"># AUTH_OIDC_PROVIDER_ID=entra       # optional; default "authentik" — callback path must match</span>
+
+AUTH_SECRET=&lt;openssl rand -hex 32&gt;
+AUTH_URL=https://dataquery.example.com   <span class="c"># public HTTPS origin; also drives secure cookies</span>
+NEXTAUTH_URL=https://dataquery.example.com   <span class="c"># legacy alias next-auth/jwt still reads</span>
+<span class="c"># AUTH_TRUST_HOST is NOT needed — the app hardcodes trustHost: true in code</span>
+AUTH_ADMIN_GROUP=DataQuery.Admin    <span class="c"># App Role value, or a group object GUID; comma-separated OK</span>
+AUTH_ALLOWED_GROUPS=                <span class="c"># optional sign-in gate; empty = everyone. Prefer an App Role</span>
+                                    <span class="c"># value (e.g. DataQuery.User) — overage users fail closed on groups</span>
+
+<span class="c"># ── App database (required when auth is enabled) ─────────────────────</span>
+<span class="c"># Azure PG enforces TLS and the pool sets no ssl option — put sslmode in the URL.</span>
+<span class="c"># sslmode=require works but skips cert verification; Microsoft recommends verify-full (see §4)</span>
+APP_DATABASE_URL=postgres://dqadmin:&lt;password&gt;@&lt;server&gt;.postgres.database.azure.com:5432/dataquery_app?sslmode=require
+APP_ENCRYPTION_KEY=&lt;openssl rand -hex 32&gt;   <span class="c"># exactly 64 hex chars; encrypts stored DB credentials</span>
+
+<span class="c"># ── Leave unset in production ─────────────────────────────────────────</span>
+DEMO_RATE_LIMIT=                    <span class="c"># demo-only IP rate limit</span>
+TRUSTED_PROXIES=                    <span class="c"># only if you front the app with your own reverse proxy</span>
+EVAL_ALLOW_MODEL_OVERRIDE=          <span class="c"># eval harness only — never in production</span></code></pre>
+
+<div class="callout"><strong>Never rotate <code>APP_ENCRYPTION_KEY</code> casually.</strong> It decrypts every stored database credential. Changing it orphans all saved connection passwords — there is no re‑encryption tool. Back it up in Key Vault from day one.</div>
+
+<h2 id="azure"><span class="sec">4</span>Azure‑side settings</h2>
+
+<h3>App Service / Container Apps</h3>
+<ul>
+  <li><code>WEBSITES_PORT=3000</code> (App Service) or target port 3000 (Container Apps) — the container listens on 3000, <code>HOSTNAME=0.0.0.0</code>.</li>
+  <li><strong>Always On: enabled</strong>, and <strong>max 1 instance / no autoscale-out</strong>.</li>
+  <li>Store secrets as Key Vault references (<code>@Microsoft.KeyVault(SecretUri=...)</code>) with a system‑assigned managed identity granted <em>Key Vault Secrets User</em>.</li>
+  <li>Set <code>AUTH_URL</code> to the final public hostname (custom domain if you bind one) <em>before</em> first sign‑in — it must match the redirect URI's host registered in Entra.</li>
+  <li>Health check path: <code>/api/config/auth-status</code> is a cheap unauthenticated endpoint — but it is <strong>liveness only</strong>: it never touches the database, so it stays green even if migrations failed or Postgres is unreachable (exactly the failure mode in step 7). With a single instance the health check can't rotate the instance out anyway; note that enabling or changing the health check path restarts the app.</li>
+  <li>TLS: App Service terminates HTTPS for you; no extra proxy config or <code>TRUSTED_PROXIES</code> needed unless you add your own front door/proxy and use <code>DEMO_RATE_LIMIT</code> (which you shouldn't in production).</li>
+</ul>
+
+<h3>Key Vault wiring</h3>
+<p>No code changes are needed: the codebase has no <code>NEXT_PUBLIC_*</code> (build‑time) variables — every setting is read server‑side at runtime via <code>process.env</code>, and Key Vault references resolve into ordinary environment variables before the container starts. The setup is entirely Azure‑side:</p>
+<ol class="steps">
+  <li>
+    <h3>Enable the managed identity</h3>
+    <p>Web App → Identity → System assigned → <strong>On</strong>.</p>
+  </li>
+  <li>
+    <h3>Grant it access to the vault</h3>
+    <p>RBAC vault (the default): assign the identity the <strong>Key Vault Secrets User</strong> role scoped to the vault. Legacy access-policy vault: grant <em>Get</em> on secrets.</p>
+  </li>
+  <li>
+    <h3>Write app settings as references</h3>
+    <pre><code>AUTH_OIDC_CLIENT_SECRET = @Microsoft.KeyVault(SecretUri=https://dataquery-kv.vault.azure.net/secrets/entra-client-secret)</code></pre>
+    <p>Use a versionless <code>SecretUri</code> (no version segment) so the reference always resolves the latest version of the secret. Do the same for <code>OPENAI_API_KEY</code>, <code>AUTH_SECRET</code>, <code>APP_ENCRYPTION_KEY</code>, and <code>APP_DATABASE_URL</code> — store the whole connection string as one secret; special characters in the password are fine since the app settings layer never parses it.</p>
+  </li>
+  <li>
+    <h3>Plan for the vault firewall — the "trusted services" checkbox does NOT work here</h3>
+    <p>If the vault restricts network access, Key Vault <em>references</em> from App Service are <strong>not</strong> covered by "Allow trusted Microsoft services to bypass this firewall" (App Service is only on the trusted list for certificate deployment). Microsoft also discourages allowlisting the app's outbound IPs, since secret requests may not originate from them. The reliable pattern is regional VNet integration on the Web App plus a vault network rule for that subnet (on Linux, also set <code>vnetRouteAllEnabled=true</code>). Simplest working setup: leave the vault on public network access and rely on RBAC + the managed identity for access control.</p>
+  </li>
+</ol>
+<div class="callout"><strong>A broken reference passes the literal string through.</strong> When a reference fails to resolve, the env var arrives containing the literal <code>@Microsoft.KeyVault(...)</code> text — never empty. Since the <code>AUTH_OIDC_*</code> vars are then non‑empty, auth mode still activates, just with garbage values: the symptoms are OIDC sign‑in failures and app‑DB connection errors from a literal‑string <code>APP_DATABASE_URL</code>. After deploying, check the app settings blade — each reference shows a green check or red X — and confirm "Sign in with Microsoft" actually completes a login.</div>
+<p><strong>Rotation isn't instant:</strong> App Service re-resolves versionless references periodically (roughly daily) or on restart. When you rotate the Entra client secret, restart the app to pick it up immediately.</p>
+<p><strong>Container Apps instead of App Service:</strong> the mechanism differs slightly — define secrets on the Container App with a Key Vault URI + managed identity, then map them to env vars. Same outcome, still no code change.</p>
+
+<h3>PostgreSQL Flexible Server</h3>
+<ul>
+  <li>Create the database itself: <code>CREATE DATABASE dataquery_app;</code> — migrations create the tables, not the database.</li>
+  <li><strong>Networking:</strong> either firewall rules allowing the app's outbound IPs (bootstrap option: "Allow public access from any Azure service" — but note that allows connections from <em>any</em> Azure customer's subscription, so tighten to the App Service outbound IP list promptly), or — better — VNet integration on the app plus a private endpoint on the server.</li>
+  <li><strong>TLS is enforced by default</strong> (<code>require_secure_transport=on</code>); the app's pool passes no SSL options, so the <code>sslmode</code> suffix on <code>APP_DATABASE_URL</code> is what makes the connection work. <code>?sslmode=require</code> connects without any CA setup but skips certificate verification; Microsoft's recommendation for production is <code>verify-full</code> with the Microsoft RSA / DigiCert Global root CAs in the trust store.</li>
+  <li>Backups are automatic and can't be disabled — 7‑day retention by default, configurable up to 35. This DB holds every user's saved connections and reports, so consider raising it.</li>
+</ul>
+
+<h3>Network egress</h3>
+<ul>
+  <li>Allow outbound HTTPS to <code>api.openai.com</code> and <code>login.microsoftonline.com</code>. If you lock egress down with a firewall/NSG, these two plus the app DB are the minimum.</li>
+  <li>Each <em>target</em> database your team queries (the whole point of the tool) also needs a network path from the app — firewall allowances or VNet peering per database server.</li>
+</ul>
+
+<h3>Entra hygiene</h3>
+<ul>
+  <li>Client secret expiry: calendar the rotation; consider a 6‑month expiry with a standing reminder.</li>
+  <li>If you require admin consent for apps in your tenant, grant it for the delegated <code>openid email profile</code> permissions (Microsoft Graph → User.Read equivalent basic sign-in).</li>
+  <li>Optionally restrict sign‑in to assigned users only: Enterprise application → Properties → "Assignment required = Yes", then assign your team. Pairs well with the app‑side <code>AUTH_ALLOWED_GROUPS</code> gate (section 2, step 4).</li>
+</ul>
+
+<h2 id="run"><span class="sec">5</span>Getting the service running</h2>
+
+<ol class="steps">
+  <li>
+    <h3>Pick the public hostname first</h3>
+    <p>Decide the Web App name now (it fixes your hostname: <code>https://&lt;name&gt;.azurewebsites.net</code>) — the Entra redirect URI in step 3 and <code>AUTH_URL</code> both depend on it. If you plan to use a custom domain instead, know that it needs domain verification (TXT/CNAME) and a certificate binding (App Service Managed Certificate is free) before it can serve the OIDC callback — bind it before first sign‑in, or start on the <code>azurewebsites.net</code> hostname and update <code>AUTH_URL</code> + the Entra redirect URI together when you switch.</p>
+  </li>
+  <li>
+    <h3>Provision PostgreSQL and create the database</h3>
+    <pre><code>az postgres flexible-server create -g dataquery-rg -n dataquery-pg \
+  --tier Burstable --sku-name Standard_B1ms --version 16 \
+  --admin-user dqadmin --admin-password '&lt;strong-password&gt;'
+az postgres flexible-server db create -g dataquery-rg -s dataquery-pg -n dataquery_app</code></pre>
+    <p class="src">Any recent major version works (the repo's own compose stack runs PG 15); pick 16/17 for a longer support runway.</p>
+  </li>
+  <li>
+    <h3>Register the app in Entra</h3>
+    <p>Follow section 2: registration + Web redirect URI (using the hostname from step 1), client secret, App Role <code>DataQuery.Admin</code>, and (only if using groups instead) the groups claim in Token configuration.</p>
+  </li>
+  <li>
+    <h3>Create the Key Vault, generate secrets, and load it</h3>
+    <pre><code>az keyvault create -g dataquery-rg -n dataquery-kv --enable-rbac-authorization
+openssl rand -hex 32   <span class="c"># → AUTH_SECRET</span>
+openssl rand -hex 32   <span class="c"># → APP_ENCRYPTION_KEY</span></code></pre>
+    <p>Store both, plus <code>OPENAI_API_KEY</code>, the Entra client secret, and the full <code>APP_DATABASE_URL</code>, as vault secrets. The Web App's managed identity can only be wired up after the Web App exists — that happens in step 6 (see section 4's Key Vault wiring for the details).</p>
+  </li>
+  <li>
+    <h3>Build and push the image</h3>
+    <pre><code>az acr create -g dataquery-rg -n dataqueryacr --sku Basic
+az acr build -r dataqueryacr -t dataquery-pro:1.0 .   <span class="c"># uses the repo's Dockerfile</span></code></pre>
+    <p>The Dockerfile is multi‑stage (pnpm install → <code>pnpm run build</code> → standalone runner); no local Docker daemon needed with <code>az acr build</code>.</p>
+  </li>
+  <li>
+    <h3>Create the Web App and give it pull access to ACR</h3>
+    <pre><code>az appservice plan create -g dataquery-rg -n dataquery-plan --sku B1 --is-linux
+az webapp create -g dataquery-rg -p dataquery-plan -n dataquery-pro \
+  --container-image-name dataqueryacr.azurecr.io/dataquery-pro:1.0</code></pre>
+    <p><strong>The image pull will fail until you authenticate it</strong> — a Basic ACR has the admin user disabled by default and <code>az webapp create</code> configures no registry credentials. Preferred fix (managed identity):</p>
+    <pre><code>az webapp identity assign -g dataquery-rg -n dataquery-pro   <span class="c"># note the principalId it prints</span>
+az role assignment create --assignee &lt;principalId&gt; --role AcrPull \
+  --scope $(az acr show -n dataqueryacr --query id -o tsv)
+az webapp config set -g dataquery-rg -n dataquery-pro \
+  --generic-configurations '{"acrUseManagedIdentityCreds": true}'</code></pre>
+    <p class="src">Quick-and-dirty alternative: <code>az acr update -n dataqueryacr --admin-enabled true</code> and pass <code>--container-registry-user</code>/<code>--container-registry-password</code> instead. The identity assigned here is the same one section 4's Key Vault wiring needs — grant it <em>Key Vault Secrets User</em> on the vault now too.</p>
+  </li>
+  <li>
+    <h3>Set the app settings</h3>
+    <p>Every variable from section 3, with Key Vault references for the secrets, plus <code>WEBSITES_PORT=3000</code>:</p>
+    <pre><code>az webapp config appsettings set -g dataquery-rg -n dataquery-pro --settings \
+  WEBSITES_PORT=3000 \
+  AUTH_URL=https://dataquery-pro.azurewebsites.net \
+  NEXTAUTH_URL=https://dataquery-pro.azurewebsites.net \
+  AUTH_OIDC_ISSUER=https://login.microsoftonline.com/&lt;tenant-id&gt;/v2.0 \
+  AUTH_OIDC_CLIENT_ID=&lt;application-client-id&gt; \
+  "AUTH_OIDC_SCOPES=openid email profile" \
+  AUTH_OIDC_PROVIDER_NAME=Microsoft \
+  AUTH_ADMIN_GROUP=DataQuery.Admin \
+  AUTH_ALLOWED_GROUPS=DataQuery.User \
+  OPENAI_MODEL=gpt-5.6-sol \
+  "AUTH_OIDC_CLIENT_SECRET=@Microsoft.KeyVault(SecretUri=https://dataquery-kv.vault.azure.net/secrets/entra-client-secret)" \
+  "AUTH_SECRET=@Microsoft.KeyVault(SecretUri=https://dataquery-kv.vault.azure.net/secrets/auth-secret)" \
+  "APP_ENCRYPTION_KEY=@Microsoft.KeyVault(SecretUri=https://dataquery-kv.vault.azure.net/secrets/app-encryption-key)" \
+  "APP_DATABASE_URL=@Microsoft.KeyVault(SecretUri=https://dataquery-kv.vault.azure.net/secrets/app-database-url)" \
+  "OPENAI_API_KEY=@Microsoft.KeyVault(SecretUri=https://dataquery-kv.vault.azure.net/secrets/openai-api-key)"</code></pre>
+  </li>
+  <li>
+    <h3>Open the database firewall to the app</h3>
+    <p>Add the Web App's outbound IPs to the Flexible Server firewall (or wire up VNet integration + private endpoint). Note the container has been running since step 6 and failing to reach the database — expect <code>[instrumentation] Migration failed:</code> in the logs until the restart in the next step. That's expected, not a broken deployment.</p>
+  </li>
+  <li>
+    <h3>Start it and verify migrations</h3>
+    <p>Restart the app and check the log stream for:</p>
+    <pre><code>[instrumentation] Database migrations complete</code></pre>
+    <p>All migrations in <code>lib/db/migrations/</code> (001–007 at the time of writing) run automatically on startup. <strong>Watch for this line specifically</strong> — a migration failure is logged (<code>[instrumentation] Migration failed:</code>) but does <em>not</em> crash the container, so the app can look healthy while the schema is missing.</p>
+  </li>
+  <li>
+    <h3>Sign in and confirm admin</h3>
+    <p>Visit the site, sign in with a user assigned the <code>DataQuery.Admin</code> App Role, and confirm the Admin link appears in the user menu. Add your first database connection under Admin → server connections (or per‑user under Database), upload the schema to OpenAI, and run a test query.</p>
+  </li>
+</ol>
+
+<h2 id="gotchas"><span class="sec">6</span>Gotchas worth knowing before go‑live</h2>
+<ul>
+  <li><strong>Single instance only.</strong> The rate limiter, in‑flight query‑cancellation registry, and schema‑introspection job status all live in process memory. With two replicas, a cancel or a status poll can land on the wrong instance and silently no‑op. The deployment doc says the same: one instance, or sticky sessions if you must scale.</li>
+  <li><strong>Groups overage (200 memberships).</strong> Past 200 group memberships (the JWT limit; SAML tokens cap at 150) Entra drops the <code>groups</code> claim and substitutes a Graph pointer the app does not follow — affected users lose admin and group‑based assignments, with a <code>[auth] Identity provider reported a groups overage</code> log line — and if <code>AUTH_ALLOWED_GROUPS</code> lists only groups, they are <strong>locked out entirely</strong> (the sign‑in gate fails closed, logging <code>[auth] Sign-in denied ... groups overage</code>). Using App Roles avoids this class of failure entirely.</li>
+  <li><strong>Role/group changes need a re‑login.</strong> Claims are read only when the JWT is minted; granting someone admin takes effect after they sign out and back in.</li>
+  <li><strong>Missing email is fatal.</strong> The users table requires an email; the app falls back <code>email → preferred_username → upn</code>. Entra always issues a UPN in practice, but if you see <code>[auth] Failed to upsert user</code> in logs, this is why.</li>
+  <li><strong>Sharing requires a prior login.</strong> The share picker only lists users who have signed in at least once — teammates must log in before you can share a connection or report with them.</li>
+  <li><strong>Schema upload precedes queries.</strong> Each connection's schema must be introspected and uploaded to OpenAI (file + vector store) before natural‑language queries work. Vector stores can expire — re‑upload fixes 404s.</li>
+  <li><strong>Redeploys are safe.</strong> Migrations are idempotent (tracked in <code>schema_migrations</code>), and all durable state is in PostgreSQL — the container itself is stateless in auth mode.</li>
+</ul>
+
+<footer>
+  Sources: repository <code>Dockerfile</code>, <code>docker-compose.yml</code>, <code>next.config.mjs</code>, <code>instrumentation.ts</code>, <code>.env.example</code>, <code>lib/auth/*</code>, <code>lib/db/pool.ts</code>, <code>lib/db/encryption.ts</code>, <code>utils/rate-limiter.ts</code>, <code>docs/guides/deployment.md</code>, <code>docs/guides/azure-entra-setup.md</code>. Verified 2026‑08‑12, then adversarially reviewed the same day by three independent agents (codebase claims, Azure/Entra facts vs. Microsoft Learn, end‑to‑end runbook walkthrough); all refuted or imprecise claims corrected.
+</footer>
+
+</main>

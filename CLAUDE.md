@@ -315,6 +315,7 @@ config/                      # Server configuration
 - **Connection credential resolution**: When auth enabled, `connection-validator.ts` resolves credentials from app DB instead of trusting client-supplied passwords
 - **Provider-neutral OIDC**: works with **Authentik** and **Azure Entra ID**, one provider per deployment, selected entirely by env. All claim differences are isolated in `lib/auth/oidc-profile.ts` (pure functions, `tests/unit/oidc-profile.test.ts`); shape comes from `lib/auth/config.ts` (`getProviderId`/`getProviderName`/`getScopes`/`getAdminSpec`), whose defaults reproduce the original Authentik behavior. See [docs/guides/azure-entra-setup.md](./docs/guides/azure-entra-setup.md)
 - **Admin detection**: `AUTH_ADMIN_GROUP` is matched case-insensitively against the merged `groups` + `roles` claims, so it accepts an Authentik group name, an Entra group object GUID, or an Entra App Role value. Group changes only take effect after the user signs out and back in (claims are read only when the JWT is minted)
+- **Sign-in gate**: optional `AUTH_ALLOWED_GROUPS` (same matching as `AUTH_ADMIN_GROUP`; empty/unset = everyone allowed). Enforced in the `signIn` callback (denied users land on `app/auth/error/page.tsx` via `?error=AccessDenied`), in `middleware.ts` for existing sessions (primary request-time check — API 401 / page redirect to `/auth/error`), and in `getAuthContext()` (returns `null`). Helpers: `isSignInAllowed()` + `matchesAnyIdentity()` in `lib/auth/oidc-profile.ts`, `getAllowedGroupsSpec()` in `lib/auth/config.ts`. Entra groups overage fails closed — recommend App Role values. `/auth/error` is in middleware `PUBLIC_PATHS`
 - **Sharing**: Connections and reports can be shared with other users (view/edit/admin permissions)
 - **Data migration**: First-login dialog imports localStorage data into user's account
 
@@ -542,6 +543,10 @@ AUTH_URL=                      # e.g. http://localhost:3000 (required by Auth.js
 AUTH_ADMIN_GROUP=dataquery-admins  # Comma-separated group names / group object IDs /
                                # App Role values granting admin (matched against the
                                # merged `groups` + `roles` claims, case-insensitive)
+AUTH_ALLOWED_GROUPS=           # Optional sign-in gate: comma-separated group names /
+                               # group object IDs / App Role values allowed to sign in
+                               # (same matching as AUTH_ADMIN_GROUP). Empty = everyone.
+                               # Entra groups overage fails closed — prefer App Roles
 
 # Provider shape (optional; defaults reproduce the original Authentik behavior)
 AUTH_OIDC_PROVIDER_ID=         # default: authentik. Forms /api/auth/callback/<id> —

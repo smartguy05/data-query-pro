@@ -57,3 +57,13 @@ export function getScopes(): string {
 export function getAdminSpec(): string {
   return envOrDefault('AUTH_ADMIN_GROUP', DEFAULT_ADMIN_GROUP);
 }
+
+/**
+ * Comma-separated list of group names, group object IDs, or App Role values that
+ * are allowed to sign in at all. Deliberately has no default: empty/unset means
+ * the gate is off and every authenticated user may sign in.
+ */
+export function getAllowedGroupsSpec(): string | undefined {
+  const value = process.env.AUTH_ALLOWED_GROUPS?.trim();
+  return value && value.length > 0 ? value : undefined;
+}
