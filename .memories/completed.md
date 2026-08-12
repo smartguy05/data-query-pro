@@ -196,3 +196,69 @@ composed chart type; enhanced chart customizer (`components/chart-customizer.tsx
 `config/reports.json` shared reports (read-only, "Server Config" badge); error-sanitizer
 `detail` field (raw DB message for query-logic errors); doc refresh/reorg (split testing-plan
 → docs/testing/, added file-map, data-endpoints, auth-and-data-layer).
+
+### setup-authentik.sh reconciles redirect URI (2026-08-12)
+Fixed `scripts/setup-authentik.sh`: the "OAuth2 provider already exists" branch skipped
+straight past the provider, so a redirect URI registered by an earlier run (`localhost:3030`)
+survived in the Authentik volume and broke the OIDC callback once the app moved to
+`localhost:3000`. That branch now compares registered `redirect_uris` against
+`$APP_CALLBACK_URL` and PATCHes when they differ. Gotchas filed in `.memories/notes.md`
+(idempotent-by-skip ≠ idempotent for mutable config; never re-paste the script's freshly
+generated `APP_ENCRYPTION_KEY` over one that already encrypted stored passwords).
+
+### Share-list authorization fix (2026-08-12)
+`GET /api/sharing/connections/[id]` and `GET /api/sharing/reports/[id]` were gated only on
+being authenticated, letting any logged-in user enumerate the emails/names a connection or
+report was shared with. Ownership checks added in `lib/db/repositories/sharing-repository.ts`
+(`getSharesForConnection`/`getSharesForReport` now take `ownerId`, return `null` for non-owners);
+both routes map `null` → `forbidden()`. Enforced in the repo layer so a future route can't
+reintroduce the hole. tsc 0, lint 0/0, 212 tests pass.
+
+### Chart generation migrated to the Responses API (2026-08-12)
+`/api/chart/generate` was the last route on `chat.completions.create`; reasoning models
+(gpt-5.6-sol) reject function tools there, returning HTTP 400. Migrated to `responses.create`,
+converted `CHART_TOOLS` to the Responses API's flat function-tool shape, and switched output
+parsing to `.find(type === 'function_call')` because a `reasoning` item precedes the call.
+Verified live against gpt-5.6-sol: status `completed`, returned a valid `create_bar_chart`
+config. Details in `.memories/notes.md`.
+
+### OPENAI_MODEL code fallbacks standardized (2026-08-12)
+The four routes carrying a literal fallback (`chart/generate` "gpt-5-mini", `dashboard/suggestions`
+"gpt-5", `schema/generate-descriptions` "gpt-5", `query/followup` "gpt-5.1") now all fall back to
+`gpt-5.6-terra`; model id confirmed live via `GET /v1/models/gpt-5.6-terra` → 200. These apply only
+when `OPENAI_MODEL` is unset. `query/generate`, `query/revise`, and `query/enhance` still have NO
+fallback (bare `process.env.OPENAI_MODEL`) — left as-is deliberately so a missing env var fails loudly.
+
+### Provider-neutral OIDC: Authentik + Azure Entra ID (2026-08-12)
+Auth mode was hardcoded to Authentik in four places. Now one deployment serves either IdP,
+selected purely by env, with defaults that reproduce the old behavior exactly.
+- **New** `lib/auth/oidc-profile.ts` — pure claim mapping: `resolveEmail` (email →
+  preferred_username → upn), `resolveName`, `extractClaimIdentities` (merges `groups` +
+  `roles`), `hasGroupsOverage`, `matchesAdmin` (comma-separated, case-insensitive). 29 tests
+  in `tests/unit/oidc-profile.test.ts`.
+- **`lib/auth/config.ts`** gained `getProviderId`/`getProviderName`/`getScopes`/`getAdminSpec`
+  (defaults `authentik` / `Authentik` / `openid email profile groups` / `dataquery-admins`).
+- **`auth-options.ts`** now takes id/name/scope/claims from those; both the initial-login and
+  the `!token.userId` recovery branch use the same normalized values.
+- **Client no longer hardcodes the provider**: `/api/config/auth-status` returns
+  `providerId`+`providerName`; `app/auth/login/page.tsx` and `hooks/use-auth.ts` consume it.
+- Admin now matches a group NAME, a group GUID, or an Entra App Role.
+- Docs: new `docs/guides/azure-entra-setup.md`; `auth-and-data-layer.md`, `.env.example`,
+  `CLAUDE.md`, both doc indexes updated.
+- **Verified**: tsc 0, lint 0/0, 241 tests. Authentik regression — `auth-status` and
+  `/api/auth/providers` byte-identical to pre-change, login button still "Sign in with
+  Authentik", authorize `scope=openid+email+profile+groups`. Entra shape simulated by setting
+  the two env vars: button became "Sign in with Microsoft" and authorize
+  `scope=openid+email+profile` while `redirect_uri` stayed `/api/auth/callback/authentik`.
+  Env then reverted and defaults re-confirmed.
+
+### Fixed query-accuracy sync (PG 42804) (2026-08-12)
+`applyDelta` in `lib/db/repositories/query-accuracy-repository.ts` was failing every call with
+`GREATEST types text and integer cannot be matched`, so accuracy counters silently never synced
+in auth mode. postgres.js sends bind parameters untyped and Postgres resolved them to `text`.
+Added `::int` to every numeric parameter (including the `column + $n` ones, which would have
+failed next as `integer + text`) and `Math.trunc()` in JS so a float from the route's
+`Number(body.totalDelta)` can't break the cast. Verified against the live compose Postgres via a
+throwaway probe: insert path, ON CONFLICT path, successful≤total, counters≥0, and float
+truncation all pass. Details in `.memories/notes.md`.
+

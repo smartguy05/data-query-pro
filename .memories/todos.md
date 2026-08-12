@@ -47,6 +47,16 @@
       both into this pass. Infra exists: `docker-compose.auth-test.yml` + `scripts/setup-authentik.sh`.
 - [ ] **Playwright E2E tests** from the `docs/testing/` plan — manual plan exists, nothing
       automated. (Unit/component layer is done: Vitest + Testing Library, 138 tests.)
+- [ ] **No DB-integration test layer.** The `query_accuracy` 42804 bug (fixed 2026-08-12)
+      could not have been caught by the current suite: every test in `tests/unit` is a pure
+      function with no database. Any bug living in SQL text or in postgres.js parameter typing
+      is invisible to CI. Consider a small integration tier against the compose Postgres, or at
+      minimum a smoke test per repository.
+- [ ] **Entra ID: validate against a real tenant.** The provider-neutral OIDC work
+      (2026-08-12) is verified against Authentik and by simulating the Entra *shape* locally,
+      but no real Entra token has ever been decoded. Confirm which of
+      `email`/`preferred_username` is populated, whether `groups` holds GUIDs, and whether
+      `roles` appears. See `docs/guides/azure-entra-setup.md` §4.
 - [ ] Prune `.memories/completed.md` periodically to keep it small.
 
 ## Deferred (intentional, with rationale)
