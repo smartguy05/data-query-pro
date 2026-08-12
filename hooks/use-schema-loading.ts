@@ -39,6 +39,8 @@ export interface UseSchemaLoadingOptions {
 export interface UseSchemaLoadingResult extends SchemaLoadingState {
   /** Start the schema introspection process */
   startIntrospection: (connectionId: string, connectionData: unknown) => Promise<void>;
+  /** Cancel a running introspection (cooperative; works on every engine) */
+  cancelIntrospection: () => Promise<void>;
   /** Reset all loading states */
   reset: () => void;
   /** Clear error state */
@@ -124,6 +126,17 @@ export function useSchemaLoading(
           if (status.result?.schema && onCompleteRef.current) {
             onCompleteRef.current(status.result.schema);
           }
+        } else if (status.status === "cancelled") {
+          // Terminal, like completed/error — it MUST stop the poll loop, and it is
+          // not an error, so no error state and no onError callback.
+          setState({
+            isLoading: false,
+            isProcessing: false,
+            progress: 0,
+            message: "",
+            error: null,
+          });
+          setProcessId(null);
         } else if (status.status === "error") {
           const errorMessage = status.error || "Schema introspection failed";
           setState({
@@ -216,6 +229,25 @@ export function useSchemaLoading(
     []
   );
 
+  /**
+   * Cancels the running introspection. Best effort: the poll loop settles the UI
+   * when /api/schema/status reports 'cancelled', so a failed request here just
+   * means the walk continues.
+   */
+  const cancelIntrospection = useCallback(async () => {
+    if (!processId) return;
+    setState((prev) => ({ ...prev, message: "Cancelling..." }));
+    try {
+      await fetch("/api/schema/cancel-introspection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ processId }),
+      });
+    } catch {
+      // Best effort — polling reports the authoritative status.
+    }
+  }, [processId]);
+
   const reset = useCallback(() => {
     setState(initialState);
     setProcessId(null);
@@ -232,6 +264,7 @@ export function useSchemaLoading(
   return {
     ...state,
     startIntrospection,
+    cancelIntrospection,
     reset,
     clearError,
     setLoadingStates,

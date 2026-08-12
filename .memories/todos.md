@@ -1,5 +1,49 @@
 # TODO / Remaining Tasks
 
+## Open — cancellation / dirty reads (added 2026-08-12)
+- [ ] **Manual verification still outstanding.** Neither driver-level cancellation nor
+      isolation behavior can be unit-tested (mocking would test the mock), so these are
+      the only assertions that prove the features work:
+      1. Long query per engine (PG `SELECT pg_sleep(60)`, MySQL `SELECT SLEEP(60)`; for
+         SQL Server use a slow cross join — `WAITFOR DELAY` won't survive the SELECT-only
+         validator). Click Cancel, then confirm **server-side** the query is gone via
+         `pg_stat_activity` / `SHOW PROCESSLIST` / `sys.dm_exec_requests`. A UI returning
+         to idle proves nothing — that's exactly what a client-only abort looks like.
+      2. Confirm the Query Accuracy stat does **not** move across a cancel.
+      3. Confirm the audit row: `success = false`, `error = 'Query cancelled by user'`.
+      4. Dirty reads on SQL Server: session A `BEGIN TRAN; UPDATE t SET x=999 WHERE id=1;`
+         (no commit). Toggle off → app query hangs on the lock. Toggle on → returns 999
+         immediately. Rollback A, re-run → 999 gone. MySQL: same setup but verify by
+         *value* (InnoDB takes no read locks at READ COMMITTED).
+      5. PG/SQLite: toggle on → `dirtyReadApplied: false` and results identical to off.
+      6. SQLite: Cancel button hidden; a forced cancel returns `not_cancellable`.
+- [ ] **Verify empirically whether Next 15's `request.signal` fires on client disconnect**
+      in `next dev`, `next start`, and behind the reverse proxy. The cancel POST is the
+      primary path precisely because this is unverified; if the signal does fire reliably,
+      abort-on-unmount coverage is stronger than currently assumed.
+- [ ] Dashboard widgets (`app/page.tsx` `runSql`) send neither `defaultLimit` nor
+      `dirtyRead` — deliberate for v1 (pinned KPIs must not show uncommitted numbers), but
+      it means the same saved report can return different numbers on the dashboard vs the
+      query page. Decide whether to unify.
+- [ ] `dirtyReadApplied` is derived from `supportsDirtyRead(dbType)`, i.e. "requested on a
+      supporting engine" — NOT server-confirmed. Because the MySQL `SET` fails open, a
+      permission-restricted MySQL could report `true` while running at the default level.
+      Closing the gap needs a `dirtyReadActive` flag on `IDatabaseAdapter`.
+- [ ] Audit log has no dedicated cancelled state — uses `success:false` + the
+      `CANCELLED_LOG_MESSAGE` sentinel. A real `cancelled` column needs a migration.
+- [ ] The query registry is **process-local**: behind multiple Next instances or on
+      serverless, a cancel can land on the wrong instance and report `already_finished`
+      while the query runs on. Migration path if needed: persist
+      `{queryId -> pid, engine}` in the app DB — the kills are plain out-of-band SQL, so
+      any instance could run them.
+- [ ] `hooks/use-schema-loading.ts` is **unused dead code** — `schema-explorer.tsx` has its
+      own inline `processId`/`isProcessing` polling instead. Both were given the `cancelled`
+      status handling and a `cancelIntrospection`, but the duplication should be collapsed
+      (either adopt the hook in schema-explorer or delete the hook).
+- [ ] Consider a shorter `connect_timeout` for `/api/connection/test` (postgres.js defaults
+      to 30s, too long for a UI test button). Cancellation is the wrong tool there: the
+      failure mode is a hanging *connect*, which isn't cancellable.
+
 ## Open
 - [ ] Surface the new per-trial `retries` count in the HTML report — retried trials sum
       billing across attempts, so cost cells silently mix single- and double-billed trials.

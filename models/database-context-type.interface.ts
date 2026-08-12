@@ -71,4 +71,12 @@ export interface DatabaseContextType {
     // Persisted per device (localStorage) or per user (preferences JSONB in auth mode).
     defaultQueryLimit: DefaultQueryLimit;
     setDefaultQueryLimit: (limit: DefaultQueryLimit) => void;
+
+    // Whether executed queries run at READ UNCOMMITTED so they never wait on
+    // other transactions' locks (the portable form of SQL Server's NOLOCK).
+    // Defaults to off. A no-op on PostgreSQL and SQLite, which have no dirty-read
+    // mode — see supportsDirtyRead() in lib/database/types.
+    // Persisted per device (localStorage) or per user (preferences JSONB in auth mode).
+    dirtyRead: boolean;
+    setDirtyRead: (enabled: boolean) => void;
 }

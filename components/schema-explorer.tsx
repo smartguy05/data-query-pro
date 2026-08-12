@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import type { Schema } from "@/models/schema.interface"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -31,7 +31,8 @@ import {
   Trash,
   Eye,
   EyeOff,
-  ClipboardCopy
+  ClipboardCopy,
+  Loader2
 } from "lucide-react"
 import {useDatabaseOptions} from "@/lib/database-connection-options";
 import { useToast } from "@/hooks/use-toast";
@@ -74,11 +75,24 @@ export function SchemaExplorer() {
 
   const [sampleData, setSampleData] = useState<Record<string, { columns: string[]; rows: string[][] }>>({});
   const [sampleDataLoading, setSampleDataLoading] = useState<Record<string, boolean>>({});
+  // In-flight sample-data fetches by table name, so unmounting cancels the scans
+  // on the database rather than letting them run for a view nobody is watching.
+  const sampleDataInflightRef = useRef<Map<string, AbortController>>(new Map());
+  const [isCancellingIntrospection, setIsCancellingIntrospection] = useState(false);
   const [sampleDataError, setSampleDataError] = useState<Record<string, string | null>>({});
   const [sampleDataVisible, setSampleDataVisible] = useState<Set<string>>(new Set());
   const [pendingSchemaUpdate, setPendingSchemaUpdate] = useState<Schema | null>(null);
   const [showDiscardAllConfirmation, setShowDiscardAllConfirmation] = useState(false);
   const [showCopyDialog, setShowCopyDialog] = useState(false);
+
+  // Abort any in-flight sample-data scans when this view goes away.
+  useEffect(() => {
+    const inflight = sampleDataInflightRef.current;
+    return () => {
+      inflight.forEach((controller) => controller.abort());
+      inflight.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (connectionInformation.isInitialized) {
@@ -147,8 +161,17 @@ export function SchemaExplorer() {
               clearInterval(pollInterval)
 
               alert("Schema introspection completed successfully!")
+            } else if (status.status === "cancelled") {
+              // Terminal like completed/error, so it MUST stop the poll loop — but
+              // it is not a failure, so no error is surfaced.
+              setError(null)
+              setIsCancellingIntrospection(false)
+              setIsProcessing(false)
+              setLoading(false)
+              clearInterval(pollInterval)
             } else if (status.status === "error") {
               setError(status.error || "Schema introspection failed")
+              setIsCancellingIntrospection(false)
               setIsProcessing(false)
               setLoading(false)
               clearInterval(pollInterval)
@@ -165,6 +188,28 @@ export function SchemaExplorer() {
     // should restart only when processId/isProcessing change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [processId, isProcessing]);
+
+  /**
+   * Cancels a running introspection. Cooperative: the server abandons the
+   * per-table walk between tables, so this works on every engine (including
+   * SQLite, whose individual queries can never be interrupted). Best effort — the
+   * poll loop above settles the UI when status reports 'cancelled'.
+   */
+  const cancelIntrospection = async () => {
+    if (!processId) return;
+    setIsCancellingIntrospection(true);
+    try {
+      await fetch("/api/schema/cancel-introspection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ processId }),
+      });
+    } catch {
+      // Best effort — polling reports the authoritative status. Reset so the user
+      // can try again rather than being stuck on "Cancelling...".
+      setIsCancellingIntrospection(false);
+    }
+  };
 
   // Navigation guard for unsaved changes
   useEffect(() => {
@@ -388,15 +433,25 @@ export function SchemaExplorer() {
     setSampleDataLoading((prev) => ({ ...prev, [tableName]: true }))
     setSampleDataError((prev) => ({ ...prev, [tableName]: null }))
 
+    // One controller per table so abandoning a preview cancels that scan on the
+    // database instead of leaving it to finish unwatched.
+    const controller = new AbortController()
+    sampleDataInflightRef.current.get(tableName)?.abort()
+    sampleDataInflightRef.current.set(tableName, controller)
+
     try {
+      // Honor the dirty-read preference: this is an unrestricted scan of a table
+      // that may be under write load. Omitted when off so the shape is unchanged.
+      const dirtyField = connectionInformation.dirtyRead ? { dirtyRead: true } : {}
       const body = authEnabled
-        ? { connectionId: connection.id, source: connection.source, type: connection.type, tableName, schema: connectionInformation.activeSchema }
-        : { connection, tableName, schema: connectionInformation.activeSchema }
+        ? { connectionId: connection.id, source: connection.source, type: connection.type, tableName, schema: connectionInformation.activeSchema, ...dirtyField }
+        : { connection, tableName, schema: connectionInformation.activeSchema, ...dirtyField }
 
       const response = await fetch("/api/schema/sample-data", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: controller.signal,
       })
 
       if (!response.ok) {
@@ -408,8 +463,11 @@ export function SchemaExplorer() {
       setSampleData((prev) => ({ ...prev, [tableName]: { columns: data.columns, rows: data.rows } }))
       setSampleDataVisible((prev) => new Set(prev).add(tableName))
     } catch (err) {
+      // An abandoned preview is not an error worth showing.
+      if ((err as Error)?.name === 'AbortError') return
       setSampleDataError((prev) => ({ ...prev, [tableName]: err instanceof Error ? err.message : "Failed to fetch sample data" }))
     } finally {
+      sampleDataInflightRef.current.delete(tableName)
       setSampleDataLoading((prev) => ({ ...prev, [tableName]: false }))
     }
   }
@@ -836,6 +894,27 @@ export function SchemaExplorer() {
               <p className="text-xs text-muted-foreground">
                 This may take several minutes for large databases. You&apos;ll be notified when complete.
               </p>
+              {isProcessing && processId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={cancelIntrospection}
+                  disabled={isCancellingIntrospection}
+                  className="text-destructive hover:text-destructive"
+                >
+                  {isCancellingIntrospection ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Cancelling...
+                    </>
+                  ) : (
+                    <>
+                      <X className="h-4 w-4 mr-2" />
+                      Cancel introspection
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>

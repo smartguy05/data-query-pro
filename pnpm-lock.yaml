@@ -144,7 +144,7 @@ importers:
         specifier: latest
         version: 7.4.0(ws@8.21.3)(zod@3.25.76)
       postgres:
-        specifier: latest
+        specifier: ^3.4.9
         version: 3.4.9
       react:
         specifier: ^19

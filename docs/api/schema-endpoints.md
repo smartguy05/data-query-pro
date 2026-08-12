@@ -325,12 +325,18 @@ modes (resolves credentials via `validateConnection()`).
 ```typescript
 {
   "tableName": "users",            // required; validated against /^[a-zA-Z0-9_\-. ]+$/
+  "dirtyRead": true,               // optional; run at READ UNCOMMITTED (no-op on PG/SQLite)
   // auth mode:
   "connectionId": "...", "source": "local" | "server", "type": "postgresql",
   // default mode:
   "connection": { "host": "...", "port": "...", ... }
 }
 ```
+
+This route runs an unrestricted `SELECT * ... LIMIT 10`, which makes it the endpoint
+most likely to block on a table under write load — hence it honors the user's
+dirty-read preference. Abandoning the preview (collapsing the row, unmounting)
+aborts the request, which cancels the scan on the database.
 
 ### Response
 

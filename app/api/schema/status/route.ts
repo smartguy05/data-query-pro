@@ -1,20 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getAuthContext } from '@/lib/auth/require-auth'
-
-// Access the same in-memory storage
-declare global {
-  var processStatus: Map<
-    string,
-    {
-      status: "pending" | "processing" | "completed" | "error"
-      progress: number
-      message: string
-      result?: unknown
-      error?: string
-      startTime: number
-    }
-  >
-}
+// Job state is owned by this shared module, not a duplicated `declare global`.
+import { deleteJob, getJob } from "@/lib/schema/introspection-jobs"
 
 export async function GET(request: NextRequest) {
   try {
@@ -27,16 +14,18 @@ export async function GET(request: NextRequest) {
     }
 
     // Get status from the same map used in start-introspection
-    const status = global.processStatus?.get(processId)
+    const status = getJob(processId)
 
     if (!status) {
       return NextResponse.json({ error: "Process not found" }, { status: 404 })
     }
 
-    // Clean up completed/error processes after 5 minutes
+    // Clean up terminal processes after 5 minutes
     const fiveMinutesAgo = Date.now() - 5 * 60 * 1000
-    if ((status.status === "completed" || status.status === "error") && status.startTime < fiveMinutesAgo) {
-      global.processStatus?.delete(processId)
+    const terminal =
+      status.status === "completed" || status.status === "error" || status.status === "cancelled"
+    if (terminal && status.startTime < fiveMinutesAgo) {
+      deleteJob(processId)
     }
 
     return NextResponse.json(status)

@@ -73,6 +73,47 @@ export function isDefaultQueryLimit(v: unknown): v is DefaultQueryLimit {
 }
 
 // ============================================================================
+// Dirty Read (READ UNCOMMITTED) Constants
+// ============================================================================
+
+export const DIRTY_READ = {
+  /**
+   * Off by default. Dirty reads return data that may never have been committed,
+   * so this is opt-in per user — never a silent default.
+   */
+  DEFAULT: false,
+} as const;
+
+/**
+ * Type guard for the dirty-read preference read back from storage.
+ *
+ * A guard is warranted even for a boolean: the value arrives from two untrusted
+ * JSON sources. localStorage can hold `'"false"'`, which parses to the *truthy
+ * string* `"false"` — without this check that becomes a silent, un-clearable
+ * "always on". The preferences JSONB can likewise hold `1`, `null`, or a stale
+ * shape from another version.
+ */
+export function isDirtyRead(v: unknown): v is boolean {
+  return typeof v === 'boolean';
+}
+
+// ============================================================================
+// Query Timeout Constants
+// ============================================================================
+
+export const QUERY_TIMEOUT = {
+  /**
+   * Server-side ceiling on a single user query, applied per dialect (PostgreSQL
+   * `statement_timeout`, MySQL `max_execution_time`, SQL Server
+   * `requestTimeout`). This is the backstop for when cancellation is impossible
+   * or fails: SQLite queries cannot be cancelled at all, the query registry is
+   * process-local, and a kill can be refused (privileges) or lost (socket
+   * error). Without it, such a query would run to completion unattended.
+   */
+  STATEMENT_MS: 120_000,
+} as const;
+
+// ============================================================================
 // AI/OpenAI Constants
 // ============================================================================
 
@@ -142,6 +183,9 @@ export const STORAGE_KEYS = {
 
   /** Default row limit for executed queries (device-local; preferences JSONB in auth mode) */
   DEFAULT_QUERY_LIMIT: "default_query_limit",
+
+  /** Dirty-read (READ UNCOMMITTED) preference for executed queries (device-local; preferences JSONB in auth mode) */
+  DIRTY_READ: "dirty_read",
 
   /** User's OpenAI API key (stored in sessionStorage) */
   USER_API_KEY: "user_openai_key",
@@ -221,13 +265,13 @@ export const SECURITY = {
   /** CSRF-protected HTTP methods */
   CSRF_PROTECTED_METHODS: ["POST", "PUT", "PATCH", "DELETE"] as const,
 
-  /** Paths to skip CSRF validation */
-  CSRF_SKIP_PATHS: [
-    "/api/connection/test",
-    "/api/query/execute",
-    "/api/schema/introspect",
-    "/api/schema/start-introspection",
-  ] as const,
+  // NOTE: there is deliberately no CSRF path-skip list here. CSRF exemptions
+  // live in `shouldSkipCSRF()` (lib/csrf.ts), which exempts only `/api/auth/`.
+  // A `CSRF_SKIP_PATHS` constant previously sat here listing /api/query/execute
+  // and friends, but nothing ever read it — it wrongly implied those routes
+  // were unprotected. `validateCSRFToken()` is an Origin-vs-Host check applied
+  // to every state-changing route, including /api/query/execute and
+  // /api/query/cancel.
 
   // NOTE: SQL safety is now enforced by the AST validator in
   // lib/database/sql-validator.ts (one read-only SELECT only) plus read-only

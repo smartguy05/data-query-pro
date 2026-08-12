@@ -7,10 +7,16 @@ export type {
   IntrospectionResult,
   ConnectionTestResult,
   ProgressCallback,
+  ExecuteOptions,
 } from './types';
 
 // Schema/namespace helpers (runtime values, not just types)
 export { defaultSchemaForType, supportsSchemaSwitching } from './types';
+
+// Dirty-read capability check. NOTE: client components must import this from
+// '@/lib/database/types' directly, NOT from this barrel — the exports below pull
+// in the adapter factory and with it mssql/better-sqlite3.
+export { supportsDirtyRead } from './types';
 
 // Factory
 export { DatabaseAdapterFactory } from './factory';

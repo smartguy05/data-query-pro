@@ -43,6 +43,12 @@ export async function POST(request: NextRequest) {
     // Sample-data only ever runs a generated SELECT — enforce read-only too.
     config.readOnly = true
 
+    // Honor the user's dirty-read preference here as well. This is the endpoint
+    // most likely to block: the SQL below is an unrestricted scan of a table that
+    // may be under active write load, with no user-visible query text to blame it
+    // on. Strict === true because the body is untrusted.
+    config.dirtyRead = body.dirtyRead === true
+
     try {
       await adapter.connect(config)
 
@@ -52,7 +58,10 @@ export async function POST(request: NextRequest) {
           ? `SELECT TOP 10 * FROM ${escapedName}`
           : `SELECT * FROM ${escapedName} LIMIT 10`
 
-      const result = await adapter.executeQuery(sql)
+      // Abandoning the preview (collapsing the row, unmounting, switching
+      // connection) aborts the fetch, which cancels the scan on the database
+      // rather than leaving it to finish unwatched.
+      const result = await adapter.executeQuery(sql, { signal: request.signal })
 
       const formattedRows = result.rows.map((row) =>
         row.map((value) => (value === null ? "NULL" : String(value)))
@@ -64,7 +73,13 @@ export async function POST(request: NextRequest) {
         rowCount: result.rowCount,
       })
     } finally {
-      await adapter.disconnect()
+      // Guarded: an unguarded throw here would replace the response or the real
+      // error with a disconnect failure.
+      try {
+        await adapter.disconnect()
+      } catch (err) {
+        console.warn("[sample-data] disconnect failed:", err)
+      }
     }
   } catch (error) {
     const sanitized = sanitizeDbError(error)

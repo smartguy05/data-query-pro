@@ -4,7 +4,14 @@ import { validateReadOnlySql } from "@/lib/database/sql-validator"
 import { applyDefaultRowLimit, sanitizeLimit } from "@/lib/database/sql-limit"
 import { sanitizeDbError } from "@/utils/error-sanitizer"
 import { getAuthContext } from '@/lib/auth/require-auth';
-import { logQuery } from "@/lib/query-log"
+import { CANCELLED_LOG_MESSAGE, logQuery } from "@/lib/query-log"
+import { supportsDirtyRead } from "@/lib/database/types"
+import {
+  parseQueryId,
+  registerQuery,
+  registryKey,
+  unregisterQuery,
+} from "@/lib/database/query-registry"
 
 /**
  * Stable, machine-readable discriminators on this route's error responses.
@@ -19,6 +26,8 @@ const EXECUTE_ERROR_CODES = {
   sqlValidationRejected: "SQL_VALIDATION_REJECTED",
   dbUserError: "DB_USER_ERROR",
   dbError: "DB_ERROR",
+  invalidQueryId: "INVALID_QUERY_ID",
+  cancelled: "QUERY_CANCELLED",
 } as const
 
 export async function POST(request: NextRequest) {
@@ -81,6 +90,16 @@ export async function POST(request: NextRequest) {
     // that slips past the validator cannot mutate data.
     config.readOnly = true
 
+    // Optional dirty reads (READ UNCOMMITTED), a per-user preference defaulting
+    // to off. Strict === true because the body is untrusted: it collapses
+    // "false" / 1 / {} to false. Composes with readOnly above rather than
+    // replacing it — see AdapterConnectionConfig.dirtyRead.
+    const dirtyRead = body.dirtyRead === true
+    config.dirtyRead = dirtyRead
+    // Reported back honestly: true = the isolation level was lowered, false =
+    // requested but this engine has no dirty-read mode (PostgreSQL/SQLite).
+    const dirtyReadApplied = dirtyRead ? supportsDirtyRead(dbType) : undefined
+
     // Common, credentials-free fields for the audit log (see lib/query-log.ts).
     const logBase = {
       userId: auth?.userId ?? null,
@@ -92,11 +111,69 @@ export async function POST(request: NextRequest) {
       source: typeof body.querySource === "string" ? body.querySource : undefined,
     }
 
+    // Cancellation wiring. The id is generated client-side (it is needed before
+    // this response exists) and validated here; an ABSENT id is fine and simply
+    // runs the query untracked, which keeps older clients and the eval harness
+    // working. A malformed one is a 400.
+    const rawQueryId = body.queryId
+    const queryId = parseQueryId(rawQueryId)
+    if (rawQueryId !== undefined && queryId === undefined) {
+      return NextResponse.json(
+        { error: "Invalid queryId", errorCode: EXECUTE_ERROR_CODES.invalidQueryId },
+        { status: 400 }
+      )
+    }
+
+    // With auth disabled there is no user identity to scope by, and inventing one
+    // (e.g. a localStorage token) would be trivially spoofable security theatre —
+    // this app already accepts client-supplied credentials by design in that mode.
+    // Keeping the namespace means enabling auth grants real isolation for free.
+    const ownerKey = auth ? `user:${auth.userId}` : "anon"
+    const controller = new AbortController()
+    // Client disconnect (tab closed, navigation) also kills the database query.
+    request.signal.addEventListener("abort", () => controller.abort(), { once: true })
+
+    let registeredKey: string | undefined
+    if (queryId) {
+      const key = registryKey(ownerKey, queryId)
+      // Registered BEFORE connect(): connect can itself block for seconds, and a
+      // cancel arriving during it must still be honored.
+      if (
+        registerQuery(key, {
+          controller,
+          ownerKey,
+          engine: dbType,
+          cancellable: adapter.supportsCancellation,
+          startedAt: Date.now(),
+        })
+      ) {
+        registeredKey = key
+      }
+    }
+
+    /** Cancellation is classified from our own signal, never from the driver's
+     * message: none of PostgreSQL's "canceling statement due to user request",
+     * MySQL's "Query execution was interrupted" or mssql's "Canceled." match any
+     * pattern in sanitizeDbError, so they would all become a generic 500. */
+    const cancelledResponse = () => {
+      logQuery({ ...logBase, success: false, error: CANCELLED_LOG_MESSAGE })
+      return NextResponse.json(
+        {
+          error: "Query cancelled",
+          errorCode: EXECUTE_ERROR_CODES.cancelled,
+          cancelled: true,
+        },
+        { status: 499 }
+      )
+    }
+
     try {
       await adapter.connect(config)
+      // A cancel that landed while connecting must not start the query.
+      if (controller.signal.aborted) return cancelledResponse()
       console.log(`[v0] Executing SQL query on ${adapter.displayName}:`, effectiveSql)
 
-      const result = await adapter.executeQuery(effectiveSql)
+      const result = await adapter.executeQuery(effectiveSql, { signal: controller.signal })
       console.log(`[v0] Query executed successfully, returned ${result.rowCount} rows`)
 
       logQuery({
@@ -118,8 +195,16 @@ export async function POST(request: NextRequest) {
         executionTime: result.executionTime,
         // Present only when a default row limit was injected into the SQL.
         limitApplied,
+        // Present only when dirty reads were requested; false = this engine has
+        // no dirty-read mode, so the request was a no-op.
+        dirtyReadApplied,
       })
     } catch (execError) {
+      // RETURN, don't throw: the outer handler would run this through
+      // sanitizeDbError and turn a cancellation into a 500 "Failed to execute
+      // database operation" plus a spurious stack trace in the logs.
+      if (controller.signal.aborted) return cancelledResponse()
+
       // Log the execution failure (sanitized) before re-throwing to the outer handler.
       logQuery({
         ...logBase,
@@ -128,7 +213,16 @@ export async function POST(request: NextRequest) {
       })
       throw execError
     } finally {
-      await adapter.disconnect()
+      // Guarded: disconnect is much more likely to throw after a cancelled or
+      // rolled-back transaction, and an unguarded throw here would replace the
+      // response we just built.
+      try {
+        await adapter.disconnect()
+      } catch (err) {
+        console.warn("[execute] disconnect failed:", err)
+      }
+      // Every exit path passes through here, so the registry cannot leak.
+      if (registeredKey) unregisterQuery(registeredKey)
     }
   } catch (error) {
     // Sanitize error to prevent leaking sensitive database information

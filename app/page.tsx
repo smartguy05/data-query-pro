@@ -95,6 +95,9 @@ export default function ContextualDashboard() {
   } | null>(null)
   const [loadingWidgets, setLoadingWidgets] = useState(false)
   const isLoadingSuggestionsRef = useRef(false)
+  // In-flight dashboard widget queries, so a connection switch or unmount cancels
+  // them on the database instead of leaving them running unattended.
+  const dashboardInflightRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     // Wait for context to initialize before checking status
@@ -162,6 +165,14 @@ export default function ContextualDashboard() {
     setDismissedNotifications(dismissed)
   }, [])
 
+  // Leaving the dashboard cancels any widget queries still running.
+  useEffect(() => {
+    return () => {
+      dashboardInflightRef.current?.abort()
+      dashboardInflightRef.current = null
+    }
+  }, [])
+
   useEffect(() => {
     // Load dashboard widgets (pinned-report KPIs + trend chart) once context is ready.
     // Re-runs when the active connection or the reports list changes (e.g. after pinning).
@@ -220,7 +231,17 @@ export default function ContextualDashboard() {
       return
     }
 
+    // One controller for this whole load. Switching connections or leaving the
+    // page aborts these widget queries, which the execute route turns into a real
+    // database-level cancel — otherwise they run on for a dashboard that has
+    // already moved on. Superseding a previous load also cancels it.
+    dashboardInflightRef.current?.abort()
+    const controller = new AbortController()
+    dashboardInflightRef.current = controller
+
     const runSql = async (sql: string) => {
+      // NOTE: dashboard widgets deliberately send neither defaultLimit nor
+      // dirtyRead — pinned KPIs must not silently show uncommitted numbers.
       const body = authEnabled
         ? { sql, connectionId: connection.id, source: connection.source, type: connection.type }
         : { sql, connection }
@@ -228,6 +249,7 @@ export default function ContextualDashboard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: controller.signal,
       })
       if (!res.ok) throw new Error("Query execution failed")
       return res.json() as Promise<{ columns: string[]; rows: DataRows; rowCount: number }>

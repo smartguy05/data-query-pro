@@ -29,12 +29,14 @@ and the **doc** that covers them. Optimized for fast "where is this?" navigation
 |-------|--------|-----|
 | `/api/query/generate` | `app/api/query/generate/route.ts` | [query-endpoints.md](../api/query-endpoints.md) |
 | `/api/query/execute` | `app/api/query/execute/route.ts` | [query-endpoints.md](../api/query-endpoints.md) |
+| `/api/query/cancel` | `app/api/query/cancel/route.ts` | [query-endpoints.md](../api/query-endpoints.md#post-apiquerycancel) |
 | `/api/query/enhance` | `app/api/query/enhance/route.ts` | [query-endpoints.md](../api/query-endpoints.md) |
 | `/api/query/revise` | `app/api/query/revise/route.ts` | [query-endpoints.md](../api/query-endpoints.md) |
 | `/api/query/followup` | `app/api/query/followup/route.ts` | [query-endpoints.md](../api/query-endpoints.md) |
 | `/api/schema/introspect` | `app/api/schema/introspect/route.ts` | [schema-endpoints.md](../api/schema-endpoints.md) |
 | `/api/schema/start-introspection` | `app/api/schema/start-introspection/route.ts` | [schema-endpoints.md](../api/schema-endpoints.md) |
 | `/api/schema/status` | `app/api/schema/status/route.ts` | [schema-endpoints.md](../api/schema-endpoints.md) |
+| `/api/schema/cancel-introspection` | `app/api/schema/cancel-introspection/route.ts` | [schema-endpoints.md](../api/schema-endpoints.md) |
 | `/api/schema/upload-schema` | `app/api/schema/upload-schema/route.ts` | [schema-endpoints.md](../api/schema-endpoints.md) |
 | `/api/schema/generate-descriptions` | `app/api/schema/generate-descriptions/route.ts` | [schema-endpoints.md](../api/schema-endpoints.md) |
 | `/api/schema/update-description` | `app/api/schema/update-description/route.ts` | [schema-endpoints.md](../api/schema-endpoints.md) |
@@ -85,6 +87,7 @@ and the **doc** that covers them. Optimized for fast "where is this?" navigation
 | SchemaUpdateModal | `components/schema-update-modal.tsx` | [features.md](../components/features.md#schemaupdatemodal) |
 | QueryResultsDisplay | `components/query-results-display.tsx` | [features.md](../components/features.md#queryresultsdisplay) |
 | QueryTabContent | `components/query-tab-content.tsx` | [features.md](../components/features.md#querytabcontent) |
+| DirtyReadToggle | `components/dirty-read-toggle.tsx` | [query-endpoints.md](../api/query-endpoints.md#dirty-reads-read-uncommitted) |
 | FollowupDialog | `components/followup-dialog.tsx` | [features.md](../components/features.md#followupdialog) |
 | ChartDisplay + charts/ | `components/chart-display.tsx`, `components/charts/*` | [features.md](../components/features.md#chart-components) |
 | ComposedChart | `components/charts/composed-chart.tsx` | [features.md](../components/features.md#composed-chart) |

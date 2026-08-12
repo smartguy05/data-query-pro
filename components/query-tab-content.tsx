@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Play, Save, AlertTriangle, Sparkles, ThumbsUp, ThumbsDown } from "lucide-react"
+import { Loader2, Play, Save, AlertTriangle, Sparkles, ThumbsUp, ThumbsDown, X } from "lucide-react"
 import { QueryResultsDisplay } from "@/components/query-results-display"
 import { cn } from "@/lib/utils"
 import type { ChartConfig } from "@/models/chart-config.interface"
@@ -19,7 +19,14 @@ interface QueryTabContentProps {
   onSaveReport: () => void
   onReviseQuery?: () => void
   onVoteAccuracy?: (vote: 'up' | 'down') => void
+  /**
+   * Cancels the running query, killing it on the database. Optional: omitted for
+   * engines that cannot cancel (SQLite), which hides the button entirely rather
+   * than offering one that silently does nothing.
+   */
+  onCancel?: () => void
   isExecuting: boolean
+  isCancelling?: boolean
   isRevising?: boolean
   onChartConfigChange?: (config: ChartConfig | null) => void
   onSaveChart?: (config: ChartConfig) => void
@@ -33,7 +40,9 @@ export function QueryTabContent({
   onSaveReport,
   onReviseQuery,
   onVoteAccuracy,
+  onCancel,
   isExecuting,
+  isCancelling = false,
   isRevising = false,
   onChartConfigChange,
   onSaveChart
@@ -177,6 +186,29 @@ export function QueryTabContent({
                   </>
                 )}
               </Button>
+              {/* A sibling button, not an X inside Execute: that button is disabled
+                  while executing, and a disabled button blocks pointer events on its
+                  children, so an inner X could never be clicked. */}
+              {isExecuting && onCancel && (
+                <Button
+                  variant="outline"
+                  onClick={onCancel}
+                  disabled={isCancelling}
+                  className="text-destructive hover:text-destructive"
+                >
+                  {isCancelling ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Cancelling...
+                    </>
+                  ) : (
+                    <>
+                      <X className="h-4 w-4 mr-2" />
+                      Cancel
+                    </>
+                  )}
+                </Button>
+              )}
               <Button variant="outline" onClick={onSaveReport}>
                 <Save className="h-4 w-4 mr-2" />
                 Save as Report
@@ -184,6 +216,15 @@ export function QueryTabContent({
             </div>
           </CardContent>
         </Card>
+
+        {/* Cancelled by the user. Deliberately the neutral Alert variant, not
+            destructive, and with no "Revise query" action — a cancelled query
+            wasn't wrong, so there is nothing to fix. */}
+        {tab.executionCancelled && !tab.executionError && (
+          <Alert>
+            <AlertDescription>Query cancelled.</AlertDescription>
+          </Alert>
+        )}
 
         {/* Execution Error */}
         {tab.executionError && (

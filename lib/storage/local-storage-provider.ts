@@ -11,7 +11,7 @@ import {
   updateQueryCorrection as localUpdateCorrection,
   deleteQueryCorrection as localDeleteCorrection,
 } from '@/utils/query-corrections';
-import { HISTORY, STORAGE_KEYS, isDefaultQueryLimit, type DefaultQueryLimit } from '@/lib/constants';
+import { HISTORY, STORAGE_KEYS, isDefaultQueryLimit, isDirtyRead, type DefaultQueryLimit } from '@/lib/constants';
 
 // Schemas are keyed by (connection, namespace). Legacy records without a
 // namespace are treated as the conventional default so they keep matching.
@@ -403,5 +403,23 @@ export class LocalStorageProvider implements StorageProvider {
 
   async setDefaultQueryLimit(limit: DefaultQueryLimit): Promise<void> {
     localStorage.setItem(STORAGE_KEYS.DEFAULT_QUERY_LIMIT, JSON.stringify(limit));
+  }
+
+  async getDirtyRead(): Promise<boolean | null> {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.DIRTY_READ);
+      // Checked before parsing so "never set" stays distinct from an explicit false.
+      if (raw === null) return null;
+      const parsed: unknown = JSON.parse(raw);
+      // The guard matters: a stored '"false"' parses to the truthy STRING
+      // "false", which would otherwise become an un-clearable "always on".
+      return isDirtyRead(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async setDirtyRead(enabled: boolean): Promise<void> {
+    localStorage.setItem(STORAGE_KEYS.DIRTY_READ, JSON.stringify(enabled));
   }
 }

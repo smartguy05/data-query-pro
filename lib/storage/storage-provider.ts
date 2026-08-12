@@ -55,4 +55,12 @@ export interface StorageProvider {
   // null = the user has never set one.
   getDefaultQueryLimit(): Promise<DefaultQueryLimit | null>;
   setDefaultQueryLimit(limit: DefaultQueryLimit): Promise<void>;
+
+  // Dirty-read (READ UNCOMMITTED) preference for executed queries. Device-local
+  // (localStorage) when auth is disabled; stored in the preferences JSONB when
+  // auth is enabled. null = the user has never set one, which is kept distinct
+  // from an explicit `false` so a future change of default cannot silently stomp
+  // someone who deliberately turned it off.
+  getDirtyRead(): Promise<boolean | null>;
+  setDirtyRead(enabled: boolean): Promise<void>;
 }

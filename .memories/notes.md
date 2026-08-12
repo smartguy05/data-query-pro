@@ -8,6 +8,47 @@
 >
 > This file holds only **cross-session, project-specific** state not yet filed into docs.
 
+## Cancellation & dirty reads — gotchas (2026-08-12)
+- **An abort listener must never throw and must never be awaited.** An exception raised
+  synchronously inside an `addEventListener('abort', ...)` callback is an uncaught
+  exception and takes down the Node process. Always
+  `() => { void this.killX(id).catch(() => {}) }`, and always remove the listener in a
+  `finally` around the statement — PG recycles backend PIDs and MySQL recycles thread ids,
+  so a listener surviving past the query could kill an unrelated session.
+- **mssql isolation is per-TRANSACTION** (`tx.begin(level)`), which is the only reason
+  READ UNCOMMITTED is safe despite the pool. Never "simplify" it into a session-level
+  `SET TRANSACTION ISOLATION LEVEL` — that contaminates pooled connections.
+- **MySQL `SET SESSION TRANSACTION ISOLATION LEVEL` must be issued OUTSIDE a transaction**
+  or it raises ER_CANT_CHANGE_TX_CHARACTERISTICS (1568). Hence `connect()`, not
+  `executeRawQuery()`. Session scope is safe only while `createConnection` (per-request) is
+  used — switching to `createPool` makes a reset before release mandatory, or READ
+  UNCOMMITTED leaks to unrelated requests including introspection.
+- **SQL Server error 601** ("Could not continue scan with NOLOCK due to data movement") is a
+  hard error, not a warning: dirty reads can make a previously-working query FAIL, and it
+  surfaces through `sanitizeDbError` as a random-looking 400/500. Check the toggle first
+  when debugging a mystery failure.
+- **`sanitizeDbError` does not recognize any cancellation message** (PG "canceling
+  statement due to user request", MySQL "Query execution was interrupted", mssql
+  "Canceled." — none matches, including `/timeout|timed out/i`). They all become a generic
+  500. Always classify cancellation from your own `signal.aborted`, never from the driver
+  message. There are regression tests pinning this in `error-sanitizer.test.ts`.
+- **postgres.js `query.cancel()` is unsafe here**: `src/query.js:52-54` uses the comma
+  operator and discards the canceller's promise, so a cancel-socket error is an unhandled
+  rejection → process exit by default. Use explicit `pg_cancel_backend` on a second client.
+- **There is no `TooltipProvider` in `app/layout.tsx`** — the app's only one is inside
+  `components/ui/sidebar.tsx`. Any tooltip outside the sidebar must render its own provider
+  or Radix throws. (Also recorded in `.design-sync/NOTES.md`.)
+- **Client components must import DB helpers from `@/lib/database/types`, not the
+  `@/lib/database` barrel** — the barrel re-exports the adapter factory and would pull
+  mssql/better-sqlite3 into the client bundle.
+- **Adding a terminal status to a polled job requires updating the poller.**
+  `use-schema-loading.ts` only stopped on `completed`/`error`, so the new `cancelled` status
+  would have polled forever until it was handled explicitly.
+- **`declare global` blocks duplicated across route files are a trap** — `processStatus` was
+  copy-pasted in start-introspection + status; it now lives in
+  `lib/schema/introspection-jobs.ts`. Registries belong on `globalThis`, not module scope:
+  Next dev HMR re-evaluates route modules and a module-level `Map` silently splits in two.
+
 ## Build / Type Safety — CURRENT STATE (corrected)
 - `next.config.mjs` has `typescript.ignoreBuildErrors: false` + `eslint.ignoreDuringBuilds: false`
   — `next build` enforces type-check + lint and fails on errors. Codebase is clean

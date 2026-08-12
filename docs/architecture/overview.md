@@ -208,11 +208,34 @@ Query generation is improved by learning from prior queries, keyed by a stable
 - Query execution and table sampling set `AdapterConnectionConfig.readOnly`, enforced
   per dialect (PostgreSQL/MySQL read-only transactions, SQL Server wrap+ROLLBACK,
   SQLite connect-time readonly). Introspection stays writable.
+- The optional `dirtyRead` flag lowers that same transaction's isolation to READ
+  UNCOMMITTED (SQL Server `tx.begin(READ_UNCOMMITTED)`, MySQL session isolation; a
+  genuine no-op on PostgreSQL and SQLite). It never replaces `readOnly` — isolation
+  governs visibility, not write capability — and never touches the SQL text.
+  Introspection deliberately stays at default isolation.
+- Every user query carries a per-dialect statement timeout
+  (`QUERY_TIMEOUT.STATEMENT_MS`), the backstop for a cancellation that fails or is
+  impossible.
 - SQL is validated by `validateReadOnlySql()` (`lib/database/sql-validator.ts`), an
   AST-based check (node-sql-parser) that allows a single SELECT only, replacing the
   former regex keyword blocklist.
 - `logQuery()` (`lib/query-log.ts`) writes a credential-free audit entry to the
   `query_log` table when the app DB is enabled, otherwise to `logs/query-log.jsonl`.
+  A cancelled execution is recorded as `success: false` with a fixed sentinel message.
+
+### 6. Query Cancellation
+- `lib/database/query-registry.ts` maps a client-generated `queryId` to an
+  `AbortController` (on `globalThis`, so Next dev HMR cannot split the map).
+  `POST /api/query/cancel` aborts it; each adapter translates the abort into a real
+  database-level kill — PostgreSQL `pg_cancel_backend`, MySQL `KILL QUERY`, SQL Server
+  request cancellation. **SQLite cannot be cancelled** (no interrupt binding, and its
+  synchronous execution blocks the event loop).
+- The registry is process-local, so it does not span multiple instances; the statement
+  timeouts above are what bound a query in that case.
+- Introspection cancels **cooperatively** between tables
+  (`POST /api/schema/cancel-introspection`, job state in
+  `lib/schema/introspection-jobs.ts`), which works on every engine because the
+  per-table loop — not any single query — is what takes the time.
 
 ## Component Hierarchy
 

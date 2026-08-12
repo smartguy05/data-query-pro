@@ -88,6 +88,7 @@ app/                          # Next.js 15 App Router
     ├── query/
     │   ├── generate/        # Natural language → SQL via OpenAI
     │   ├── execute/         # Execute SQL on connected database
+    │   ├── cancel/          # Kill an in-flight query on the database (POST { queryId })
     │   ├── followup/        # Follow-up questions on query results
     │   ├── enhance/         # Enhance vague queries with AI
     │   └── revise/          # Revise failed queries automatically
@@ -97,6 +98,7 @@ app/                          # Next.js 15 App Router
     │   ├── upload-schema/   # Upload schema to OpenAI file storage
     │   ├── update-description/     # Manually update descriptions
     │   ├── start-introspection/    # Background introspection process
+    │   ├── cancel-introspection/   # Cancel a running introspection (POST { processId })
     │   ├── sample-data/     # Read-only sample rows for a table (POST)
     │   └── status/          # Poll introspection status
     ├── connection/
@@ -144,6 +146,7 @@ components/                   # React components
 ├── query-tab-content.tsx    # Individual query tab display
 ├── followup-dialog.tsx      # Follow-up question dialog
 ├── default-limit-select.tsx # Default query row limit dropdown (presets + No Limit + custom numeric)
+├── dirty-read-toggle.tsx    # Dirty-read (READ UNCOMMITTED) switch; notes the per-dialect no-op
 ├── chart-display.tsx        # Main chart renderer
 ├── content-loading-gate.tsx # Loading gate until context initialized
 ├── auth-provider.tsx        # SessionProvider wrapper (conditional)
@@ -217,6 +220,7 @@ lib/                         # Shared utilities
     ├── connection-validator.ts # Connection validation utilities
     ├── sql-validator.ts     # AST-based read-only SQL validation (validateReadOnlySql)
     ├── sql-limit.ts         # Dialect-aware default row-limit injection (sanitizeLimit, applyDefaultRowLimit)
+    ├── query-registry.ts    # In-flight queryId -> AbortController map backing /api/query/cancel
     ├── adapters/            # Database-specific adapters
     │   ├── postgresql.adapter.ts
     │   ├── mysql.adapter.ts
@@ -385,17 +389,38 @@ config/                      # Server configuration
 - Validates queries with the AST-based `validateReadOnlySql(sql, dbType)` (`lib/database/sql-validator.ts`) — allows a single `SELECT` only; the old regex keyword blocklist (`DANGEROUS_SQL_KEYWORDS`) was removed
 - **Default row limit**: the query page's "Default row limit" dropdown (`components/default-limit-select.tsx`; presets 25/50/100/200/500, No Limit, custom numeric) sends `defaultLimit` with generate + execute requests. Execute injects a dialect-aware limit (`LIMIT n`, or `TOP (n)` for SQL Server) via `applyDefaultRowLimit` (`lib/database/sql-limit.ts`) ONLY when the SQL has no explicit LIMIT/TOP/FETCH — explicit limits always win; fail-open on unparseable SQL. The generate prompt's rule 4 uses the same value. Selection persists (localStorage `default_query_limit`, or preferences JSONB in auth mode) via `defaultQueryLimit`/`setDefaultQueryLimit` on the context. Response includes `limitApplied` when injected
 - Sets `config.readOnly = true` so the adapter enforces read-only execution at the connection/transaction level (see Read-Only Query Execution below)
+- **Dirty reads (NOLOCK)**: the query page's "Dirty reads (NOLOCK)" switch (`components/dirty-read-toggle.tsx`) sends `dirtyRead: true` with execute + sample-data requests, **default OFF**. Enforced at the adapter isolation level, never by rewriting SQL (see Dirty Reads below). Persists via `dirtyRead`/`setDirtyRead` on the context (localStorage `dirty_read`, or preferences JSONB in auth mode). Response includes `dirtyReadApplied` (`true` = isolation lowered, `false` = no-op on this engine, absent = not requested)
+- **Cancellation**: accepts an optional client-generated `queryId` (UUID) and registers an `AbortController` in `lib/database/query-registry.ts`; `POST /api/query/cancel { queryId }` aborts it, which each adapter turns into a real database-level kill (see Query Cancellation below). Also wires `request.signal`, so a client disconnect kills the query. Responds `499` with `{ cancelled: true }`; cancellation is classified from `signal.aborted`, **never** from the driver's error message
 - Uses database adapters (`lib/database/adapters/`) for database-specific execution
 - Returns formatted results with columns, rows, execution time
-- Every execution is recorded fire-and-forget via `logQuery()` (see Query Audit Log below)
+- Every execution is recorded fire-and-forget via `logQuery()` (see Query Audit Log below); a cancelled execution logs `success: false` with the `CANCELLED_LOG_MESSAGE` sentinel (no migration needed)
+
+### Query Cancellation
+- **Primitive**: an `AbortSignal` threaded through `executeQuery(sql, options?)` / `introspectSchema(onProgress?, options?)` (`ExecuteOptions` in `lib/database/types.ts`). There is deliberately **no** `cancel()` method on `IDatabaseAdapter` — the registry stays driver-free and therefore unit-testable, and `signal.aborted` handles cancel-before-start for free
+- **Registry** (`lib/database/query-registry.ts`): `queryId -> AbortController` on `globalThis` (a module-level `Map` splits under Next dev HMR). Keys are namespaced `ownerKey:queryId` so cross-owner cancellation is structurally impossible; duplicate keys and a full registry are **refused**, never overwritten/evicted (the controller is the only handle to a running query). **Process-local** — will not work across multiple instances; `QUERY_TIMEOUT.STATEMENT_MS` is the backstop
+- Per-dialect kill, and `adapter.supportsCancellation` / `supportsQueryCancellation(type)`:
+  - **PostgreSQL**: `pg_backend_pid()` rides the existing `set_config` round trip; killed with `pg_cancel_backend(pid)` from a second short-lived client. NOT postgres.js's own `query.cancel()`, which discards its promise and can crash the process on a cancel-socket error
+  - **MySQL**: `connection.threadId` + `KILL QUERY <id>` on a second connection (never `destroy()`, which leaves the query running server-side)
+  - **SQL Server**: the `Request` is retained and `request.cancel()` sends a tedious ATTENTION packet on the same socket — no second connection
+  - **SQLite**: **not cancellable**, twice over — no `sqlite3_interrupt` binding, and synchronous execution blocks the event loop so the cancel request can't even be received. The UI hides the button
+- **Introspection** cancels **cooperatively** (`signal.throwIfAborted()` between tables in `base-adapter.ts` + the MySQL/SQLite overrides) — the per-table loop is what's slow, not any single query, so this works on **every** engine including SQLite. `POST /api/schema/cancel-introspection { processId }`; job state + controllers live in `lib/schema/introspection-jobs.ts` (status `cancelled` is terminal — `use-schema-loading.ts` must stop polling on it)
+- Client aborts also cover the dashboard widgets (connection switch / unmount) and schema sample-data (collapse / unmount). An `AbortError` in `app/query/page.tsx` **must** short-circuit before `recordQueryOutcome(false)` or a cancel would count as a failed query in the accuracy stat
+- Deliberately excluded: `/api/connection/test`, whose failure mode is a hanging *connect* — that needs a shorter timeout, not cancellation
 
 ### Read-Only Query Execution
-- `AdapterConnectionConfig.readOnly` flag, set in `/api/query/execute` and `/api/schema/sample-data`, enforces read-only at the dialect level:
-  - **PostgreSQL**: read-only transaction
-  - **MySQL**: read-only transaction + ROLLBACK
-  - **SQL Server**: wrap + always-ROLLBACK
-  - **SQLite**: connect-time `readonly`
-- Schema introspection stays writable (not affected by the flag)
+- `AdapterConnectionConfig.readOnly` flag, set in `/api/query/execute` and `/api/schema/sample-data`, enforces read-only at the dialect level (the optional `dirtyRead` flag lowers the isolation of that same transaction, never replacing it):
+  - **PostgreSQL**: read-only transaction *(dirty read: no-op — READ UNCOMMITTED ≡ READ COMMITTED)*
+  - **MySQL**: read-only transaction + ROLLBACK *(dirty read: `SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED` at connect)*
+  - **SQL Server**: wrap + always-ROLLBACK *(dirty read: `tx.begin(sql.ISOLATION_LEVEL.READ_UNCOMMITTED)` — per-transaction, never session)*
+  - **SQLite**: connect-time `readonly` *(dirty read: no-op — `PRAGMA read_uncommitted` needs shared-cache mode)*
+- Schema introspection stays writable and at default isolation (**not** affected by either flag) — half-committed DDL leaking into the schema graph would poison the vector store and every generated query
+- A per-dialect statement timeout (`QUERY_TIMEOUT.STATEMENT_MS`, 120s) caps every user query: PostgreSQL `statement_timeout` (SET LOCAL, same round trip as `set_config`), MySQL `max_execution_time`, SQL Server `requestTimeout`. It is the only protection when a kill fails or is impossible
+
+### Dirty Reads (READ UNCOMMITTED / "NOLOCK")
+- Opt-in per user, **default off** (`DIRTY_READ.DEFAULT`, `isDirtyRead` type guard in `lib/constants.ts`). `supportsDirtyRead(type)` (`lib/database/types.ts`) is true only for MySQL and SQL Server
+- **Enforced at the adapter, not in the SQL text** — and it cannot be otherwise: `validateReadOnlySql` rejects `SET TRANSACTION ISOLATION LEVEL ...` at three independent points (`WRITE_KEYWORDS` includes `set`; `heuristicReadOnly` rejects an embedded `;`; the AST path rejects >1 statement). Isolation also covers tables reached through views/CTEs/subqueries, which per-table `WITH (NOLOCK)` hints would silently miss
+- **No AI prompt change**: the model has nothing valid to emit on MySQL/PG/SQLite, and a forgotten hint on SQL Server would create a silently mixed-isolation query. (A model-emitted `WITH (NOLOCK)` does pass the validator — `\block\b` cannot match inside `NOLOCK` — so don't "fix" that regex)
+- **Correctness warning**: results may be *wrong*, not merely stale — rows from transactions that later roll back, and rows double-counted or skipped during data movement. On SQL Server it can also make a working query **fail** with error 601
 
 ### SQL Validation (AST)
 - `lib/database/sql-validator.ts` exports `validateReadOnlySql(sql, dbType)`
@@ -491,6 +516,7 @@ config/                      # Server configuration
 | `suggestions_{connectionId}` | Cached AI suggestions per connection |
 | `dismissed_notifications` | User dismissed notification IDs |
 | `default_query_limit` | Default row limit for executed queries (`number` or `'none'`; preferences JSONB in auth mode) |
+| `dirty_read` | Dirty-read (READ UNCOMMITTED) preference for executed queries (`boolean`, default `false`; preferences JSONB in auth mode) |
 
 ## Environment Variables
 

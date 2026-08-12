@@ -206,11 +206,17 @@ interface ExecuteRequest {
   source?: "local" | "server";
   type?: string;
   defaultLimit?: number | 'none'; // Optional: inject a row limit when the SQL has none
+  dirtyRead?: boolean;            // Optional: run at READ UNCOMMITTED (see Dirty Reads below)
+  queryId?: string;               // Optional: client-generated UUID enabling POST /api/query/cancel
   // Optional audit-log metadata (never required)
   question?: string;              // Natural-language prompt behind the SQL
   querySource?: string;           // e.g. "report", "followup"
 }
 ```
+
+`queryId` must be a well-formed UUID; a malformed one is rejected with `400`
+`INVALID_QUERY_ID`. Omitting it is fine — the query simply runs untracked and
+cannot be cancelled.
 
 ### Response
 
@@ -222,11 +228,20 @@ interface ExecuteResponse {
   rowCount: number;          // Number of rows returned
   executionTime: number;     // Milliseconds to execute
   limitApplied?: number;     // Present only when a default row limit was injected
+  dirtyReadApplied?: boolean; // Present only when dirtyRead was requested.
+                              // false = this engine has no dirty-read mode (no-op)
 }
 
 // Error
 { "error": "Error message" }
+
+// Cancelled — HTTP 499
+{ "error": "Query cancelled", "errorCode": "QUERY_CANCELLED", "cancelled": true }
 ```
+
+In the normal flow the client never reads the `499`: its own `fetch` has already
+rejected with `AbortError`. The branch exists so the audit log records the
+cancellation correctly and so a cancellation is not reported as a `500`.
 
 ### Security Validation (AST-based)
 
@@ -268,6 +283,83 @@ validator:
 
 The `readOnly` flag is also set by `/api/schema/sample-data`. Schema introspection
 intentionally stays writable (internal callers leave the flag unset).
+
+Every user query also gets a per-dialect statement timeout
+(`QUERY_TIMEOUT.STATEMENT_MS`, 120s): PostgreSQL `statement_timeout` (SET LOCAL, on
+the same round trip as `set_config`), MySQL `max_execution_time`, SQL Server
+`requestTimeout`. It is the backstop for when cancellation fails or is impossible.
+
+### Dirty Reads (READ UNCOMMITTED)
+
+Sending `dirtyRead: true` lowers the isolation level of the read-only transaction the
+adapter already opens, so the query never waits on another transaction's locks. It is
+the portable form of SQL Server's `WITH (NOLOCK)`, opt-in per user and **off by
+default**.
+
+| Engine | Mechanism |
+|---|---|
+| SQL Server | `tx.begin(sql.ISOLATION_LEVEL.READ_UNCOMMITTED)` — per-transaction, so it cannot leak through the pool |
+| MySQL | `SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED` at connect (see below) |
+| PostgreSQL | **no-op** — accepts READ UNCOMMITTED only as a synonym for READ COMMITTED, and under MVCC readers never block writers |
+| SQLite | **no-op** — `PRAGMA read_uncommitted` only applies in shared-cache mode, which better-sqlite3 never enables |
+
+`dirtyReadApplied` on the response reports which of these happened, so a no-op is
+visible rather than silently implied.
+
+**Why it is not done in the SQL text.** `validateReadOnlySql` rejects
+`SET TRANSACTION ISOLATION LEVEL ...` at three independent points — `WRITE_KEYWORDS`
+contains `set` (`sql-validator.ts:45`), `heuristicReadOnly` rejects an embedded `;`
+(`:60`), and the AST path rejects more than one statement (`:93`). Per-table
+`WITH (NOLOCK)` hints were also rejected: they must be attached to every table
+reference and silently miss tables reached through views, and re-emitting the parsed
+statement bracket-quotes every identifier so the executed SQL would stop matching what
+the user sees. Isolation level covers every table, view and subquery at once and never
+touches the SQL.
+
+**Why MySQL sets it at connect time.** MySQL raises
+`ER_CANT_CHANGE_TX_CHARACTERISTICS` (1568) if transaction characteristics change while
+a transaction is open, and `executeRawQuery` opens one with
+`START TRANSACTION READ ONLY`. Access mode and isolation level are orthogonal, so
+READ ONLY + READ UNCOMMITTED is valid — and is InnoDB's cheapest read path. Session
+scope is safe only because the adapter uses a per-request `createConnection`; with a
+pool the level would have to be reset before release.
+
+**Correctness warning.** Results may be *wrong*, not merely stale: you can see rows
+from transactions that are still open and may roll back, and a row can be counted
+twice or skipped entirely if the engine moves it mid-scan. On SQL Server dirty reads
+can also make a previously-working query **fail** with error 601 ("Could not continue
+scan with NOLOCK due to data movement"), which surfaces as a generic database error.
+`readOnly` is never weakened — isolation governs visibility, never write capability.
+
+## POST /api/query/cancel
+
+Kills an in-flight query started by `/api/query/execute`.
+
+### Request
+
+```typescript
+{ queryId: string }   // the UUID sent with the execute request
+```
+
+### Response
+
+```typescript
+{ success: true, data: { status: CancelStatus, message?: string } }
+```
+
+| `status` | Meaning |
+|---|---|
+| `cancelling` | The kill was requested. Not `cancelled` — the authoritative outcome is how the execute request resolves, and a kill can still be refused |
+| `already_cancelled` | A cancel was already issued for this query |
+| `not_cancellable` | This engine cannot stop a running query (SQLite) |
+| `already_finished` | No such in-flight query — the ordinary completion race, so `200` rather than `404` |
+
+`403` when the query belongs to another user; `400` for a missing or malformed
+`queryId`.
+
+How the kill reaches the database, per engine — plus the registry's process-local
+limitation and the cooperative introspection variant — is documented in the **Query
+Cancellation** section of [CLAUDE.md](../../CLAUDE.md).
 
 ### Audit Logging
 

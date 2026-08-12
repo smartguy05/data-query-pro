@@ -5,7 +5,7 @@ import type { SavedReport } from '@/models/saved-report.interface';
 import type { QueryHistoryEntry } from '@/models/query-history.interface';
 import type { QueryAccuracyStats } from '@/models/query-accuracy.interface';
 import type { QueryCorrection } from '@/models/query-correction.interface';
-import { HISTORY, STORAGE_KEYS, isDefaultQueryLimit, type DefaultQueryLimit } from '@/lib/constants';
+import { HISTORY, STORAGE_KEYS, isDefaultQueryLimit, isDirtyRead, type DefaultQueryLimit } from '@/lib/constants';
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -242,6 +242,31 @@ export class ApiStorageProvider implements StorageProvider {
       method: 'PUT',
       body: JSON.stringify({
         preferences: { ...(prefs.preferences || {}), defaultQueryLimit: limit },
+      }),
+    });
+  }
+
+  async getDirtyRead(): Promise<boolean | null> {
+    try {
+      const prefs = await apiFetch<{ preferences: Record<string, unknown> }>('/api/data/preferences');
+      const v = prefs.preferences?.dirtyRead;
+      // A missing key yields null ("never set"), not false.
+      return isDirtyRead(v) ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async setDirtyRead(enabled: boolean): Promise<void> {
+    // The preferences PUT replaces the whole JSONB (COALESCE in
+    // preference-repository.ts), so read-merge-write to preserve sibling keys.
+    // Skipping the read would wipe defaultQueryLimit and dismissedNotifications
+    // on the first toggle.
+    const prefs = await apiFetch<{ preferences: Record<string, unknown> }>('/api/data/preferences');
+    await apiFetch('/api/data/preferences', {
+      method: 'PUT',
+      body: JSON.stringify({
+        preferences: { ...(prefs.preferences || {}), dirtyRead: enabled },
       }),
     });
   }
