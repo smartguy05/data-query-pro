@@ -34,18 +34,29 @@ export async function applyDelta(
 ): Promise<void> {
   const sql = getAppDb()!;
 
+  // postgres.js sends bind parameters with an unspecified type, so Postgres
+  // resolves them to `text` inside GREATEST/LEAST and the statement dies with
+  // "GREATEST types text and integer cannot be matched" (42804). Every numeric
+  // parameter therefore needs an explicit ::int cast — including the ones added
+  // to a column, which would otherwise fail as `integer + text`.
+  //
+  // Truncate first: the counters are whole numbers, and a fractional value would
+  // make the cast itself fail ("invalid input syntax for type integer").
+  const total = Math.trunc(totalDelta) || 0;
+  const successful = Math.trunc(successfulDelta) || 0;
+
   await sql`
     INSERT INTO query_accuracy_stats (owner_id, total, successful)
     VALUES (
       ${userId},
-      GREATEST(${totalDelta}, 0),
-      GREATEST(LEAST(${successfulDelta}, ${totalDelta}), 0)
+      GREATEST(${total}::int, 0),
+      GREATEST(LEAST(${successful}::int, ${total}::int), 0)
     )
     ON CONFLICT (owner_id) DO UPDATE SET
-      total = GREATEST(query_accuracy_stats.total + ${totalDelta}, 0),
+      total = GREATEST(query_accuracy_stats.total + ${total}::int, 0),
       successful = LEAST(
-        GREATEST(query_accuracy_stats.successful + ${successfulDelta}, 0),
-        GREATEST(query_accuracy_stats.total + ${totalDelta}, 0)
+        GREATEST(query_accuracy_stats.successful + ${successful}::int, 0),
+        GREATEST(query_accuracy_stats.total + ${total}::int, 0)
       ),
       updated_at = NOW()
   `;

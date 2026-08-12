@@ -6,17 +6,25 @@ import type { DataRows, ToolParameterProperties } from './common-types';
 
 export type ChartType = "bar" | "line" | "pie" | "area" | "scatter" | "composed"
 
+/**
+ * A function tool as the OpenAI **Responses** API expects it.
+ *
+ * Note the flat shape: `{ type, name, description, parameters }`. The Chat
+ * Completions API nests these under a `function` key instead — do not copy that
+ * shape here. This route uses /v1/responses because reasoning models reject
+ * function tools on /v1/chat/completions unless reasoning_effort is 'none'.
+ */
 export interface ChartToolDefinition {
   type: "function"
-  function: {
-    name: string
-    description: string
-    parameters: {
-      type: "object"
-      properties: ToolParameterProperties
-      required: string[]
-    }
+  name: string
+  description: string
+  parameters: {
+    type: "object"
+    properties: ToolParameterProperties
+    required: string[]
   }
+  /** Relaxed validation: these schemas use optional properties. */
+  strict: false
 }
 
 export interface BaseChartConfig {
@@ -106,294 +114,288 @@ export interface ChartGenerationResponse {
 }
 
 /**
- * Chart tool definitions for OpenAI function calling
+ * Chart tool definitions for OpenAI function calling (Responses API).
  */
 export const CHART_TOOLS: ChartToolDefinition[] = [
   {
     type: "function",
-    function: {
-      name: "create_bar_chart",
-      description:
-        "Create a vertical or horizontal bar chart for comparing categorical data across different categories. Best for: comparing discrete categories, showing rankings, displaying counts or totals",
-      parameters: {
-        type: "object",
-        properties: {
-          xAxisColumn: {
-            type: "string",
-            description: "Column name to use for the X-axis (categories)",
-          },
-          yAxisColumns: {
-            type: "array",
-            items: { type: "string" },
-            description: "Column name(s) to use for the Y-axis (numeric values). Can be multiple for grouped bars",
-          },
-          xAxisLabel: {
-            type: "string",
-            description: "Optional label for X-axis",
-          },
-          yAxisLabel: {
-            type: "string",
-            description: "Optional label for Y-axis",
-          },
-          colors: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional array of hex color codes for each series",
-          },
-          stacked: {
-            type: "boolean",
-            description: "Whether to stack bars on top of each other",
-          },
-          title: {
-            type: "string",
-            description: "Optional chart title",
-          },
-          description: {
-            type: "string",
-            description: "Optional explanation of what the chart shows",
-          },
+    strict: false,
+    name: "create_bar_chart",
+    description:
+      "Create a vertical or horizontal bar chart for comparing categorical data across different categories. Best for: comparing discrete categories, showing rankings, displaying counts or totals",
+    parameters: {
+      type: "object",
+      properties: {
+        xAxisColumn: {
+          type: "string",
+          description: "Column name to use for the X-axis (categories)",
         },
-        required: ["xAxisColumn", "yAxisColumns"],
+        yAxisColumns: {
+          type: "array",
+          items: { type: "string" },
+          description: "Column name(s) to use for the Y-axis (numeric values). Can be multiple for grouped bars",
+        },
+        xAxisLabel: {
+          type: "string",
+          description: "Optional label for X-axis",
+        },
+        yAxisLabel: {
+          type: "string",
+          description: "Optional label for Y-axis",
+        },
+        colors: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional array of hex color codes for each series",
+        },
+        stacked: {
+          type: "boolean",
+          description: "Whether to stack bars on top of each other",
+        },
+        title: {
+          type: "string",
+          description: "Optional chart title",
+        },
+        description: {
+          type: "string",
+          description: "Optional explanation of what the chart shows",
+        },
       },
+      required: ["xAxisColumn", "yAxisColumns"],
     },
   },
   {
     type: "function",
-    function: {
-      name: "create_line_chart",
-      description:
-        "Create a line chart for showing trends over time or continuous data. Best for: time series data, showing trends, tracking changes over continuous ranges",
-      parameters: {
-        type: "object",
-        properties: {
-          xAxisColumn: {
-            type: "string",
-            description: "Column name for X-axis (typically time or sequential data)",
-          },
-          yAxisColumns: {
-            type: "array",
-            items: { type: "string" },
-            description: "Column name(s) for Y-axis (numeric values). Can be multiple for multi-line charts",
-          },
-          xAxisLabel: {
-            type: "string",
-            description: "Optional label for X-axis",
-          },
-          yAxisLabel: {
-            type: "string",
-            description: "Optional label for Y-axis",
-          },
-          colors: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional array of hex color codes for each line",
-          },
-          smooth: {
-            type: "boolean",
-            description: "Whether to use smooth curves instead of straight lines",
-          },
-          showDots: {
-            type: "boolean",
-            description: "Whether to show dots at data points",
-          },
-          title: {
-            type: "string",
-            description: "Optional chart title",
-          },
-          description: {
-            type: "string",
-            description: "Optional explanation of what the chart shows",
-          },
+    strict: false,
+    name: "create_line_chart",
+    description:
+      "Create a line chart for showing trends over time or continuous data. Best for: time series data, showing trends, tracking changes over continuous ranges",
+    parameters: {
+      type: "object",
+      properties: {
+        xAxisColumn: {
+          type: "string",
+          description: "Column name for X-axis (typically time or sequential data)",
         },
-        required: ["xAxisColumn", "yAxisColumns"],
+        yAxisColumns: {
+          type: "array",
+          items: { type: "string" },
+          description: "Column name(s) for Y-axis (numeric values). Can be multiple for multi-line charts",
+        },
+        xAxisLabel: {
+          type: "string",
+          description: "Optional label for X-axis",
+        },
+        yAxisLabel: {
+          type: "string",
+          description: "Optional label for Y-axis",
+        },
+        colors: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional array of hex color codes for each line",
+        },
+        smooth: {
+          type: "boolean",
+          description: "Whether to use smooth curves instead of straight lines",
+        },
+        showDots: {
+          type: "boolean",
+          description: "Whether to show dots at data points",
+        },
+        title: {
+          type: "string",
+          description: "Optional chart title",
+        },
+        description: {
+          type: "string",
+          description: "Optional explanation of what the chart shows",
+        },
       },
+      required: ["xAxisColumn", "yAxisColumns"],
     },
   },
   {
     type: "function",
-    function: {
-      name: "create_pie_chart",
-      description:
-        "Create a pie chart for showing proportions and percentages. Best for: showing parts of a whole, displaying percentage breakdowns, comparing composition",
-      parameters: {
-        type: "object",
-        properties: {
-          nameColumn: {
-            type: "string",
-            description: "Column name for slice labels (categories)",
-          },
-          valueColumn: {
-            type: "string",
-            description: "Column name for slice values (numeric)",
-          },
-          colors: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional array of hex color codes for each slice",
-          },
-          showLabels: {
-            type: "boolean",
-            description: "Whether to show percentage labels on slices",
-          },
-          title: {
-            type: "string",
-            description: "Optional chart title",
-          },
-          description: {
-            type: "string",
-            description: "Optional explanation of what the chart shows",
-          },
+    strict: false,
+    name: "create_pie_chart",
+    description:
+      "Create a pie chart for showing proportions and percentages. Best for: showing parts of a whole, displaying percentage breakdowns, comparing composition",
+    parameters: {
+      type: "object",
+      properties: {
+        nameColumn: {
+          type: "string",
+          description: "Column name for slice labels (categories)",
         },
-        required: ["nameColumn", "valueColumn"],
+        valueColumn: {
+          type: "string",
+          description: "Column name for slice values (numeric)",
+        },
+        colors: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional array of hex color codes for each slice",
+        },
+        showLabels: {
+          type: "boolean",
+          description: "Whether to show percentage labels on slices",
+        },
+        title: {
+          type: "string",
+          description: "Optional chart title",
+        },
+        description: {
+          type: "string",
+          description: "Optional explanation of what the chart shows",
+        },
       },
+      required: ["nameColumn", "valueColumn"],
     },
   },
   {
     type: "function",
-    function: {
-      name: "create_area_chart",
-      description:
-        "Create an area chart for showing cumulative trends over time. Best for: visualizing volume or magnitude over time, showing cumulative totals, stacked time series",
-      parameters: {
-        type: "object",
-        properties: {
-          xAxisColumn: {
-            type: "string",
-            description: "Column name for X-axis (typically time or sequential data)",
-          },
-          yAxisColumns: {
-            type: "array",
-            items: { type: "string" },
-            description: "Column name(s) for Y-axis (numeric values). Can be multiple for stacked areas",
-          },
-          xAxisLabel: {
-            type: "string",
-            description: "Optional label for X-axis",
-          },
-          yAxisLabel: {
-            type: "string",
-            description: "Optional label for Y-axis",
-          },
-          colors: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional array of hex color codes for each area",
-          },
-          stacked: {
-            type: "boolean",
-            description: "Whether to stack areas on top of each other",
-          },
-          title: {
-            type: "string",
-            description: "Optional chart title",
-          },
-          description: {
-            type: "string",
-            description: "Optional explanation of what the chart shows",
-          },
+    strict: false,
+    name: "create_area_chart",
+    description:
+      "Create an area chart for showing cumulative trends over time. Best for: visualizing volume or magnitude over time, showing cumulative totals, stacked time series",
+    parameters: {
+      type: "object",
+      properties: {
+        xAxisColumn: {
+          type: "string",
+          description: "Column name for X-axis (typically time or sequential data)",
         },
-        required: ["xAxisColumn", "yAxisColumns"],
+        yAxisColumns: {
+          type: "array",
+          items: { type: "string" },
+          description: "Column name(s) for Y-axis (numeric values). Can be multiple for stacked areas",
+        },
+        xAxisLabel: {
+          type: "string",
+          description: "Optional label for X-axis",
+        },
+        yAxisLabel: {
+          type: "string",
+          description: "Optional label for Y-axis",
+        },
+        colors: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional array of hex color codes for each area",
+        },
+        stacked: {
+          type: "boolean",
+          description: "Whether to stack areas on top of each other",
+        },
+        title: {
+          type: "string",
+          description: "Optional chart title",
+        },
+        description: {
+          type: "string",
+          description: "Optional explanation of what the chart shows",
+        },
       },
+      required: ["xAxisColumn", "yAxisColumns"],
     },
   },
   {
     type: "function",
-    function: {
-      name: "create_scatter_plot",
-      description:
-        "Create a scatter plot for showing correlation between two variables. Best for: correlation analysis, distribution patterns, outlier detection",
-      parameters: {
-        type: "object",
-        properties: {
-          xAxisColumn: {
-            type: "string",
-            description: "Column name for X-axis (numeric)",
-          },
-          yAxisColumn: {
-            type: "string",
-            description: "Column name for Y-axis (numeric)",
-          },
-          nameColumn: {
-            type: "string",
-            description: "Optional column for point labels",
-          },
-          xAxisLabel: {
-            type: "string",
-            description: "Optional label for X-axis",
-          },
-          yAxisLabel: {
-            type: "string",
-            description: "Optional label for Y-axis",
-          },
-          color: {
-            type: "string",
-            description: "Optional hex color code for points",
-          },
-          title: {
-            type: "string",
-            description: "Optional chart title",
-          },
-          description: {
-            type: "string",
-            description: "Optional explanation of what the chart shows",
-          },
+    strict: false,
+    name: "create_scatter_plot",
+    description:
+      "Create a scatter plot for showing correlation between two variables. Best for: correlation analysis, distribution patterns, outlier detection",
+    parameters: {
+      type: "object",
+      properties: {
+        xAxisColumn: {
+          type: "string",
+          description: "Column name for X-axis (numeric)",
         },
-        required: ["xAxisColumn", "yAxisColumn"],
+        yAxisColumn: {
+          type: "string",
+          description: "Column name for Y-axis (numeric)",
+        },
+        nameColumn: {
+          type: "string",
+          description: "Optional column for point labels",
+        },
+        xAxisLabel: {
+          type: "string",
+          description: "Optional label for X-axis",
+        },
+        yAxisLabel: {
+          type: "string",
+          description: "Optional label for Y-axis",
+        },
+        color: {
+          type: "string",
+          description: "Optional hex color code for points",
+        },
+        title: {
+          type: "string",
+          description: "Optional chart title",
+        },
+        description: {
+          type: "string",
+          description: "Optional explanation of what the chart shows",
+        },
       },
+      required: ["xAxisColumn", "yAxisColumn"],
     },
   },
   {
     type: "function",
-    function: {
-      name: "create_composed_chart",
-      description:
-        "Create a composed chart that combines bars, lines, and/or areas on shared axes. Best for: comparing series of different kinds at once — e.g. showing totals/counts as bars alongside a trend, average, or rate as a line. Use when the data has multiple numeric series that are better read together but with different visual emphasis. At least one of bars, lines, or areas must be provided.",
-      parameters: {
-        type: "object",
-        properties: {
-          xAxisColumn: {
-            type: "string",
-            description: "Column name for the X-axis (categories or time/sequential data), shared by all series",
-          },
-          bars: {
-            type: "array",
-            items: { type: "string" },
-            description: "Column name(s) to render as bars (typically magnitudes, counts, or totals)",
-          },
-          lines: {
-            type: "array",
-            items: { type: "string" },
-            description: "Column name(s) to render as lines (typically trends, averages, or rates)",
-          },
-          areas: {
-            type: "array",
-            items: { type: "string" },
-            description: "Column name(s) to render as filled areas (typically cumulative volume)",
-          },
-          xAxisLabel: {
-            type: "string",
-            description: "Optional label for X-axis",
-          },
-          yAxisLabel: {
-            type: "string",
-            description: "Optional label for Y-axis",
-          },
-          colors: {
-            type: "array",
-            items: { type: "string" },
-            description: "Optional array of hex color codes for the series",
-          },
-          title: {
-            type: "string",
-            description: "Optional chart title",
-          },
-          description: {
-            type: "string",
-            description: "Optional explanation of what the chart shows",
-          },
+    strict: false,
+    name: "create_composed_chart",
+    description:
+      "Create a composed chart that combines bars, lines, and/or areas on shared axes. Best for: comparing series of different kinds at once — e.g. showing totals/counts as bars alongside a trend, average, or rate as a line. Use when the data has multiple numeric series that are better read together but with different visual emphasis. At least one of bars, lines, or areas must be provided.",
+    parameters: {
+      type: "object",
+      properties: {
+        xAxisColumn: {
+          type: "string",
+          description: "Column name for the X-axis (categories or time/sequential data), shared by all series",
         },
-        required: ["xAxisColumn"],
+        bars: {
+          type: "array",
+          items: { type: "string" },
+          description: "Column name(s) to render as bars (typically magnitudes, counts, or totals)",
+        },
+        lines: {
+          type: "array",
+          items: { type: "string" },
+          description: "Column name(s) to render as lines (typically trends, averages, or rates)",
+        },
+        areas: {
+          type: "array",
+          items: { type: "string" },
+          description: "Column name(s) to render as filled areas (typically cumulative volume)",
+        },
+        xAxisLabel: {
+          type: "string",
+          description: "Optional label for X-axis",
+        },
+        yAxisLabel: {
+          type: "string",
+          description: "Optional label for Y-axis",
+        },
+        colors: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional array of hex color codes for the series",
+        },
+        title: {
+          type: "string",
+          description: "Optional chart title",
+        },
+        description: {
+          type: "string",
+          description: "Optional explanation of what the chart shows",
+        },
       },
+      required: ["xAxisColumn"],
     },
   },
 ]

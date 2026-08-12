@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
           console.log(`OpenAI API call attempt ${attempt}/${retries}`)
 
           const response = await client.responses.create({
-            model: process.env.OPENAI_MODEL || "gpt-5",
+            model: process.env.OPENAI_MODEL || "gpt-5.6-terra",
             input: [
               {
                 role: "user",

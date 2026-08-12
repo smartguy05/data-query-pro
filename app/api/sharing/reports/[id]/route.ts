@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getAuthContext } from '@/lib/auth/require-auth';
-import { successResponse, badRequest, unauthorized, internalError } from '@/lib/api/response';
+import { successResponse, badRequest, unauthorized, forbidden, internalError } from '@/lib/api/response';
 import * as sharingRepo from '@/lib/db/repositories/sharing-repository';
 
 export async function GET(
@@ -12,7 +12,10 @@ export async function GET(
     if (!auth) return unauthorized();
 
     const { id } = await params;
-    const shares = await sharingRepo.getSharesForReport(id);
+    const shares = await sharingRepo.getSharesForReport(id, auth.userId);
+    if (!shares) {
+      return forbidden('Report not found or you are not the owner');
+    }
     return successResponse(shares);
   } catch (error) {
     console.error('[GET /api/sharing/reports/[id]]', error);

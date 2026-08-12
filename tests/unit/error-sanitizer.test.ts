@@ -86,6 +86,31 @@ describe("sanitizeDbError", () => {
     expect(result.code).toBe("TABLE_NOT_FOUND")
     expect(result.isUserError).toBe(true)
   })
+
+  // Regression guard, and the executable justification for a design decision:
+  // /api/query/execute classifies cancellation from its OWN AbortSignal, never
+  // from the driver's message. These are the real strings each driver throws on a
+  // cancelled query, and none of them is recognised here — they all fall through
+  // to the generic 500. If someone ever adds patterns for them, the execute route
+  // still must not depend on that.
+  describe("cancellation messages are NOT recognised (classify from signal.aborted instead)", () => {
+    const cancellationMessages = [
+      "canceling statement due to user request", // PostgreSQL
+      "Query execution was interrupted", // MySQL
+      "Canceled.", // SQL Server (mssql RequestError)
+    ]
+
+    for (const message of cancellationMessages) {
+      it(`falls through to a generic database error: ${message}`, () => {
+        const result = sanitizeDbError(new Error(message))
+        expect(result.message).toBe("Failed to execute database operation")
+        expect(result.code).toBe("DATABASE_ERROR")
+        // isUserError false ⇒ HTTP 500, which is why the route must return its own
+        // cancelled response rather than rethrowing into the outer handler.
+        expect(result.isUserError).toBe(false)
+      })
+    }
+  })
 })
 
 describe("sanitizeOpenAIError", () => {

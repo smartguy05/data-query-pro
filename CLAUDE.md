@@ -39,6 +39,10 @@ npm start            # Start production server
 
 # Code Quality
 npm run lint         # Run Next.js linter
+npm run test         # Run the Vitest suite
+
+# Evals
+pnpm eval            # Run the NL→SQL eval harness (see evals/README.md)
 ```
 
 ## Architecture Overview
@@ -84,6 +88,7 @@ app/                          # Next.js 15 App Router
     ├── query/
     │   ├── generate/        # Natural language → SQL via OpenAI
     │   ├── execute/         # Execute SQL on connected database
+    │   ├── cancel/          # Kill an in-flight query on the database (POST { queryId })
     │   ├── followup/        # Follow-up questions on query results
     │   ├── enhance/         # Enhance vague queries with AI
     │   └── revise/          # Revise failed queries automatically
@@ -93,6 +98,7 @@ app/                          # Next.js 15 App Router
     │   ├── upload-schema/   # Upload schema to OpenAI file storage
     │   ├── update-description/     # Manually update descriptions
     │   ├── start-introspection/    # Background introspection process
+    │   ├── cancel-introspection/   # Cancel a running introspection (POST { processId })
     │   ├── sample-data/     # Read-only sample rows for a table (POST)
     │   └── status/          # Poll introspection status
     ├── connection/
@@ -140,6 +146,7 @@ components/                   # React components
 ├── query-tab-content.tsx    # Individual query tab display
 ├── followup-dialog.tsx      # Follow-up question dialog
 ├── default-limit-select.tsx # Default query row limit dropdown (presets + No Limit + custom numeric)
+├── dirty-read-toggle.tsx    # Dirty-read (READ UNCOMMITTED) switch; notes the per-dialect no-op
 ├── chart-display.tsx        # Main chart renderer
 ├── content-loading-gate.tsx # Loading gate until context initialized
 ├── auth-provider.tsx        # SessionProvider wrapper (conditional)
@@ -213,6 +220,7 @@ lib/                         # Shared utilities
     ├── connection-validator.ts # Connection validation utilities
     ├── sql-validator.ts     # AST-based read-only SQL validation (validateReadOnlySql)
     ├── sql-limit.ts         # Dialect-aware default row-limit injection (sanitizeLimit, applyDefaultRowLimit)
+    ├── query-registry.ts    # In-flight queryId -> AbortController map backing /api/query/cancel
     ├── adapters/            # Database-specific adapters
     │   ├── postgresql.adapter.ts
     │   ├── mysql.adapter.ts
@@ -263,6 +271,16 @@ hooks/                       # Custom React hooks
 
 instrumentation.ts           # Next.js 15 startup hook (runs DB migrations)
 
+evals/                       # Standalone NL→SQL eval harness (tsx CLI, `pnpm eval`)
+├── README.md                # Full usage docs (prerequisites, flags, output, gotchas)
+├── run-eval.ts              # Runner: sweeps models × efforts × questions × trials
+├── dataset.ts               # 32 questions with golden SQL (core 16 + extended 16)
+├── types.ts                 # Eval result/record types
+├── pricing.json             # USD per 1M tokens per model (ships with null rates)
+├── verify-goldens.ts        # Sanity-check golden SQL against the demo DB
+├── lib/                     # api-client, classify, compare, pricing, report, vector-store
+└── results/                 # Run output: .jsonl + self-contained .html (gitignored)
+
 docs/                        # Developer documentation
 ├── README.md                # Documentation index
 ├── architecture/            # System design docs (overview, state, auth-and-data-layer)
@@ -295,7 +313,8 @@ config/                      # Server configuration
   - All credentials encrypted with AES-256-GCM (`lib/db/encryption.ts`)
 - **Auth context**: All API routes call `getAuthContext(request)` — returns `null` when auth disabled (pass-through), or `{ userId, isAdmin, groups }` when enabled
 - **Connection credential resolution**: When auth enabled, `connection-validator.ts` resolves credentials from app DB instead of trusting client-supplied passwords
-- **Admin detection**: From Authentik OIDC groups claim, configurable via `AUTH_ADMIN_GROUP` env var
+- **Provider-neutral OIDC**: works with **Authentik** and **Azure Entra ID**, one provider per deployment, selected entirely by env. All claim differences are isolated in `lib/auth/oidc-profile.ts` (pure functions, `tests/unit/oidc-profile.test.ts`); shape comes from `lib/auth/config.ts` (`getProviderId`/`getProviderName`/`getScopes`/`getAdminSpec`), whose defaults reproduce the original Authentik behavior. See [docs/guides/azure-entra-setup.md](./docs/guides/azure-entra-setup.md)
+- **Admin detection**: `AUTH_ADMIN_GROUP` is matched case-insensitively against the merged `groups` + `roles` claims, so it accepts an Authentik group name, an Entra group object GUID, or an Entra App Role value. Group changes only take effect after the user signs out and back in (claims are read only when the JWT is minted)
 - **Sharing**: Connections and reports can be shared with other users (view/edit/admin permissions)
 - **Data migration**: First-login dialog imports localStorage data into user's account
 
@@ -340,8 +359,13 @@ config/                      # Server configuration
 - Route: `/api/query/generate/route.ts`
 - Uses OpenAI Responses API with vector store for schema context
 - Only generates SELECT statements for safety
-- Returns: `{ sql, explanation, confidence, warnings }`
+- Returns: `{ sql, explanation, confidence, warnings }`, plus `usage` when OpenAI reports it
 - Handles non-JSON responses with fallback parsing
+- **Reasoning effort**: set server-side via `OPENAI_REASONING_EFFORT` (`none|minimal|low|medium|high|xhigh|max`). The `reasoning` parameter is **gpt-5 / o-series models only**, and not every reasoning model supports every value — the API validates, not the SDK. When nothing resolves, the `reasoning` key is omitted from the request entirely, so default behavior is unchanged. Eval-override requests (flag on + body `model`) take effort **from the body only** — the env var is not consulted, so a bare eval variant measures the provider default
+- **Model / effort overrides (eval-only)**: the request body accepts optional `model` and `effort`. Both are honored **only** when `EVAL_ALLOW_MODEL_OVERRIDE=true`; otherwise they are ignored entirely. With the flag on, a supplied `model` failing `/^[a-zA-Z0-9._:-]{1,64}$/` returns HTTP 400 instead of silently falling back to `OPENAI_MODEL`. These exist for the eval harness, not for normal clients
+- **`usage` shape**: `{ model, inputTokens, cachedInputTokens, cacheWriteTokens, outputTokens, reasoningTokens, totalTokens }`. `model` is the model OpenAI *actually served* — typically a dated snapshot like `gpt-5.4-2026-03-05`, not the requested alias. Token semantics: `reasoningTokens` is a **subset** of `outputTokens`; `cachedInputTokens` and `cacheWriteTokens` are **subsets** of `inputTokens` — breakdowns, never additive
+- `usage` also rides **error responses** (e.g. the 500 when the OpenAI response status isn't `"completed"`) whenever OpenAI billed tokens before the failure — the eval harness reads it there for cost accounting
+- This applies to the **generate route only**. The other OpenAI routes (enhance, revise, followup, suggestions, generate-descriptions, chart) are unchanged and still discard usage
 
 ### Query Enhancement
 - Route: `/api/query/enhance/route.ts`
@@ -365,17 +389,38 @@ config/                      # Server configuration
 - Validates queries with the AST-based `validateReadOnlySql(sql, dbType)` (`lib/database/sql-validator.ts`) — allows a single `SELECT` only; the old regex keyword blocklist (`DANGEROUS_SQL_KEYWORDS`) was removed
 - **Default row limit**: the query page's "Default row limit" dropdown (`components/default-limit-select.tsx`; presets 25/50/100/200/500, No Limit, custom numeric) sends `defaultLimit` with generate + execute requests. Execute injects a dialect-aware limit (`LIMIT n`, or `TOP (n)` for SQL Server) via `applyDefaultRowLimit` (`lib/database/sql-limit.ts`) ONLY when the SQL has no explicit LIMIT/TOP/FETCH — explicit limits always win; fail-open on unparseable SQL. The generate prompt's rule 4 uses the same value. Selection persists (localStorage `default_query_limit`, or preferences JSONB in auth mode) via `defaultQueryLimit`/`setDefaultQueryLimit` on the context. Response includes `limitApplied` when injected
 - Sets `config.readOnly = true` so the adapter enforces read-only execution at the connection/transaction level (see Read-Only Query Execution below)
+- **Dirty reads (NOLOCK)**: the query page's "Dirty reads (NOLOCK)" switch (`components/dirty-read-toggle.tsx`) sends `dirtyRead: true` with execute + sample-data requests, **default OFF**. Enforced at the adapter isolation level, never by rewriting SQL (see Dirty Reads below). Persists via `dirtyRead`/`setDirtyRead` on the context (localStorage `dirty_read`, or preferences JSONB in auth mode). Response includes `dirtyReadApplied` (`true` = isolation lowered, `false` = no-op on this engine, absent = not requested)
+- **Cancellation**: accepts an optional client-generated `queryId` (UUID) and registers an `AbortController` in `lib/database/query-registry.ts`; `POST /api/query/cancel { queryId }` aborts it, which each adapter turns into a real database-level kill (see Query Cancellation below). Also wires `request.signal`, so a client disconnect kills the query. Responds `499` with `{ cancelled: true }`; cancellation is classified from `signal.aborted`, **never** from the driver's error message
 - Uses database adapters (`lib/database/adapters/`) for database-specific execution
 - Returns formatted results with columns, rows, execution time
-- Every execution is recorded fire-and-forget via `logQuery()` (see Query Audit Log below)
+- Every execution is recorded fire-and-forget via `logQuery()` (see Query Audit Log below); a cancelled execution logs `success: false` with the `CANCELLED_LOG_MESSAGE` sentinel (no migration needed)
+
+### Query Cancellation
+- **Primitive**: an `AbortSignal` threaded through `executeQuery(sql, options?)` / `introspectSchema(onProgress?, options?)` (`ExecuteOptions` in `lib/database/types.ts`). There is deliberately **no** `cancel()` method on `IDatabaseAdapter` — the registry stays driver-free and therefore unit-testable, and `signal.aborted` handles cancel-before-start for free
+- **Registry** (`lib/database/query-registry.ts`): `queryId -> AbortController` on `globalThis` (a module-level `Map` splits under Next dev HMR). Keys are namespaced `ownerKey:queryId` so cross-owner cancellation is structurally impossible; duplicate keys and a full registry are **refused**, never overwritten/evicted (the controller is the only handle to a running query). **Process-local** — will not work across multiple instances; `QUERY_TIMEOUT.STATEMENT_MS` is the backstop
+- Per-dialect kill, and `adapter.supportsCancellation` / `supportsQueryCancellation(type)`:
+  - **PostgreSQL**: `pg_backend_pid()` rides the existing `set_config` round trip; killed with `pg_cancel_backend(pid)` from a second short-lived client. NOT postgres.js's own `query.cancel()`, which discards its promise and can crash the process on a cancel-socket error
+  - **MySQL**: `connection.threadId` + `KILL QUERY <id>` on a second connection (never `destroy()`, which leaves the query running server-side)
+  - **SQL Server**: the `Request` is retained and `request.cancel()` sends a tedious ATTENTION packet on the same socket — no second connection
+  - **SQLite**: **not cancellable**, twice over — no `sqlite3_interrupt` binding, and synchronous execution blocks the event loop so the cancel request can't even be received. The UI hides the button
+- **Introspection** cancels **cooperatively** (`signal.throwIfAborted()` between tables in `base-adapter.ts` + the MySQL/SQLite overrides) — the per-table loop is what's slow, not any single query, so this works on **every** engine including SQLite. `POST /api/schema/cancel-introspection { processId }`; job state + controllers live in `lib/schema/introspection-jobs.ts` (status `cancelled` is terminal — `use-schema-loading.ts` must stop polling on it)
+- Client aborts also cover the dashboard widgets (connection switch / unmount) and schema sample-data (collapse / unmount). An `AbortError` in `app/query/page.tsx` **must** short-circuit before `recordQueryOutcome(false)` or a cancel would count as a failed query in the accuracy stat
+- Deliberately excluded: `/api/connection/test`, whose failure mode is a hanging *connect* — that needs a shorter timeout, not cancellation
 
 ### Read-Only Query Execution
-- `AdapterConnectionConfig.readOnly` flag, set in `/api/query/execute` and `/api/schema/sample-data`, enforces read-only at the dialect level:
-  - **PostgreSQL**: read-only transaction
-  - **MySQL**: read-only transaction + ROLLBACK
-  - **SQL Server**: wrap + always-ROLLBACK
-  - **SQLite**: connect-time `readonly`
-- Schema introspection stays writable (not affected by the flag)
+- `AdapterConnectionConfig.readOnly` flag, set in `/api/query/execute` and `/api/schema/sample-data`, enforces read-only at the dialect level (the optional `dirtyRead` flag lowers the isolation of that same transaction, never replacing it):
+  - **PostgreSQL**: read-only transaction *(dirty read: no-op — READ UNCOMMITTED ≡ READ COMMITTED)*
+  - **MySQL**: read-only transaction + ROLLBACK *(dirty read: `SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED` at connect)*
+  - **SQL Server**: wrap + always-ROLLBACK *(dirty read: `tx.begin(sql.ISOLATION_LEVEL.READ_UNCOMMITTED)` — per-transaction, never session)*
+  - **SQLite**: connect-time `readonly` *(dirty read: no-op — `PRAGMA read_uncommitted` needs shared-cache mode)*
+- Schema introspection stays writable and at default isolation (**not** affected by either flag) — half-committed DDL leaking into the schema graph would poison the vector store and every generated query
+- A per-dialect statement timeout (`QUERY_TIMEOUT.STATEMENT_MS`, 120s) caps every user query: PostgreSQL `statement_timeout` (SET LOCAL, same round trip as `set_config`), MySQL `max_execution_time`, SQL Server `requestTimeout`. It is the only protection when a kill fails or is impossible
+
+### Dirty Reads (READ UNCOMMITTED / "NOLOCK")
+- Opt-in per user, **default off** (`DIRTY_READ.DEFAULT`, `isDirtyRead` type guard in `lib/constants.ts`). `supportsDirtyRead(type)` (`lib/database/types.ts`) is true only for MySQL and SQL Server
+- **Enforced at the adapter, not in the SQL text** — and it cannot be otherwise: `validateReadOnlySql` rejects `SET TRANSACTION ISOLATION LEVEL ...` at three independent points (`WRITE_KEYWORDS` includes `set`; `heuristicReadOnly` rejects an embedded `;`; the AST path rejects >1 statement). Isolation also covers tables reached through views/CTEs/subqueries, which per-table `WITH (NOLOCK)` hints would silently miss
+- **No AI prompt change**: the model has nothing valid to emit on MySQL/PG/SQLite, and a forgotten hint on SQL Server would create a silently mixed-isolation query. (A model-emitted `WITH (NOLOCK)` does pass the validator — `\block\b` cannot match inside `NOLOCK` — so don't "fix" that regex)
+- **Correctness warning**: results may be *wrong*, not merely stale — rows from transactions that later roll back, and rows double-counted or skipped during data movement. On SQL Server it can also make a working query **fail** with error 601
 
 ### SQL Validation (AST)
 - `lib/database/sql-validator.ts` exports `validateReadOnlySql(sql, dbType)`
@@ -471,15 +516,22 @@ config/                      # Server configuration
 | `suggestions_{connectionId}` | Cached AI suggestions per connection |
 | `dismissed_notifications` | User dismissed notification IDs |
 | `default_query_limit` | Default row limit for executed queries (`number` or `'none'`; preferences JSONB in auth mode) |
+| `dirty_read` | Dirty-read (READ UNCOMMITTED) preference for executed queries (`boolean`, default `false`; preferences JSONB in auth mode) |
 
 ## Environment Variables
 
 Required in `.env.local`:
 ```
 OPENAI_API_KEY=sk-...        # Required for AI features
-OPENAI_MODEL=gpt-5.4        # Model for query generation
+OPENAI_MODEL=gpt-5.6-sol    # Model for query generation
 DEMO_RATE_LIMIT=             # Optional: number of free requests per 24h per IP (empty = unlimited)
 TRUSTED_PROXIES=             # Optional: comma-separated trusted proxy IPs for rate limiting
+OPENAI_REASONING_EFFORT=     # Optional: none|minimal|low|medium|high|xhigh|max (gpt-5 / o-series only)
+                             # Applies to /api/query/generate only. Empty = omit the
+                             # `reasoning` parameter entirely (provider default)
+EVAL_ALLOW_MODEL_OVERRIDE=   # Optional, default off. When "true", /api/query/generate honors
+                             # client-supplied `model` + `effort` in the request body.
+                             # For the eval harness only — leave unset in production
 
 # Authentication (optional - all 3 required to enable auth mode)
 AUTH_OIDC_ISSUER=              # e.g. https://auth.example.com/application/o/dataquery-pro/
@@ -487,7 +539,16 @@ AUTH_OIDC_CLIENT_ID=
 AUTH_OIDC_CLIENT_SECRET=
 AUTH_SECRET=                   # JWT signing key (openssl rand -hex 32)
 AUTH_URL=                      # e.g. http://localhost:3000 (required by Auth.js v5)
-AUTH_ADMIN_GROUP=dataquery-admins  # Authentik group for admin access
+AUTH_ADMIN_GROUP=dataquery-admins  # Comma-separated group names / group object IDs /
+                               # App Role values granting admin (matched against the
+                               # merged `groups` + `roles` claims, case-insensitive)
+
+# Provider shape (optional; defaults reproduce the original Authentik behavior)
+AUTH_OIDC_PROVIDER_ID=         # default: authentik. Forms /api/auth/callback/<id> —
+                               # changing it requires re-registering the redirect URI
+AUTH_OIDC_PROVIDER_NAME=       # default: Authentik. Sign-in button label
+AUTH_OIDC_SCOPES=              # default: openid email profile groups
+                               # Entra has NO groups scope: use "openid email profile"
 
 # App Database (required when auth is enabled)
 APP_DATABASE_URL=              # e.g. postgres://user:pass@localhost:5432/dataquery_app
@@ -614,6 +675,19 @@ cat scripts/demo-database.sql | podman exec -i demo-postgres psql -U demo -d clo
 
 Connection: `localhost:5432`, database: `cloudmetrics`, user: `demo`, password: `demo`
 
+### NL→SQL Eval Harness
+
+A standalone harness in `evals/` measures how well a model turns natural language into SQL, driving the app's real `/api/query/generate` and `/api/query/execute` routes against the CloudMetrics demo database.
+
+- **Run it**: `pnpm eval` (tsx CLI). Requires a running dev server, `EVAL_ALLOW_MODEL_OVERRIDE=true` in `.env.local`, and `DEMO_RATE_LIMIT` unset
+- **Its own demo DB**: the harness uses podman container `dataquery-demo-db` on port **5433** (defaults of `--db-container` / `--db-port`), which it auto-starts, reseeds when the time-anchored seed goes stale, and stops again **only if this run started it** (a container already running is left running) — separate from the `demo-postgres` container on port 5432 used by the Playwright testing plan above
+- **What a pass means**: the generated SQL executes without error, returns at least one row, and its result set matches the question's authored golden SQL (`evals/dataset.ts` — 32 questions: core 16 + extended 16)
+- **Ranking**: by pass count, ties broken by median generation latency of passing trials (equally accurate but faster ranks higher). **Cost is reported alongside but never affects ranking**
+- **Pricing caveat**: `evals/pricing.json` ships with **null rates**, so cost renders as `—` until per-model `input`/`output` rates are filled in; token counts are still reported
+- **Output**: `evals/results/` (gitignored) gets a per-trial `.jsonl` plus a self-contained `.html` report
+- **Baseline on record**: gpt-5.4 scored **95/96 (99.0%)** with median generation latency **5.4s**, measured on the full 32-question set
+- Full usage docs — prerequisites, CLI flags, reasoning-effort sweeps, failure classification, gotchas — live in [evals/README.md](./evals/README.md)
+
 ## Documentation Reference
 
 | Topic | Documentation |
@@ -632,8 +706,10 @@ Connection: `localhost:5432`, database: `cloudmetrics`, user: `demo`, password: 
 | Deployment (Docker Self-Host) | [docs/guides/deployment.md](./docs/guides/deployment.md) |
 | Performance | [docs/guides/performance.md](./docs/guides/performance.md) |
 | Authentication Testing | [docs/guides/authentication-testing.md](./docs/guides/authentication-testing.md) |
+| Azure Entra ID Setup | [docs/guides/azure-entra-setup.md](./docs/guides/azure-entra-setup.md) |
 | OpenAI Integration | [docs/guides/openai-integration.md](./docs/guides/openai-integration.md) |
 | Adding Database Support | [docs/guides/adding-database-support.md](./docs/guides/adding-database-support.md) |
 | Common Tasks | [docs/guides/common-tasks.md](./docs/guides/common-tasks.md) |
 | Claude Design System (claude.ai/design) | [docs/guides/design-system.md](./docs/guides/design-system.md) |
 | Testing Plan | [docs/testing/README.md](./docs/testing/README.md) |
+| NL→SQL Eval Harness | [evals/README.md](./evals/README.md) |

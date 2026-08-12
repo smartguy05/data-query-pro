@@ -61,7 +61,9 @@ export async function POST(request: NextRequest) {
       await adapter.connect(config)
       console.log("[v0] Connected to database successfully")
 
-      const result = await adapter.introspectSchema()
+      // Client disconnect abandons the per-table walk (cooperative cancellation)
+      // instead of introspecting a whole database for a request nobody is awaiting.
+      const result = await adapter.introspectSchema(undefined, { signal: request.signal })
 
       // Add default AI descriptions
       const schema = {
@@ -82,7 +84,12 @@ export async function POST(request: NextRequest) {
         schema: schema,
       })
     } finally {
-      await adapter.disconnect()
+      // Guarded so a disconnect failure can't replace the response or the real error.
+      try {
+        await adapter.disconnect()
+      } catch (err) {
+        console.warn("[introspect] disconnect failed:", err)
+      }
     }
   } catch (error) {
     console.error("[v0] Schema introspection error:", error)

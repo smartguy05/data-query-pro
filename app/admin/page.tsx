@@ -451,7 +451,7 @@ export default function AdminPage() {
                 ) : (
                   <div className="flex flex-1 gap-2">
                     <Input
-                      placeholder="Authentik group name..."
+                      placeholder="Group name or ID..."
                       value={groupName}
                       onChange={(e) => setGroupName(e.target.value)}
                     />

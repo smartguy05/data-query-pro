@@ -41,7 +41,12 @@ export async function POST(request: NextRequest) {
         defaultSchema: defaultSchemaForType(dbType),
       })
     } finally {
-      await adapter.disconnect()
+      // Guarded so a disconnect failure can't replace the response or the real error.
+      try {
+        await adapter.disconnect()
+      } catch (err) {
+        console.warn("[schema-list] disconnect failed:", err)
+      }
     }
   } catch (error) {
     const sanitized = sanitizeDbError(error)

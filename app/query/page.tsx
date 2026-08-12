@@ -30,6 +30,8 @@ import type { ChartConfig } from "@/models/chart-config.interface"
 import { QueryTabContent } from "@/components/query-tab-content"
 import { FollowUpDialog } from "@/components/followup-dialog"
 import { DefaultLimitSelect } from "@/components/default-limit-select"
+import { DirtyReadToggle } from "@/components/dirty-read-toggle"
+import { supportsQueryCancellation } from "@/lib/database/types"
 import { useOpenAIFetch } from "@/hooks/use-openai-fetch"
 import { useOpenAIKey } from "@/hooks/use-openai-key"
 import { ApiKeyDialog } from "@/components/api-key-dialog"
@@ -63,6 +65,11 @@ export default function QueryPage() {
   // Revise query state
   const [revisingTabId, setRevisingTabId] = useState<string | null>(null)
 
+  // Cancellation. The map is a ref, not state: tabs execute independently and
+  // concurrently, and mutating in-flight bookkeeping must not re-render.
+  const executeInflightRef = useRef<Map<string, { controller: AbortController; queryId: string }>>(new Map())
+  const [cancellingTabId, setCancellingTabId] = useState<string | null>(null)
+
   // Save report dialog
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [saveTabId, setSaveTabId] = useState<string | null>(null)
@@ -78,6 +85,17 @@ export default function QueryPage() {
 
   // Auto-execute tracking for reports
   const autoExecuteTabRef = useRef<string | null>(null)
+
+  // Navigating away kills any running queries on the database rather than leaving
+  // them to finish for a page nobody is looking at. Works server-side because the
+  // execute route wires request.signal into the same cancellation path.
+  useEffect(() => {
+    const inflight = executeInflightRef.current
+    return () => {
+      inflight.forEach(({ controller }) => controller.abort())
+      inflight.clear()
+    }
+  }, [])
 
   // Handle URL parameters
   useEffect(() => {
@@ -414,7 +432,13 @@ export default function QueryPage() {
     const tab = tabs.find(t => t.id === tabId)
     if (!tab?.editableSql) return
 
-    updateTab(tabId, { isExecuting: true, executionError: undefined })
+    updateTab(tabId, { isExecuting: true, executionError: undefined, executionCancelled: false })
+
+    // Tracked per tab, since tabs execute independently and concurrently. A ref,
+    // not state: mutating it must not trigger a re-render.
+    const queryId = crypto.randomUUID()
+    const controller = new AbortController()
+    executeInflightRef.current.set(tabId, { controller, queryId })
 
     try {
       const activeConnection = connectionInformation.getConnection()
@@ -427,14 +451,17 @@ export default function QueryPage() {
       // Default row limit: the server injects it only when the SQL has no explicit limit.
       const limit = connectionInformation.defaultQueryLimit
       const limitField = limit === 'none' ? {} : { defaultLimit: limit }
+      // Omitted when off so the default request shape is unchanged.
+      const dirtyField = connectionInformation.dirtyRead ? { dirtyRead: true } : {}
       const executeBody = authEnabled
-        ? { sql: tab.editableSql, connectionId: activeConnection?.id, source: activeConnection?.source, type: activeConnection?.type, ...auditFields, ...limitField }
-        : { sql: tab.editableSql, connection: activeConnection, ...auditFields, ...limitField };
+        ? { sql: tab.editableSql, connectionId: activeConnection?.id, source: activeConnection?.source, type: activeConnection?.type, queryId, ...auditFields, ...limitField, ...dirtyField }
+        : { sql: tab.editableSql, connection: activeConnection, queryId, ...auditFields, ...limitField, ...dirtyField };
 
       const response = await fetch("/api/query/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(executeBody),
+        signal: controller.signal,
       })
 
       if (!response.ok) {
@@ -457,9 +484,27 @@ export default function QueryPage() {
 
       toast({
         title: "Query Executed Successfully",
-        description: `Returned ${result.rowCount} rows in ${result.executionTime}ms${result.limitApplied ? ` (limited to ${result.limitApplied} rows by default)` : ""}`,
+        description: `Returned ${result.rowCount} rows in ${result.executionTime}ms`
+          + (result.limitApplied ? ` (limited to ${result.limitApplied} rows by default)` : "")
+          + (result.dirtyReadApplied === true ? " · dirty reads on" : "")
+          + (result.dirtyReadApplied === false ? " · dirty reads not supported on this database" : ""),
       })
     } catch (err) {
+      // A cancellation is NOT a failed query. Returning here is what keeps it out
+      // of the accuracy tally: it skips accuracyBaselineSuccess, skips
+      // recordQueryOutcome(false), skips the destructive toast, and skips history
+      // (a cancelled query isn't history). Checked via `.name` rather than
+      // `instanceof DOMException`, which is brittle across jsdom/Node realms.
+      if ((err as Error)?.name === 'AbortError') {
+        updateTab(tabId, {
+          isExecuting: false,
+          executionError: undefined,
+          executionCancelled: true,
+        })
+        toast({ title: "Query cancelled" })
+        return
+      }
+
       const errorMessage = err instanceof Error ? err.message : "Failed to execute query"
       updateTab(tabId, {
         isExecuting: false,
@@ -474,6 +519,35 @@ export default function QueryPage() {
         description: errorMessage,
         variant: "destructive",
       })
+    } finally {
+      // The function had no finally before; without this the ref would leak an
+      // entry per execution.
+      executeInflightRef.current.delete(tabId)
+    }
+  }
+
+  /**
+   * Cancels a tab's running query. Sends the server-side cancel FIRST, while the
+   * socket is still open: aborting first would close it, and whether the server
+   * then learns of the disconnect depends on the deployment, while its `finally`
+   * may already have unregistered the query — leaving it running unattended on
+   * the database. `isCancelling` keeps the UI feeling immediate meanwhile.
+   */
+  const cancelTabQuery = async (tabId: string) => {
+    const inflight = executeInflightRef.current.get(tabId)
+    if (!inflight) return
+    setCancellingTabId(tabId)
+    try {
+      await fetch("/api/query/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ queryId: inflight.queryId }),
+      })
+    } catch {
+      // Best effort — the abort below still unblocks the UI.
+    } finally {
+      inflight.controller.abort()
+      setCancellingTabId(null)
     }
   }
 
@@ -854,14 +928,26 @@ export default function QueryPage() {
                   </>
                 )}
               </Button>
-              <div className="ml-auto flex items-center gap-2">
-                <Label htmlFor="default-limit" className="text-sm text-muted-foreground whitespace-nowrap">
-                  Default row limit
-                </Label>
-                <DefaultLimitSelect
-                  value={connectionInformation.defaultQueryLimit}
-                  onChange={connectionInformation.setDefaultQueryLimit}
-                />
+              <div className="ml-auto flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="dirty-read" className="text-sm text-muted-foreground whitespace-nowrap">
+                    Dirty reads (NOLOCK)
+                  </Label>
+                  <DirtyReadToggle
+                    value={connectionInformation.dirtyRead}
+                    onChange={connectionInformation.setDirtyRead}
+                    databaseType={connectionInformation.currentConnection?.type}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="default-limit" className="text-sm text-muted-foreground whitespace-nowrap">
+                    Default row limit
+                  </Label>
+                  <DefaultLimitSelect
+                    value={connectionInformation.defaultQueryLimit}
+                    onChange={connectionInformation.setDefaultQueryLimit}
+                  />
+                </div>
               </div>
             </div>
           </CardContent>
@@ -924,7 +1010,15 @@ export default function QueryPage() {
                       onSaveReport={() => openSaveDialog(tab.id)}
                       onReviseQuery={() => reviseTabQuery(tab.id)}
                       onVoteAccuracy={(vote) => voteTabAccuracy(tab.id, vote)}
+                      // Omitted on SQLite, which cannot cancel a running query —
+                      // hiding the button beats offering a no-op.
+                      onCancel={
+                        supportsQueryCancellation(connectionInformation.currentConnection?.type)
+                          ? () => cancelTabQuery(tab.id)
+                          : undefined
+                      }
                       isExecuting={tab.isExecuting}
+                      isCancelling={cancellingTabId === tab.id}
                       isRevising={revisingTabId === tab.id}
                       onChartConfigChange={(config) => updateTab(tab.id, { chartConfig: config ?? undefined })}
                       onSaveChart={currentReportId ? saveChartToReport : undefined}

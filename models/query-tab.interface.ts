@@ -49,6 +49,13 @@ export interface QueryTab {
   // Execution state
   isExecuting: boolean;
   executionError?: string;
+  /**
+   * The user cancelled the last execution. Deliberately separate from
+   * `executionError`: a cancellation is not a failure, so it must not surface as
+   * a destructive error, must not offer "revise", and must not count against the
+   * query-accuracy stat.
+   */
+  executionCancelled?: boolean;
   executionResults?: QueryExecutionResult;
 
   // Query-accuracy override (results-area thumbs). `accuracyBaselineSuccess` is the

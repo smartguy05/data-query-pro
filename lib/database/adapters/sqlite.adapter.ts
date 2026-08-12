@@ -3,6 +3,7 @@ import { BaseDatabaseAdapter } from '../base-adapter';
 import type {
   AdapterConnectionConfig,
   DatabaseType,
+  ExecuteOptions,
   IntrospectionResult,
   ProgressCallback,
   ConnectionTestResult,
@@ -16,6 +17,14 @@ export class SQLiteAdapter extends BaseDatabaseAdapter {
   readonly type: DatabaseType = 'sqlite';
   readonly displayName = 'SQLite';
   readonly defaultPort = 0; // No port for SQLite
+  // A running SQLite query CANNOT be cancelled, for two independent reasons:
+  // better-sqlite3 exposes no sqlite3_interrupt binding, and executeRawQuery is
+  // synchronous — while it runs the Node event loop is blocked, so the server
+  // cannot even receive a cancel request. Callers must check this flag rather
+  // than offering a cancel affordance that would silently do nothing. The
+  // statement-timeout backstop in QUERY_TIMEOUT does not apply here either;
+  // escaping this would require moving the driver into a worker thread.
+  readonly supportsCancellation = false;
 
   private db: Database.Database | null = null;
   // Cache valid table names for validation
@@ -31,6 +40,13 @@ export class SQLiteAdapter extends BaseDatabaseAdapter {
     this.db = new Database(config.filepath, { readonly: !!config.readOnly });
     this.config = config;
     this.readOnly = !!config.readOnly;
+    this.dirtyRead = !!config.dirtyRead;
+    // Tracked for observability only — SQLite has no dirty-read mode to enable.
+    // `PRAGMA read_uncommitted` exists but only has an effect in shared-cache
+    // mode, which better-sqlite3 never enables, and the connection above is
+    // opened readonly where WAL readers already never block writers. So
+    // executeRawQuery() is intentionally unchanged, and
+    // supportsDirtyRead('sqlite') is false so the route reports the no-op.
     this.connected = true;
 
     // Pre-cache valid table names for SQL injection prevention
@@ -161,10 +177,14 @@ export class SQLiteAdapter extends BaseDatabaseAdapter {
   }
 
   // Override introspectSchema because SQLite uses PRAGMA with different result format
-  async introspectSchema(onProgress?: ProgressCallback): Promise<IntrospectionResult> {
+  async introspectSchema(
+    onProgress?: ProgressCallback,
+    options?: ExecuteOptions
+  ): Promise<IntrospectionResult> {
     if (!this.db) {
       throw new Error('Not connected to SQLite');
     }
+    options?.signal?.throwIfAborted();
 
     onProgress?.(10, 'Fetching table list...');
 
@@ -179,6 +199,9 @@ export class SQLiteAdapter extends BaseDatabaseAdapter {
     const tables: DatabaseTable[] = [];
 
     for (let i = 0; i < tablesResult.length; i++) {
+      // Cooperative cancellation point. This is the one thing that IS cancellable
+      // on SQLite — a single query never is, but the per-table walk is.
+      options?.signal?.throwIfAborted();
       const tableName = tablesResult[i].table_name;
       const progress = 10 + Math.floor((i / tablesResult.length) * 80);
       onProgress?.(progress, `Processing table ${i + 1}/${tablesResult.length}: ${tableName}`);

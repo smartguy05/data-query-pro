@@ -7,6 +7,7 @@ import type {
   ConnectionTestResult,
   ProgressCallback,
   ParameterizedQuery,
+  ExecuteOptions,
 } from './types';
 import type { DatabaseTable } from '@/models/database-table.interface';
 import type { Column } from '@/models/column.interface';
@@ -16,16 +17,32 @@ export abstract class BaseDatabaseAdapter implements IDatabaseAdapter {
   abstract readonly displayName: string;
   abstract readonly defaultPort: number;
 
+  /**
+   * Whether aborting `executeQuery`'s signal can stop work already running on
+   * the database. Defaults to false so a new adapter is presumed uncancellable
+   * until it implements a real kill; PostgreSQL/MySQL/SQL Server override to
+   * true, SQLite deliberately does not.
+   */
+  readonly supportsCancellation: boolean = false;
+
   protected connected: boolean = false;
   protected config: AdapterConnectionConfig | null = null;
   // Set from config.readOnly in each adapter's connect(); when true, executeRawQuery
   // runs the query in a read-only transaction (defense-in-depth behind the AST validator).
   protected readOnly: boolean = false;
+  /**
+   * Set from config.dirtyRead in each adapter's connect(). Only honored
+   * *alongside* readOnly: it lowers the isolation level of the read-only
+   * transaction the adapter already opens, and never replaces it. Only MySQL and
+   * SQL Server act on it — PostgreSQL and SQLite have no dirty-read mode and
+   * deliberately ignore it (see supportsDirtyRead() in ./types).
+   */
+  protected dirtyRead: boolean = false;
 
   // Abstract methods that each adapter must implement
   abstract connect(config: AdapterConnectionConfig): Promise<void>;
   abstract disconnect(): Promise<void>;
-  abstract executeRawQuery(sql: string): Promise<Record<string, unknown>[]>;
+  abstract executeRawQuery(sql: string, options?: ExecuteOptions): Promise<Record<string, unknown>[]>;
   abstract executeParameterizedQuery(query: ParameterizedQuery): Promise<Record<string, unknown>[]>;
   // May be a static string (SQLite) or a schema-scoped parameterized query
   // (PostgreSQL/SQL Server). introspectSchema() handles both.
@@ -66,13 +83,13 @@ export abstract class BaseDatabaseAdapter implements IDatabaseAdapter {
     }
   }
 
-  async executeQuery(sql: string): Promise<QueryResult> {
+  async executeQuery(sql: string, options?: ExecuteOptions): Promise<QueryResult> {
     if (!this.connected) {
       throw new Error('Not connected to database');
     }
 
     const startTime = Date.now();
-    const result = await this.executeRawQuery(sql);
+    const result = await this.executeRawQuery(sql, options);
     const executionTime = Date.now() - startTime;
 
     const columns = result.length > 0 ? Object.keys(result[0]) : [];
@@ -94,10 +111,21 @@ export abstract class BaseDatabaseAdapter implements IDatabaseAdapter {
     };
   }
 
-  async introspectSchema(onProgress?: ProgressCallback): Promise<IntrospectionResult> {
+  /**
+   * Introspects the schema. `options.signal` cancels COOPERATIVELY: introspection
+   * is slow because it runs 3 queries *per table*, not because any one query is
+   * slow, so checking between iterations is both sufficient and precise. That also
+   * means introspection is cancellable on every engine — including SQLite, whose
+   * individual queries can never be interrupted.
+   */
+  async introspectSchema(
+    onProgress?: ProgressCallback,
+    options?: ExecuteOptions
+  ): Promise<IntrospectionResult> {
     if (!this.connected) {
       throw new Error('Not connected to database');
     }
+    options?.signal?.throwIfAborted();
 
     onProgress?.(10, 'Fetching table list...');
 
@@ -112,6 +140,8 @@ export abstract class BaseDatabaseAdapter implements IDatabaseAdapter {
     const tables: DatabaseTable[] = [];
 
     for (let i = 0; i < tableNames.length; i++) {
+      // Cooperative cancellation point: abandons the walk between tables.
+      options?.signal?.throwIfAborted();
       const tableName = tableNames[i];
       const progress = 10 + Math.floor((i / tableNames.length) * 80);
       onProgress?.(progress, `Processing table ${i + 1}/${tableNames.length}: ${tableName}`);

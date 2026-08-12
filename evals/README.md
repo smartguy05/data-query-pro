@@ -1,0 +1,210 @@
+# NL→SQL Eval Harness
+
+Measures how well an OpenAI model turns natural-language questions into SQL that
+executes and returns **correct** results, using the app's real `/api/query/generate`
+and `/api/query/execute` routes. Built to compare `gpt-5.4` against newer models
+(e.g. `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol`).
+
+## Prerequisites
+
+1. **Demo database** — the CloudMetrics demo Postgres on port **5433**.
+   **The runner manages this automatically** (podman container
+   `dataquery-demo-db`, override with `--db-container`, `--db-container ""`
+   disables management):
+
+   - **Not running?** The runner starts the container, waits for Postgres,
+     reseeds it, and **stops it again when the run finishes** — on success, on
+     a crash, and on Ctrl+C (`SIGINT`/`SIGTERM` tear down first, then exit
+     128 + signal). A container that was already running when the run began is
+     left running.
+   - **Running but stale?** The seed is time-anchored ("last 90 days" events),
+     so the runner probes freshness (any `usage_events` in the last 7 days)
+     and reseeds automatically when stale — a reseed **drops and recreates**
+     the demo tables.
+
+   Only the initial creation is manual (one time, password is "demo", NOT the
+   compose file's demo123):
+
+   ```bash
+   podman run -d --name dataquery-demo-db -p 5433:5432 \
+     -e POSTGRES_USER=demo -e POSTGRES_PASSWORD=demo -e POSTGRES_DB=cloudmetrics \
+     postgres:15-alpine
+   ```
+
+2. **`.env.local`** must contain:
+
+   ```
+   OPENAI_API_KEY=sk-...
+   OPENAI_MODEL=gpt-5.6-sol
+   EVAL_ALLOW_MODEL_OVERRIDE=true    # lets the harness pick the model per request
+   ```
+
+   `DEMO_RATE_LIMIT` must be unset/empty. If you add `EVAL_ALLOW_MODEL_OVERRIDE`
+   while the dev server is running, restart it — the runner's canary aborts with
+   a clear message if the flag isn't active.
+
+3. **Dev server** running: `pnpm dev` (the harness checks but does not start it).
+
+## Running
+
+```bash
+# smoke test (3 questions × 1 trial, ~3 OpenAI calls)
+pnpm eval -- --models gpt-5.6-sol --trials 1 --questions Q01,Q23,Q30
+
+# single-model default run (core 16 questions × 3 trials ≈ 48 generate calls,
+# roughly half the previous cost of the full set)
+pnpm eval -- --models gpt-5.6-sol --trials 3
+
+# full 32-question run (core + extended, ≈ 96 generate calls, ~13 min)
+pnpm eval -- --models gpt-5.6-sol --trials 3 --extended
+
+# multi-model comparison sweep
+pnpm eval -- --models gpt-5.4,gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol --trials 3
+
+# reasoning-effort sweep (gpt-5 / o-series models only)
+pnpm eval -- --models gpt-5.6-sol --efforts "low,medium,high" --trials 3
+```
+
+### Reasoning effort
+
+`--efforts` crosses each model with each effort value, producing variants
+labelled `model@effort` (e.g. `gpt-5.6-sol@low`) that rank against each other
+like separate models — so the "equally accurate but faster wins" rule answers
+"which effort setting should we ship?" directly. Valid values: `none`,
+`minimal`, `low`, `medium`, `high`, `xhigh`, `max`. Omitting `--efforts` sends
+no reasoning parameter at all — and because override-mode requests take the
+effort **only** from the request body, a bare variant does **not** inherit the
+server's `OPENAI_REASONING_EFFORT`. Bare variants are therefore always the
+provider default, whatever the dev server's env says.
+
+**Cost multiplies**: models × efforts × questions × trials. Two models at three
+efforts over the core 16 with 3 trials is 288 generate calls. Probe with
+`--trials 1` and a couple of `--questions` ids first.
+
+The reasoning parameter is **gpt-5 / o-series only**, and not every model
+supports every value — the API validates, not the SDK. An unsupported pairing
+throws inside the route, which converts it to the HTTP 200 mock fallback, so
+the harness fail-fasts after the first question and names the effort value as a
+likely cause.
+
+In production (override mode off), the knob is set by `OPENAI_REASONING_EFFORT`
+in the environment (empty = omit the parameter). It currently applies to
+`/api/query/generate` only, not the other OpenAI routes.
+
+The dataset is split into a **core** set of 16 questions (`QUESTIONS` — all 8
+phase4-tagged questions plus at least one of every bucket/mode) and an
+**extended** set of 16 (`EXTENDED_QUESTIONS` — verified goldens excluded from
+the default run to halve API cost). `--extended` sweeps all 32. `--questions`
+ids always resolve against the combined pool, so e.g. `--questions Q02` works
+without `--extended`.
+
+### CLI flags (all optional)
+
+| Flag | Default | Notes |
+|------|---------|-------|
+| `--models` | `gpt-5.6-sol` | comma-separated list, run sequentially |
+| `--trials` | `3` | trials per question (generation is nondeterministic) |
+| `--questions` | core 16 | comma-separated ids for subset/smoke runs (matched against all 32) |
+| `--efforts` | none | reasoning efforts to cross with `--models` (gpt-5/o-series only) |
+| `--extended` | off | include the 16 extended questions (full 32-question run) |
+| `--base-url` | `http://localhost:3000` | dev server |
+| `--concurrency` | `1` | parallel trials within a model |
+| `--db-host/-port/-user/-password/-name` | `localhost/5433/demo/demo/cloudmetrics` | demo DB |
+| `--db-container` | `dataquery-demo-db` | podman container to auto-start/reseed/stop; `""` disables |
+
+## Cost
+
+Every run reports **total cost per model/effort variant** in the final console
+table and in the HTML report (ranking and per-model summary), alongside pass
+rate and median latency. Cost does not affect ranking order.
+
+Reported cost tracks **actual spend**, not just successful generations:
+
+- A generation that errors still bills, so `usage` is read from error responses
+  too whenever the route reports it.
+- When the harness retries a trial (a thrown fetch error, e.g. an execute
+  timeout after the generation already succeeded), the tokens and cost of
+  **every** attempt are summed into that trial's record; the record carries
+  `retries` when it took more than one attempt.
+
+Rates live in **`evals/pricing.json`** — USD per 1,000,000 tokens, keyed by
+model. Ship with `input` and `output` filled in per model; until both are set,
+the harness still reports token counts but shows cost as `—`.
+
+```json
+"<model-name>": { "input": 0.00, "output": 0.00, "cachedInput": null, "cacheWrite": null }
+```
+
+> The numbers above are a **format example only** — they are not any model's
+> real prices. Look up current rates and fill them in yourself; the file ships
+> with `null` everywhere precisely so nothing invented gets reported as fact.
+
+`cachedInput` and `cacheWrite` are optional — leave them `null` to bill those
+tokens at the plain `input` rate.
+
+Lookup handles dated snapshots: OpenAI reports the model it actually served
+(e.g. `gpt-5.4-2026-03-05`), and a configured key covers its own dated
+snapshots (`gpt-5.4-2026-03-05` matches `gpt-5.4`). No other suffix matches —
+`gpt-5.4-mini` never inherits `gpt-5.4` rates. Unknown models report
+`priced: false` rather than silently costing zero.
+
+**Token semantics** (verified against openai@7.4.0 types): `reasoningTokens` is
+a subset of `outputTokens`, and `cachedInputTokens`/`cacheWriteTokens` are
+subsets of `inputTokens`. They are breakdowns — the cost math never adds them
+on top of the totals.
+
+**What the numbers look like in practice**: a single generation runs roughly
+18,000 input tokens against ~140 output tokens — about 130:1 — because the
+schema context dominates the prompt. Cost is therefore almost entirely
+input-driven, so reasoning effort moves *latency* far more than it moves cost.
+
+## What a "pass" means
+
+A trial passes only if the generated SQL **executes without error, returns ≥ 1 row,
+and its result set matches the question's authored golden SQL** (see `dataset.ts`;
+comparison modes: `scalar`, `ordered`, `unordered`, `row-count`, `non-empty`).
+The comparator (`lib/compare.ts`) ignores column names/aliases, tolerates numeric
+formatting differences, and allows extra columns. Because that tolerance is not
+transitive, "same rows in any order" is decided by an explicit bipartite matching
+rather than by sorting canonical keys. Its behaviour is pinned by
+`tests/unit/compare.test.ts` — run with `npm run test` (no database or dev server
+needed).
+
+Failures are classified (`lib/classify.ts`): `generation-mock-fallback` (the route
+swallows errors and returns HTTP 200 with mock SQL — detected explicitly),
+`json-parse-fallback`, `generation-error`, `validation-rejection`, `execution-error`,
+`empty-result`, `result-mismatch`.
+
+## Output
+
+Each run writes two files to `evals/results/` (gitignored):
+
+- `run-<timestamp>.jsonl` — one record per trial (streamed, crash-safe).
+  `generateMs` is `null` when the harness never completed a generation (a
+  request that threw twice), and such trials are excluded from every latency
+  statistic rather than counted as 0ms.
+- `run-<timestamp>.html` — self-contained report: **model ranking (pass count,
+  ties broken by median generate latency of passing trials — equally accurate but
+  faster ranks higher)**, per-model summary, confidence calibration, per-question
+  matrix, and an appendix of every failing trial's SQL.
+
+The temporary OpenAI schema file and vector store are deleted on every exit
+path — including Ctrl+C, an ingestion failure, and each extra pair adopted when
+the server re-uploads an expired vector store mid-run.
+
+Baseline on record: **gpt-5.4 — 95/96 (99.0%), median generation 5.4s**
+(`run-2026-08-07T20-38-41-622Z`) — measured on the **full 32-question set**
+(before the core/extended split; equivalent to a `--extended` run today).
+
+## Gotchas
+
+- Golden and generated SQL run against the **same live DB in the same run**; seed
+  data is randomized per load, so never compare across reseeds.
+- On PowerShell, quote comma lists: `--questions "Q01,Q20"` (unquoted commas are
+  split into separate arguments).
+- A typo'd model name triggers fail-fast after the first question (the route turns
+  unknown-model errors into its mock fallback; the harness detects and skips).
+- Questions quote data literals verbatim (e.g. status `'in_progress'`, priority
+  `'Critical'`) because the uploaded schema is structure-only: no example values,
+  and **no views** (introspection reads `pg_catalog.pg_tables`). Keep that rule
+  when adding questions, and verify with `npx tsx evals/verify-goldens.ts`.

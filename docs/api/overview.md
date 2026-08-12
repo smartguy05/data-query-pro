@@ -116,15 +116,25 @@ Endpoints using OpenAI require:
 1. `OPENAI_API_KEY` environment variable
 2. `OPENAI_MODEL` environment variable — behavior varies per endpoint:
 
-| Endpoint | `OPENAI_MODEL` fallback |
-|----------|-------------------------|
-| `/api/query/generate` | **none — required** |
-| `/api/query/enhance` | **none — required** |
-| `/api/query/revise` | **none — required** |
-| `/api/query/followup` | `gpt-5.1` |
-| `/api/dashboard/suggestions` | `gpt-5` |
-| `/api/schema/generate-descriptions` | `gpt-5` |
-| `/api/chart/generate` | `gpt-5-mini` |
+| Endpoint | `OPENAI_MODEL` fallback | Notes |
+|----------|-------------------------|-------|
+| `/api/query/generate` | **none — required** | Honors `OPENAI_REASONING_EFFORT` (not consulted on eval-override requests, which take effort from the body only); accepts per-request `model`/`effort` overrides only when `EVAL_ALLOW_MODEL_OVERRIDE=true` — an invalid `model` then returns 400 |
+| `/api/query/enhance` | **none — required** | |
+| `/api/query/revise` | **none — required** | |
+| `/api/query/followup` | `gpt-5.1` | |
+| `/api/dashboard/suggestions` | `gpt-5` | |
+| `/api/schema/generate-descriptions` | `gpt-5` | |
+| `/api/chart/generate` | `gpt-5-mini` | |
+
+3. `OPENAI_REASONING_EFFORT` (optional) — reasoning effort for `/api/query/generate`.
+   Accepted values: `none | minimal | low | medium | high | xhigh | max`. Empty or invalid
+   means the `reasoning` parameter is omitted entirely (provider default). The parameter
+   applies to **gpt-5 / o-series models only**, and the OpenAI API — not the SDK —
+   validates whether a given model supports a given value. No other route reads it.
+4. `EVAL_ALLOW_MODEL_OVERRIDE` (optional, off by default) — when `true`, `/api/query/generate`
+   honors optional `model` and `effort` fields in the request body. This exists for the
+   [eval harness](../../evals/README.md), not for normal clients; when unset, both fields
+   are ignored.
 
 OpenAI endpoints use the **Responses API** (not Chat Completions):
 
@@ -138,6 +148,10 @@ const response = await client.responses.create({
   ]
 });
 ```
+
+`/api/query/generate` additionally returns a `usage` block (token counts and the model
+OpenAI actually served) when OpenAI reports it — see
+[Query Endpoints](./query-endpoints.md#token-usage-usage). The other OpenAI routes discard usage.
 
 ## Rate Limiting
 

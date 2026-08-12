@@ -1,0 +1,282 @@
+// Result-set comparison for the NL→SQL eval harness.
+// Compares a golden ResultSet against a generated ResultSet where every cell
+// has already been stringified by the server and SQL NULL is the literal "NULL".
+
+import type { ComparisonMode, ComparisonOutcome, ResultSet } from "../types";
+
+const NULL_SENTINEL = "NULL";
+const DETAIL_MAX = 120;
+
+const DATE_PREFIX = /^\d{4}-\d{2}-\d{2}/;
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const HAS_TIMEZONE = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+
+function truncate(s: string, max: number = DETAIL_MAX): string {
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}
+
+/** Parse a trimmed cell as a finite number, or null if it is not numeric. */
+function parseNumber(trimmed: string): number | null {
+  if (trimmed === "") return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Absolute 0.01 tolerance, widened relatively for large magnitudes. */
+function numbersEqual(a: number, b: number): boolean {
+  return Math.abs(a - b) <= Math.max(0.01, 1e-6 * Math.max(Math.abs(a), Math.abs(b)));
+}
+
+/**
+ * Parse a trimmed cell that looks like a date/timestamp into epoch ms, or null.
+ * Naive (timezone-less) values are interpreted as UTC so that a date-only value
+ * and its midnight timestamp compare equal, consistently on both sides.
+ */
+function parseDateMs(trimmed: string): number | null {
+  if (!DATE_PREFIX.test(trimmed)) return null;
+  let normalized: string;
+  if (DATE_ONLY.test(trimmed)) {
+    normalized = `${trimmed}T00:00:00Z`;
+  } else {
+    normalized = trimmed.replace(" ", "T");
+    if (!HAS_TIMEZONE.test(normalized)) {
+      normalized = `${normalized}Z`;
+    }
+  }
+  const ms = Date.parse(normalized);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * Normalized cell equality (NULL sentinel → numeric tolerance → date → string).
+ * Every comparison mode routes through this, so all modes share one definition
+ * of "equal", tolerance included.
+ */
+function cellsEqual(a: string, b: string): boolean {
+  const ta = a.trim();
+  const tb = b.trim();
+  if (ta === NULL_SENTINEL || tb === NULL_SENTINEL) {
+    return ta === NULL_SENTINEL && tb === NULL_SENTINEL;
+  }
+  const na = parseNumber(ta);
+  const nb = parseNumber(tb);
+  if (na !== null && nb !== null) {
+    return numbersEqual(na, nb);
+  }
+  const da = parseDateMs(ta);
+  const db = parseDateMs(tb);
+  if (da !== null && db !== null) {
+    return da === db;
+  }
+  return ta === tb;
+}
+
+/**
+ * Does a perfect matching exist between two equal-sized sides, given a pairwise
+ * predicate? Kuhn's augmenting-path search.
+ *
+ * Tolerant equality is not transitive ("4.16" ≈ "4.17" ≈ "4.18" but "4.16" ≉
+ * "4.18"), so it cannot serve as a hash/sort key; "same values in any order"
+ * has to be decided by explicit matching. Eval result sets are small, so the
+ * quadratic cost does not matter.
+ */
+function hasPerfectMatching(
+  size: number,
+  equal: (left: number, right: number) => boolean,
+): boolean {
+  const matchedLeft = new Array<number>(size).fill(-1);
+
+  function augment(left: number, visited: boolean[]): boolean {
+    for (let right = 0; right < size; right++) {
+      if (visited[right] || !equal(left, right)) continue;
+      visited[right] = true;
+      if (matchedLeft[right] === -1 || augment(matchedLeft[right], visited)) {
+        matchedLeft[right] = left;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  for (let left = 0; left < size; left++) {
+    if (!augment(left, new Array<boolean>(size).fill(false))) return false;
+  }
+  return true;
+}
+
+/** Value vector of one column (top to bottom). */
+function columnVector(rs: ResultSet, col: number): string[] {
+  return rs.rows.map((row) => row[col]);
+}
+
+function vectorsEqualOrdered(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((cell, i) => cellsEqual(cell, b[i]));
+}
+
+/** Same values in any order (multiset equality under the cell tolerance). */
+function vectorsEqualUnordered(a: string[], b: string[]): boolean {
+  return a.length === b.length && hasPerfectMatching(a.length, (i, j) => cellsEqual(a[i], b[j]));
+}
+
+/** A golden row matches a generated row when every assigned column pair matches. */
+function rowsEqual(goldenRow: string[], generatedRow: string[], assignment: number[]): boolean {
+  return assignment.every((generatedCol, goldenCol) =>
+    cellsEqual(goldenRow[goldenCol], generatedRow[generatedCol]),
+  );
+}
+
+/** Same rows in any order, projected onto the golden→generated column assignment. */
+function rowsEqualUnordered(
+  goldenRows: string[][],
+  generatedRows: string[][],
+  assignment: number[],
+): boolean {
+  return (
+    goldenRows.length === generatedRows.length &&
+    hasPerfectMatching(goldenRows.length, (g, x) =>
+      rowsEqual(goldenRows[g], generatedRows[x], assignment),
+    )
+  );
+}
+
+/**
+ * Backtracking search for an assignment of each golden column to a distinct
+ * generated column drawn from its candidate list. `accept` validates a
+ * complete assignment (always true for ordered; row-matching check for
+ * unordered). Column counts are small (<= ~6) so this is cheap.
+ */
+function findAssignment(
+  candidates: number[][],
+  accept: (assignment: number[]) => boolean,
+): number[] | null {
+  const assignment: number[] = new Array<number>(candidates.length).fill(-1);
+  const used = new Set<number>();
+
+  function backtrack(i: number): boolean {
+    if (i === candidates.length) {
+      return accept(assignment);
+    }
+    for (const cand of candidates[i]) {
+      if (used.has(cand)) continue;
+      used.add(cand);
+      assignment[i] = cand;
+      if (backtrack(i + 1)) return true;
+      used.delete(cand);
+      assignment[i] = -1;
+    }
+    return false;
+  }
+
+  return backtrack(0) ? assignment : null;
+}
+
+function pass(): ComparisonOutcome {
+  return { match: true, detail: null };
+}
+
+function fail(detail: string): ComparisonOutcome {
+  return { match: false, detail: truncate(detail) };
+}
+
+function firstRowSample(rs: ResultSet): string {
+  return rs.rows.length > 0 ? `[${rs.rows[0].join(", ")}]` : "[no rows]";
+}
+
+function compareColumns(
+  golden: ResultSet,
+  generated: ResultSet,
+  mode: "ordered" | "unordered",
+): ComparisonOutcome {
+  if (golden.rows.length !== generated.rows.length) {
+    return fail(`row count ${golden.rows.length} vs ${generated.rows.length}`);
+  }
+  const goldenCols = golden.columns.length;
+  const generatedCols = generated.columns.length;
+  if (goldenCols > generatedCols) {
+    return fail(`golden has ${goldenCols} columns but generated has ${generatedCols}`);
+  }
+
+  const goldenVectors = Array.from({ length: goldenCols }, (_, i) => columnVector(golden, i));
+  const generatedVectors = Array.from({ length: generatedCols }, (_, i) =>
+    columnVector(generated, i),
+  );
+  const vectorsEqual = mode === "ordered" ? vectorsEqualOrdered : vectorsEqualUnordered;
+
+  // Candidate generated columns per golden column (names ignored; values decide).
+  const candidates: number[][] = [];
+  for (let g = 0; g < goldenCols; g++) {
+    const matches: number[] = [];
+    for (let j = 0; j < generatedCols; j++) {
+      if (vectorsEqual(goldenVectors[g], generatedVectors[j])) {
+        matches.push(j);
+      }
+    }
+    if (matches.length === 0) {
+      const name = golden.columns[g] ?? String(g);
+      return fail(
+        `golden column ${g} ("${name}") has no matching generated column; ` +
+          `golden row 0: ${firstRowSample(golden)} generated row 0: ${firstRowSample(generated)}`,
+      );
+    }
+    candidates.push(matches);
+  }
+
+  const accept =
+    mode === "ordered"
+      ? () => true
+      : (assignment: number[]) => rowsEqualUnordered(golden.rows, generated.rows, assignment);
+
+  const assignment = findAssignment(candidates, accept);
+  if (assignment === null) {
+    return fail(
+      mode === "ordered"
+        ? "no distinct golden→generated column assignment found"
+        : "column value multisets match but no assignment yields equal row multisets " +
+            `(row pairings differ); golden row 0: ${firstRowSample(golden)}`,
+    );
+  }
+  return pass();
+}
+
+export function compareResults(
+  golden: ResultSet,
+  generated: ResultSet,
+  mode: ComparisonMode,
+): ComparisonOutcome {
+  switch (mode) {
+    case "non-empty": {
+      return generated.rows.length >= 1 ? pass() : fail("expected at least 1 row, got 0");
+    }
+
+    case "row-count": {
+      return generated.rows.length === golden.rows.length
+        ? pass()
+        : fail(`row count ${golden.rows.length} vs ${generated.rows.length}`);
+    }
+
+    case "scalar": {
+      if (golden.rows.length !== 1 || golden.columns.length < 1) {
+        return fail(
+          `golden result is not scalar (rows=${golden.rows.length}, cols=${golden.columns.length})`,
+        );
+      }
+      if (generated.rows.length !== 1) {
+        return fail(`expected exactly 1 row, got ${generated.rows.length}`);
+      }
+      const goldenValue = golden.rows[0][0];
+      const generatedRow = generated.rows[0];
+      const matched = generatedRow.some((cell) => cellsEqual(cell, goldenValue));
+      return matched
+        ? pass()
+        : fail(
+            `no generated column matches golden value "${goldenValue}"; ` +
+              `generated row: [${generatedRow.join(", ")}]`,
+          );
+    }
+
+    case "ordered":
+    case "unordered": {
+      return compareColumns(golden, generated, mode);
+    }
+  }
+}

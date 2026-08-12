@@ -50,7 +50,8 @@ plus a named volume:
   | Variable | Default in Compose |
   |----------|--------------------|
   | `OPENAI_API_KEY` | (passed through, no default) |
-  | `OPENAI_MODEL` | `gpt-5.4` |
+  | `OPENAI_MODEL` | `gpt-5.6-sol` |
+  | `OPENAI_REASONING_EFFORT` | empty (parameter omitted) |
   | `DEMO_RATE_LIMIT` | empty (disabled) |
   | `TRUSTED_PROXIES` | empty |
   | `AUTH_OIDC_ISSUER` | empty (auth disabled) |
@@ -64,7 +65,9 @@ plus a named volume:
   Note that `APP_DATABASE_URL` is assembled from `APP_DB_USER`, `APP_DB_PASSWORD`,
   and `APP_DB_NAME` and points at the `app-db` service hostname. There is no
   `AUTH_URL` line in this file — set it yourself (in your `.env` or by adding
-  the line) when enabling auth, since Auth.js v5 requires it.
+  the line) when enabling auth, since Auth.js v5 requires it. Likewise there is
+  no `EVAL_ALLOW_MODEL_OVERRIDE` line; it is an eval-only flag that production
+  deployments should leave unset.
 
 ### `app-db`
 - **Image:** `postgres:15-alpine`.
@@ -122,7 +125,9 @@ auth deployment.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `OPENAI_API_KEY` | **Always** | OpenAI API key for all AI features (query generation, descriptions, suggestions, charts). |
-| `OPENAI_MODEL` | For query gen | Model used for SQL generation. **Required (no fallback) by `/api/query/generate`, `/enhance`, `/revise`**; other AI endpoints fall back to a default. Compose defaults it to `gpt-5.4`. |
+| `OPENAI_MODEL` | For query gen | Model used for SQL generation. **Required (no fallback) by `/api/query/generate`, `/enhance`, `/revise`**; other AI endpoints fall back to a default. Compose defaults it to `gpt-5.6-sol`. |
+| `OPENAI_REASONING_EFFORT` | No | Reasoning effort passed by `/api/query/generate`: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. **gpt-5 / o-series models only**, and not every model accepts every value — an unsupported pairing surfaces as an OpenAI error. Empty/unset (the Compose default) omits the parameter entirely, leaving request behavior unchanged. |
+| `EVAL_ALLOW_MODEL_OVERRIDE` | No (leave unset) | When `true`, `/api/query/generate` honors per-request `model` and `effort` overrides. Intended for the [eval harness](../../evals/README.md); not passed through by `docker-compose.yml`. |
 | `DEMO_RATE_LIMIT` | No | Integer — OpenAI requests per IP per 24h. Empty/unset = unlimited. See [single-instance caveat](#single-instance-caveats). |
 | `TRUSTED_PROXIES` | No (recommended behind a proxy) | Comma-separated proxy IPs whose forwarded headers are trusted. See [Reverse Proxy](#reverse-proxy--trusted_proxies). |
 | `AUTH_OIDC_ISSUER` | **Auth mode only** | OIDC issuer URL. Setting the three `AUTH_OIDC_*` vars enables auth mode. |

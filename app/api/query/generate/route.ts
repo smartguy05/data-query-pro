@@ -40,6 +40,21 @@ const dialectHints: Record<string, string> = {
     - Limited date functions: date(), time(), datetime(), strftime()`,
 };
 
+// Reasoning effort values accepted by the Responses API (openai SDK
+// `Shared.ReasoningEffort`). Only gpt-5 / o-series models support the
+// `reasoning` parameter, and not every model supports every value — an
+// unsupported combination surfaces as an OpenAI error, not a local one.
+const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+type ReasoningEffortValue = (typeof REASONING_EFFORTS)[number];
+
+/** Narrow an unknown/env value to a valid effort, or undefined to omit the parameter. */
+const asReasoningEffort = (value: unknown): ReasoningEffortValue | undefined => {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return (REASONING_EFFORTS as readonly string[]).includes(trimmed)
+    ? (trimmed as ReasoningEffortValue)
+    : undefined;
+};
+
 // Shapes of the client-supplied learning context.
 interface FewShotExample { question?: string; sql?: string }
 interface QueryCorrectionHint { question?: string; badSql?: string; error?: string; goodSql?: string }
@@ -113,7 +128,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { query, databaseType, vectorStoreId, schemaData, existingFileId, examples, corrections, defaultLimit } = await request.json();
+    const { query, databaseType, vectorStoreId, schemaData, existingFileId, examples, corrections, defaultLimit, model, effort } = await request.json();
     console.log("Received query:", query);
     console.log("Received database type:", databaseType);
     console.log("Received VectorStore Id:", vectorStoreId);
@@ -121,6 +136,33 @@ export async function POST(request: NextRequest) {
     if (!query) {
       return NextResponse.json({ error: "Query is required" }, { status: 400})
     }
+
+    // Eval-only escape hatch: honor a client-requested model only when explicitly
+    // enabled. A supplied-but-invalid model is rejected rather than silently
+    // falling back to OPENAI_MODEL, which would misattribute the result.
+    const evalOverrideEnabled = process.env.EVAL_ALLOW_MODEL_OVERRIDE === "true";
+    const modelSupplied = evalOverrideEnabled && model !== undefined && model !== null;
+    if (modelSupplied && !(typeof model === "string" && /^[a-zA-Z0-9._:-]{1,64}$/.test(model))) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid model override: must be a string of 1-64 characters using only letters, digits, '.', '_', ':' or '-'",
+        },
+        { status: 400 }
+      );
+    }
+    const modelOverride = modelSupplied ? (model as string) : undefined;
+
+    // Reasoning effort (gpt-5 / o-series models only). Normal requests read
+    // OPENAI_REASONING_EFFORT, with a request-level override riding the same eval
+    // flag as the model override. Eval-override requests (flag on AND a body-supplied
+    // model) take the effort ONLY from the body, so a variant is never silently run
+    // at the server's env effort. When nothing resolves, the `reasoning` key is
+    // omitted entirely so the request is unchanged from the default.
+    const effortOverride = evalOverrideEnabled ? asReasoningEffort(effort) : undefined;
+    const resolvedEffort = modelOverride
+      ? effortOverride
+      : effortOverride ?? asReasoningEffort(process.env.OPENAI_REASONING_EFFORT);
 
     // "Learn from previous queries": optional few-shot examples and failed->revised
     // corrections supplied by the client (device-local history). Rendered into the
@@ -153,7 +195,8 @@ export async function POST(request: NextRequest) {
     // Function to make the OpenAI request
     const makeOpenAIRequest = async (vsId: string) => {
       return await client.responses.create({
-        model: process.env.OPENAI_MODEL,
+        model: modelOverride ?? process.env.OPENAI_MODEL,
+        ...(resolvedEffort ? { reasoning: { effort: resolvedEffort } } : {}),
         tools: [{
           type: "file_search",
           vector_store_ids: [vsId]
@@ -277,6 +320,24 @@ Remember: Every table and column in your SQL must exactly match what exists in t
 
     console.log("OpenAI response status:", response.status)
 
+    // Token usage for cost accounting. `reasoning` tokens are a subset of
+    // `output`, and `cachedInput`/`cacheWrite` are subsets of `input` — they
+    // are breakdowns, never additive. `model` is the ID OpenAI actually used,
+    // which may be a dated snapshot of the requested alias. Resolved before the
+    // status check so incomplete responses still report the tokens they billed.
+    const usage = response.usage
+      ? {
+          model: response.model,
+          inputTokens: response.usage.input_tokens,
+          cachedInputTokens: response.usage.input_tokens_details?.cached_tokens ?? 0,
+          cacheWriteTokens: response.usage.input_tokens_details?.cache_write_tokens ?? 0,
+          outputTokens: response.usage.output_tokens,
+          reasoningTokens: response.usage.output_tokens_details?.reasoning_tokens ?? 0,
+          totalTokens: response.usage.total_tokens,
+        }
+      : undefined;
+    const usageField = usage ? { usage } : {};
+
     if (response.status !== "completed") {
       const errorText = response.error?.message;
       console.error("OpenAI API error:", {
@@ -284,7 +345,13 @@ Remember: Every table and column in your SQL must exactly match what exists in t
         statusText: response.error?.code,
         body: errorText,
       })
-      return NextResponse.json({ error: `OpenAI API request failed: ${response.status} ${response.error?.message} - ${errorText}` }, { status: 500});
+      return NextResponse.json(
+        {
+          error: `OpenAI API request failed: ${response.status} ${response.error?.message} - ${errorText}`,
+          ...usageField,
+        },
+        { status: 500 }
+      );
     }
 
     const output = response.output_text;
@@ -310,6 +377,7 @@ Remember: Every table and column in your SQL must exactly match what exists in t
           newFileId,
           newVectorStoreId,
           schemaReuploaded: true,
+          ...usageField,
           rateLimit: {
             remaining: rateLimitResult.remaining,
             limit: rateLimitResult.limit,
@@ -319,6 +387,7 @@ Remember: Every table and column in your SQL must exactly match what exists in t
 
       return NextResponse.json({
         ...result,
+        ...usageField,
         rateLimit: {
           remaining: rateLimitResult.remaining,
           limit: rateLimitResult.limit,
@@ -338,7 +407,16 @@ Remember: Every table and column in your SQL must exactly match what exists in t
       if (jsonMatch) {
         try {
           const jsonResult = JSON.parse(jsonMatch[1].trim())
-          return NextResponse.json(jsonResult)
+          // Same envelope as every other success path — this branch previously
+          // dropped both, which understated cost accounting for these responses.
+          return NextResponse.json({
+            ...jsonResult,
+            ...usageField,
+            rateLimit: {
+              remaining: rateLimitResult.remaining,
+              limit: rateLimitResult.limit,
+            },
+          })
         } catch (e) {
           console.log("Found JSON block but couldn't parse it")
         }
@@ -391,6 +469,7 @@ Remember: Every table and column in your SQL must exactly match what exists in t
           newFileId,
           newVectorStoreId,
           schemaReuploaded: true,
+          ...usageField,
           rateLimit: {
             remaining: rateLimitResult.remaining,
             limit: rateLimitResult.limit,
@@ -400,6 +479,7 @@ Remember: Every table and column in your SQL must exactly match what exists in t
 
       return NextResponse.json({
         ...fallbackResult,
+        ...usageField,
         rateLimit: {
           remaining: rateLimitResult.remaining,
           limit: rateLimitResult.limit,

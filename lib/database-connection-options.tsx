@@ -17,7 +17,7 @@ import {
     updateQueryCorrection as updateLocalCorrection,
     deleteQueryCorrection as deleteLocalCorrection,
 } from '@/utils/query-corrections';
-import { QUERY_LIMIT, STORAGE_KEYS, isDefaultQueryLimit, type DefaultQueryLimit } from '@/lib/constants';
+import { DIRTY_READ, QUERY_LIMIT, STORAGE_KEYS, isDefaultQueryLimit, isDirtyRead, type DefaultQueryLimit } from '@/lib/constants';
 
 const DatabaseContext = createContext<DatabaseContextType | undefined>(undefined);
 
@@ -44,6 +44,7 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
     const [allReports, setAllReports] = useState<SavedReport[]>([]);
     const [queryAccuracy, setQueryAccuracy] = useState<QueryAccuracyStats>({ total: 0, successful: 0 });
     const [defaultQueryLimit, setDefaultQueryLimitState] = useState<DefaultQueryLimit>(QUERY_LIMIT.DEFAULT);
+    const [dirtyRead, setDirtyReadState] = useState<boolean>(DIRTY_READ.DEFAULT);
     const storageRef = useRef<StorageProvider | null>(null);
 
     useEffect(() => {
@@ -109,6 +110,16 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
                 try {
                     const savedLimit = await storage.getDefaultQueryLimit();
                     if (savedLimit !== null) setDefaultQueryLimitState(savedLimit);
+                } catch {
+                    // Preference may not be available
+                }
+
+                // Load the saved dirty-read preference (null = never set → keep
+                // default). Its own try/catch so one failing preference can't skip
+                // the other.
+                try {
+                    const savedDirtyRead = await storage.getDirtyRead();
+                    if (savedDirtyRead !== null) setDirtyReadState(savedDirtyRead);
                 } catch {
                     // Preference may not be available
                 }
@@ -630,6 +641,20 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
         Promise.resolve(write).catch(() => { /* never surface preference errors to the query flow */ });
     }, []);
 
+    // Dirty-read (READ UNCOMMITTED) preference. Same shape as the row limit above:
+    // state updates immediately, persistence is fire-and-forget.
+    const setDirtyRead = useCallback((enabled: boolean) => {
+        if (!isDirtyRead(enabled)) return;
+        setDirtyReadState(enabled);
+        const storage = storageRef.current;
+        const write = storage
+            ? storage.setDirtyRead(enabled)
+            : (async () => {
+                localStorage.setItem(STORAGE_KEYS.DIRTY_READ, JSON.stringify(enabled));
+            })();
+        Promise.resolve(write).catch(() => { /* never surface preference errors to the query flow */ });
+    }, []);
+
     return (
         <DatabaseContext.Provider value={{
             setConnectionStatus,
@@ -673,6 +698,8 @@ export function DatabaseConnectionOptions({ children }: { children: ReactNode })
             deleteQueryCorrection,
             defaultQueryLimit,
             setDefaultQueryLimit,
+            dirtyRead,
+            setDirtyRead,
     }}>
     {children}
     </DatabaseContext.Provider>

@@ -22,6 +22,7 @@ DataQuery Pro lets you connect to **PostgreSQL, MySQL, SQL Server, and SQLite** 
 - **Server Configuration** - Deploy pre-configured connections via `config/databases.json` for teams
 - **Rate Limiting & BYOK** - Optional rate limiting with bring-your-own-key bypass for demos
 - **Authentication** - Optional Authentik SSO with per-user data isolation, sharing, and admin controls
+- **Eval Harness** - Measure NL→SQL accuracy, latency, and cost across models with `pnpm eval` ([evals/README.md](./evals/README.md))
 - **Dark/Light Mode** - Full theme support for comfortable viewing
 
 ---
@@ -384,6 +385,7 @@ Comprehensive developer documentation is available in the [docs](./docs) folder:
 | Authentication Testing | [docs/guides/authentication-testing.md](./docs/guides/authentication-testing.md) |
 | OpenAI Integration | [docs/guides/openai-integration.md](./docs/guides/openai-integration.md) |
 | Testing Plan | [docs/testing/README.md](./docs/testing/README.md) |
+| NL→SQL Eval Harness | [evals/README.md](./evals/README.md) |
 
 ---
 
@@ -420,7 +422,9 @@ Create a `.env.local` file with:
 
 ```bash
 OPENAI_API_KEY=sk-...    # Required for AI features
-OPENAI_MODEL=gpt-5.4     # Required by query generation (no fallback); other AI endpoints default per-route
+OPENAI_MODEL=gpt-5.6-sol # Required by query generation (no fallback); other AI endpoints default per-route
+OPENAI_REASONING_EFFORT= # Optional: none|minimal|low|medium|high|xhigh|max for query generation (gpt-5/o-series only; empty = provider default)
+EVAL_ALLOW_MODEL_OVERRIDE= # Optional (default off): set to "true" to let the eval harness override model/effort per request
 DEMO_RATE_LIMIT=         # Optional: limit API requests per IP per 24h (empty = unlimited)
 TRUSTED_PROXIES=         # Optional: comma-separated trusted proxy IPs for rate limiting
 ```

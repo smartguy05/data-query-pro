@@ -29,12 +29,14 @@ and the **doc** that covers them. Optimized for fast "where is this?" navigation
 |-------|--------|-----|
 | `/api/query/generate` | `app/api/query/generate/route.ts` | [query-endpoints.md](../api/query-endpoints.md) |
 | `/api/query/execute` | `app/api/query/execute/route.ts` | [query-endpoints.md](../api/query-endpoints.md) |
+| `/api/query/cancel` | `app/api/query/cancel/route.ts` | [query-endpoints.md](../api/query-endpoints.md#post-apiquerycancel) |
 | `/api/query/enhance` | `app/api/query/enhance/route.ts` | [query-endpoints.md](../api/query-endpoints.md) |
 | `/api/query/revise` | `app/api/query/revise/route.ts` | [query-endpoints.md](../api/query-endpoints.md) |
 | `/api/query/followup` | `app/api/query/followup/route.ts` | [query-endpoints.md](../api/query-endpoints.md) |
 | `/api/schema/introspect` | `app/api/schema/introspect/route.ts` | [schema-endpoints.md](../api/schema-endpoints.md) |
 | `/api/schema/start-introspection` | `app/api/schema/start-introspection/route.ts` | [schema-endpoints.md](../api/schema-endpoints.md) |
 | `/api/schema/status` | `app/api/schema/status/route.ts` | [schema-endpoints.md](../api/schema-endpoints.md) |
+| `/api/schema/cancel-introspection` | `app/api/schema/cancel-introspection/route.ts` | [schema-endpoints.md](../api/schema-endpoints.md) |
 | `/api/schema/upload-schema` | `app/api/schema/upload-schema/route.ts` | [schema-endpoints.md](../api/schema-endpoints.md) |
 | `/api/schema/generate-descriptions` | `app/api/schema/generate-descriptions/route.ts` | [schema-endpoints.md](../api/schema-endpoints.md) |
 | `/api/schema/update-description` | `app/api/schema/update-description/route.ts` | [schema-endpoints.md](../api/schema-endpoints.md) |
@@ -66,6 +68,9 @@ and the **doc** that covers them. Optimized for fast "where is this?" navigation
 | Query audit log | `lib/query-log.ts` (`logQuery`), `lib/query-log-file.ts`, `lib/db/repositories/query-log-repository.ts` | [auth-and-data-layer.md](../architecture/auth-and-data-layer.md) |
 | Learn-from-queries (corrections + few-shot) | `utils/schema-fingerprint.ts`, `utils/example-relevance.ts`, `utils/query-corrections.ts`, `app/api/query/generate/route.ts` (`buildLearningSections`), `lib/db/repositories/query-correction-repository.ts`, `app/api/data/corrections/route.ts` (+ `[id]`) | [query-endpoints.md](../api/query-endpoints.md) |
 | OpenAI integration | `lib/openai/schema-upload.ts`, query/schema routes | [openai-integration.md](../guides/openai-integration.md) |
+| Reasoning effort (gpt-5 / o-series only) | `app/api/query/generate/route.ts` (`REASONING_EFFORTS`, `asReasoningEffort`; env `OPENAI_REASONING_EFFORT`) | [query-endpoints.md](../api/query-endpoints.md) |
+| Model / effort request override (eval-only) | `app/api/query/generate/route.ts` (`modelOverride`, `effortOverride`; gated on env `EVAL_ALLOW_MODEL_OVERRIDE=true`) | [evals/README.md](../../evals/README.md) |
+| Token usage reporting (cost accounting) | `app/api/query/generate/route.ts` (`usage` field on the generate response — generate route only) | [query-endpoints.md](../api/query-endpoints.md) |
 | Rate limiting | `utils/rate-limiter.ts` | [api/overview.md](../api/overview.md#rate-limiting) |
 | BYOK (user API key) | `hooks/use-openai-key.tsx`, `hooks/use-openai-fetch.tsx` | [infrastructure.md](../components/infrastructure.md#api-key-byok-components) |
 | Error sanitization | `utils/error-sanitizer.ts` | [openai-integration.md](../guides/openai-integration.md) |
@@ -82,6 +87,7 @@ and the **doc** that covers them. Optimized for fast "where is this?" navigation
 | SchemaUpdateModal | `components/schema-update-modal.tsx` | [features.md](../components/features.md#schemaupdatemodal) |
 | QueryResultsDisplay | `components/query-results-display.tsx` | [features.md](../components/features.md#queryresultsdisplay) |
 | QueryTabContent | `components/query-tab-content.tsx` | [features.md](../components/features.md#querytabcontent) |
+| DirtyReadToggle | `components/dirty-read-toggle.tsx` | [query-endpoints.md](../api/query-endpoints.md#dirty-reads-read-uncommitted) |
 | FollowupDialog | `components/followup-dialog.tsx` | [features.md](../components/features.md#followupdialog) |
 | ChartDisplay + charts/ | `components/chart-display.tsx`, `components/charts/*` | [features.md](../components/features.md#chart-components) |
 | ComposedChart | `components/charts/composed-chart.tsx` | [features.md](../components/features.md#composed-chart) |
@@ -107,6 +113,27 @@ and the **doc** that covers them. Optimized for fast "where is this?" navigation
 | DashboardWidgetConfig + `SavedReport.visualization` | `models/saved-report.interface.ts` | [features.md](../components/features.md#dashboard-widgets) |
 | ComposedChartConfig + `CHART_TOOLS` | `models/chart-config.interface.ts` | [features.md](../components/features.md#composed-chart) |
 | Custom hooks | `hooks/use-*.ts(x)` | [components/overview.md](../components/overview.md) |
+
+## Eval Harness (`evals/`)
+
+Standalone NL→SQL evaluation harness — a tsx CLI (`pnpm eval`) that checks whether generated SQL
+executes and returns results matching authored golden SQL, across models, reasoning efforts,
+latency, and cost. Full usage: [evals/README.md](../../evals/README.md).
+
+| Item | File | Notes |
+|------|------|-------|
+| Runner (CLI entry) | `evals/run-eval.ts` | Invoked by the `eval` package script (`tsx evals/run-eval.ts`) |
+| Question dataset | `evals/dataset.ts` | 32 questions: core 16 + extended 16 |
+| Golden-SQL verifier | `evals/verify-goldens.ts` | Checks the authored golden queries run against the target DB |
+| Pricing rates | `evals/pricing.json` | USD per 1M tokens; ships with NULL rates, so cost renders as "—" until filled in |
+| Shared types | `evals/types.ts` | Result/run shapes used across the harness |
+| API client | `evals/lib/api-client.ts` | Typed fetch wrappers over the running dev server (`generate` sends `model` / `effort`, plus `execute` / `introspect`) |
+| Failure classification | `evals/lib/classify.ts` | Classifies generate + execute failures (incl. mock-fallback / JSON-parse-fallback signals) |
+| Result comparison | `evals/lib/compare.ts` (tests: `tests/unit/compare.test.ts`) | Compares generated vs golden result sets per the question's comparison mode |
+| Cost accounting | `evals/lib/pricing.ts` | Applies `pricing.json` rates to reported token usage (breakdowns are subsets, never additive) |
+| HTML report builder | `evals/lib/report.ts` | Builds the self-contained HTML report (no dependencies) |
+| Schema vector store | `evals/lib/vector-store.ts` | Standalone schema upload + ingestion wait; mirrors `lib/openai/schema-upload.ts` without importing it |
+| Run output (gitignored) | `evals/results/*.jsonl`, `evals/results/*.html` | Per-run raw records plus the HTML report |
 
 ---
 

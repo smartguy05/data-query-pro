@@ -1,0 +1,46 @@
+{
+  "_comment": [
+    "Per-model prices in USD per 1,000,000 tokens. Fill in `input` and `output` for",
+    "each model you evaluate; until both are set, the harness reports token counts",
+    "but shows cost as '\u2014' for that model.",
+    "",
+    "`cachedInput` and `cacheWrite` are OPTIONAL. Leave them null to bill those",
+    "tokens at the plain `input` rate. Setting them makes cost accounting accurate",
+    "when prompt caching kicks in, which it does here because every trial resends",
+    "the same large system prompt.",
+    "",
+    "Lookup is keyed on the model OpenAI reports actually serving the request",
+    "(often a dated snapshot such as 'gpt-5.4-2026-03-17'), then falls back to the",
+    "requested name. A key below also covers its own dated snapshots",
+    "('gpt-5.4-2026-03-17' matches 'gpt-5.4'); no other suffix matches, so",
+    "'gpt-5.4-mini' never inherits 'gpt-5.4' rates."
+  ],
+  "currency": "USD",
+  "per": 1000000,
+  "models": {
+    "gpt-5.4": {
+      "input": null,
+      "output": null,
+      "cachedInput": null,
+      "cacheWrite": null
+    },
+    "gpt-5.6-luna": {
+      "input": null,
+      "output": null,
+      "cachedInput": null,
+      "cacheWrite": null
+    },
+    "gpt-5.6-terra": {
+      "input": null,
+      "output": null,
+      "cachedInput": null,
+      "cacheWrite": null
+    },
+    "gpt-5.6-sol": {
+      "input": null,
+      "output": null,
+      "cachedInput": null,
+      "cacheWrite": null
+    }
+  }
+}

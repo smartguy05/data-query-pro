@@ -6,10 +6,12 @@ How-to guides for setting up, extending, and integrating DataQuery Pro.
 |-------|----------------|
 | [Getting Started](./getting-started.md) | Prerequisites, install (Docker/local), initial setup, env vars, troubleshooting |
 | [Authentication Testing](./authentication-testing.md) | Local Authentik (OIDC) setup with Docker for testing auth mode |
+| [Azure Entra ID Setup](./azure-entra-setup.md) | Configuring auth mode against Microsoft Entra ID (app registration, scopes, App Roles) |
 | [Adding Database Support](./adding-database-support.md) | Extending the adapter system for a new database type |
 | [OpenAI Integration](./openai-integration.md) | Responses API usage, vector stores, descriptions, suggestions, cost |
 | [Common Tasks](./common-tasks.md) | Frequent dev workflows (add page/endpoint/component/model, debug, lint) |
 | [Claude Design System](./design-system.md) | The UI library synced to claude.ai/design (DataQuery Pro UI), what's carded, and how to re-sync |
+| [NL→SQL Eval Harness](../../evals/README.md) | Running `pnpm eval`: dataset, golden SQL, comparison modes, model/effort sweeps, HTML report |
 
 ## Related
 - [Documentation Index](../README.md)

@@ -158,7 +158,7 @@ IMPORTANT:
 `
 
     const response = await client.responses.create({
-      model: process.env.OPENAI_MODEL || "gpt-5.1",
+      model: process.env.OPENAI_MODEL || "gpt-5.6-terra",
       tools: [{
         type: "file_search",
         vector_store_ids: [vectorStoreId]

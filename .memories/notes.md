@@ -8,6 +8,47 @@
 >
 > This file holds only **cross-session, project-specific** state not yet filed into docs.
 
+## Cancellation & dirty reads — gotchas (2026-08-12)
+- **An abort listener must never throw and must never be awaited.** An exception raised
+  synchronously inside an `addEventListener('abort', ...)` callback is an uncaught
+  exception and takes down the Node process. Always
+  `() => { void this.killX(id).catch(() => {}) }`, and always remove the listener in a
+  `finally` around the statement — PG recycles backend PIDs and MySQL recycles thread ids,
+  so a listener surviving past the query could kill an unrelated session.
+- **mssql isolation is per-TRANSACTION** (`tx.begin(level)`), which is the only reason
+  READ UNCOMMITTED is safe despite the pool. Never "simplify" it into a session-level
+  `SET TRANSACTION ISOLATION LEVEL` — that contaminates pooled connections.
+- **MySQL `SET SESSION TRANSACTION ISOLATION LEVEL` must be issued OUTSIDE a transaction**
+  or it raises ER_CANT_CHANGE_TX_CHARACTERISTICS (1568). Hence `connect()`, not
+  `executeRawQuery()`. Session scope is safe only while `createConnection` (per-request) is
+  used — switching to `createPool` makes a reset before release mandatory, or READ
+  UNCOMMITTED leaks to unrelated requests including introspection.
+- **SQL Server error 601** ("Could not continue scan with NOLOCK due to data movement") is a
+  hard error, not a warning: dirty reads can make a previously-working query FAIL, and it
+  surfaces through `sanitizeDbError` as a random-looking 400/500. Check the toggle first
+  when debugging a mystery failure.
+- **`sanitizeDbError` does not recognize any cancellation message** (PG "canceling
+  statement due to user request", MySQL "Query execution was interrupted", mssql
+  "Canceled." — none matches, including `/timeout|timed out/i`). They all become a generic
+  500. Always classify cancellation from your own `signal.aborted`, never from the driver
+  message. There are regression tests pinning this in `error-sanitizer.test.ts`.
+- **postgres.js `query.cancel()` is unsafe here**: `src/query.js:52-54` uses the comma
+  operator and discards the canceller's promise, so a cancel-socket error is an unhandled
+  rejection → process exit by default. Use explicit `pg_cancel_backend` on a second client.
+- **There is no `TooltipProvider` in `app/layout.tsx`** — the app's only one is inside
+  `components/ui/sidebar.tsx`. Any tooltip outside the sidebar must render its own provider
+  or Radix throws. (Also recorded in `.design-sync/NOTES.md`.)
+- **Client components must import DB helpers from `@/lib/database/types`, not the
+  `@/lib/database` barrel** — the barrel re-exports the adapter factory and would pull
+  mssql/better-sqlite3 into the client bundle.
+- **Adding a terminal status to a polled job requires updating the poller.**
+  `use-schema-loading.ts` only stopped on `completed`/`error`, so the new `cancelled` status
+  would have polled forever until it was handled explicitly.
+- **`declare global` blocks duplicated across route files are a trap** — `processStatus` was
+  copy-pasted in start-introspection + status; it now lives in
+  `lib/schema/introspection-jobs.ts`. Registries belong on `globalThis`, not module scope:
+  Next dev HMR re-evaluates route modules and a module-level `Map` silently splits in two.
+
 ## Build / Type Safety — CURRENT STATE (corrected)
 - `next.config.mjs` has `typescript.ignoreBuildErrors: false` + `eslint.ignoreDuringBuilds: false`
   — `next build` enforces type-check + lint and fails on errors. Codebase is clean
@@ -27,6 +68,31 @@
 - All API routes call `getAuthContext(request)` → null when auth disabled (pass-through).
 - Server connections (config/databases.json): passwords stripped before client; server-side
   uses `getServerConnectionCredentials()`. `owner_id` nullable (migration 002).
+
+## Eval harness gotchas (evals/, 2026-08-07)
+- `/api/query/generate` swallows ALL errors and returns **HTTP 200 with mock SQL**
+  (confidence 0.3, warning contains "mock response", information_schema query) — any client
+  that only checks response.ok scores failures as passes. `evals/lib/classify.ts` detects it.
+  A JSON-parse failure similarly returns `SELECT 1 as parsing_error` at 200.
+- `lib/openai/schema-upload.ts` does NOT wait for vector-store ingestion — a generate call
+  right after upload can hit an unindexed store. `evals/lib/vector-store.ts` polls to "completed".
+- Demo DB seed data is **randomized per load AND time-anchored** (last-90-days events):
+  a container seeded weeks ago returns 0 rows for "last 7 days" questions. Reseed before eval
+  runs; golden + generated SQL must run against the same live instance in the same run.
+- `dataquery-demo-db` container password is **demo** (docker-compose's demo-db block says demo123).
+- `pnpm eval -- --flags`: pnpm forwards the literal `--` token; node:util parseArgs treats it
+  as option terminator — run-eval.ts strips it before parsing. On PowerShell, comma lists
+  must be quoted (`--questions "Q01,Q20"`) or PS splits them into separate args.
+- Runner manages the demo DB container (start → wait → reseed → stop-on-exit, only if IT
+  started it; also auto-reseeds a running-but-stale DB). First introspect fetch right after
+  a container start reproducibly fails once ("fetch failed") — runner retries 3× with 3s gaps.
+- Next dev must be (re)started AFTER adding EVAL_ALLOW_MODEL_OVERRIDE to .env.local; the
+  runner's canary (bogus model name → expects mock fallback) catches an inactive flag.
+- **Eval question authoring rule learned the hard way**: any literal the model must filter
+  on (status/priority values, casing, underscores) MUST be quoted verbatim in the question,
+  because the uploaded schema is structure-only (no example values, and NO VIEWS — see todos).
+  Two baseline runs were invalidated by unknowable-literal/view-blindness dataset defects
+  (Q12 'Critical' casing, Q27 customer_health view + 'in_progress').
 
 ## Environment (this dev machine)
 - **better-sqlite3 native binding may be missing** after pnpm install (build scripts not run).
@@ -60,3 +126,136 @@
   and `LocalStorageProvider.getConnections()` concatenated them without dedup.
 - Fix: getConnections now filters local connections whose id exists in serverConnections
   (server wins), mirroring getSchemas/getReports. Connection ids are bare Date.now() strings.
+
+## 2026-08-07: Eval harness smoke test (live)
+- `pnpm eval -- --models ...` broke: pnpm forwards the literal `--` separator, which
+  parseArgs treats as an option terminator, turning all flags into rejected positionals.
+  Fix: parseCli in evals/run-eval.ts strips the first `--` from argv before parseArgs.
+- checkServerUp's 10s timeout can fail on a cold Next dev server (first GET / triggers
+  page compile > 10s). Warm the server (curl /) before running the eval.
+- Live smoke (gpt-5.4, Q01/Q23/Q30, 1 trial): 3/3 PASS; JSONL + HTML written; HTML has
+  no credentials; tsc clean.
+
+## 2026-08-12: Eval comparator — tolerant equality is not transitive
+- `evals/lib/compare.ts` used to decide "same rows in any order" by sorting canonical
+  string keys (numbers rounded to 6 significant digits). That is wrong: cell equality is
+  tolerant (0.01 absolute), and tolerant equality is NOT transitive, so it cannot serve
+  as a hash/sort key -- "4.16" ~= "4.17" ~= "4.18" but "4.16" !~= "4.18". Rounding also
+  disagreed with the tolerance at bucket boundaries, so the same pair compared equal in
+  scalar mode but unequal in unordered mode.
+- Fix: multiset equality is now decided by an explicit bipartite perfect matching
+  (Kuhn's augmenting path) over the tolerant predicate, so every comparison mode shares
+  one definition of "equal". Result sets are tens of rows, so the cubic cost is free.
+- The old canonical keys were joined with literal control characters (`\0`, `\x01`).
+  The `\0` made git classify `evals/lib/compare.ts` as a BINARY file -- `git diff` showed
+  only "Binary files differ" for a .ts source file. If that ever happens again, look for
+  a NUL byte in a string literal. Removing it restored normal text diffs.
+- Coverage moved from `evals/lib/compare.selfcheck.ts` (a hand-rolled
+  `node --experimental-strip-types` script, never run by CI) to `tests/unit/compare.test.ts`,
+  which `npm run test` picks up. All 14 original assertions were preserved.
+
+## 2026-08-12: setup-authentik.sh left a STALE redirect URI (fixed)
+- Symptom: auth stack comes up clean, OIDC discovery resolves, `/api/auth/providers` lists
+  authentik -- but the login round-trip dies at the callback with a redirect_uri mismatch.
+- Cause: the Authentik provider persists in the `dashboard_authentik_db_data` volume across
+  runs. `setup-authentik.sh` is idempotent by *skipping* anything that already exists, so a
+  provider created by an earlier session (registered against `localhost:3030`) was never
+  reconciled when the app later ran on `localhost:3000`. Re-running the script did NOT fix
+  it -- it just logged "OAuth2 provider already exists, skipping creation" and moved on.
+- Fix: the "already exists" branch now compares the registered `redirect_uris` against
+  `$APP_CALLBACK_URL` and PATCHes the provider when it doesn't match.
+- Lesson: idempotent-by-skip is not idempotent for *mutable* config. Anything derived from
+  a port/host that can change between runs must be reconciled, not skipped.
+- To check by hand:
+  `curl -s -H "Authorization: Bearer test-api-token-for-setup" \
+    "http://localhost:9000/api/v3/providers/oauth2/?name=DataQuery+Pro+OIDC"` -> `redirect_uris`.
+
+## 2026-08-12: APP_ENCRYPTION_KEY must survive re-running setup-authentik.sh
+- The script prints a FRESHLY GENERATED `APP_ENCRYPTION_KEY` (and `AUTH_SECRET`) on every
+  run. Pasting the whole block into `.env.local` rotates the key and makes every
+  `password_enc` already stored in `database_connections` undecryptable (AES-256-GCM auth
+  tag fails) -- connections silently stop being able to connect.
+- Rule: on a re-run, take only the `AUTH_OIDC_*` values. Keep the existing
+  `APP_ENCRYPTION_KEY`. Rotating `AUTH_SECRET` is harmless (it only invalidates JWT sessions).
+
+## 2026-08-12: reasoning models reject function tools on /v1/chat/completions
+- Symptom: chart generation returned `400 Function tools with reasoning_effort are not
+  supported for gpt-5.6-sol in /v1/chat/completions. To use function tools, use /v1/responses
+  or set reasoning_effort to 'none'.`
+- The route never set `reasoning_effort` itself -- the model applies one by default, and that
+  default collides with `tools` on Chat Completions. So grepping for `reasoning_effort` finds
+  nothing and the cause looks invisible.
+- `/api/chart/generate` was the LAST route still on `client.chat.completions.create`; the other
+  six OpenAI routes already use `client.responses.create`. Fix was to migrate it, not to set
+  `reasoning_effort: 'none'` (which would silently disable reasoning for chart selection).
+- **Function-tool shape differs between the two APIs.** Responses is FLAT:
+  `{ type:'function', name, description, parameters, strict }`. Chat Completions NESTS:
+  `{ type:'function', function:{ name, description, parameters } }`. `CHART_TOOLS` in
+  `models/chart-config.interface.ts` was converted to the flat shape (it had no other consumer)
+  so nobody copies the wrong one. `strict: false` -- these schemas have optional properties.
+- **Parsing differs too.** Responses returns a flat `response.output` array and the model emits
+  a `reasoning` item BEFORE the `function_call`. Verified live: `output item types: reasoning,
+  function_call`. So you must `.find(i => i.type === 'function_call')` -- indexing `output[0]`
+  grabs the reasoning item and looks like "AI did not generate a chart configuration".
+
+## 2026-08-12: share-list GET endpoints leaked to any authenticated user (fixed)
+- `GET /api/sharing/connections/[id]` and `GET /api/sharing/reports/[id]` checked only that the
+  caller was authenticated -- no ownership check -- so any logged-in user who knew or guessed an
+  id could enumerate the emails and names it was shared with. Connection ids are bare
+  `Date.now()` strings, so guessing is cheap. POST/DELETE on those routes were always owner-gated;
+  only the reads were open.
+- Fix: the ownership check lives in the REPOSITORY (`getSharesForConnection`/`getSharesForReport`
+  now take `ownerId` and return `null` when the caller isn't the owner), so a future caller can't
+  reintroduce the hole by forgetting a route-level guard. Routes map `null` -> `forbidden()`.
+- Owner-only, deliberately matching POST/DELETE -- there is no admin bypass on these routes. The
+  ShareDialog is only rendered for owners anyway (`canShare = authEnabled && !isServer && !isShared`),
+  so no UI depended on the looser behavior.
+
+## 2026-08-12: postgres.js untyped params break GREATEST/LEAST (42804)
+- `PUT /api/data/query-accuracy` 500'd with `GREATEST types text and integer cannot be matched`
+  (PG 42804) from `applyDelta` in `lib/db/repositories/query-accuracy-repository.ts`.
+- Cause: **postgres.js sends bind parameters with an unspecified type**, and Postgres resolves
+  an unspecified parameter to `text` when it has no other context. `GREATEST($1, 0)` then
+  compares text against an integer literal and dies. This is NOT specific to GREATEST — the
+  same statement's `query_accuracy_stats.total + $1` would have failed next as `integer + text`.
+- Fix: an explicit `::int` on EVERY numeric parameter, plus `Math.trunc()` in JS first, because
+  a fractional value would make the cast itself fail ("invalid input syntax for type integer").
+  The route does `Number(body.totalDelta) || 0`, so a float really can arrive from a client.
+- Rule of thumb: any bind parameter used inside `GREATEST`/`LEAST`/`COALESCE`, or added to a
+  column, needs an explicit cast under postgres.js. Column-position parameters in a plain
+  `INSERT ... VALUES` are fine — Postgres infers those from the target column.
+- **Not catchable by the current test suite** — `tests/unit` is all pure functions with no DB.
+  Verified instead with a throwaway `tsx` probe that imported the real repository and ran it
+  against the compose Postgres, asserting both code paths (insert + ON CONFLICT) and both
+  clamping invariants (successful ≤ total, counters ≥ 0). Worth repeating for repo-layer fixes.
+
+## 2026-08-12: OIDC claim differences, Authentik vs Entra ID
+Why `lib/auth/oidc-profile.ts` exists. Each of these fails DIFFERENTLY, and three fail silently:
+- **`groups` is not a scope in Entra.** Authentik defines a custom `groups` scope; Entra rejects
+  it. Entra emits group/role data via the app registration's *optional claims*. Hence
+  `AUTH_OIDC_SCOPES` -- Entra must use `openid email profile`.
+- **`email` is often absent in Entra**; the UPN lives in `preferred_username`. `users.email` is
+  `NOT NULL`, so a missing email made `upsertUser` throw -- and the surrounding try/catch
+  SWALLOWED it, leaving `token.userId` unset. Symptom: user looks signed in, every
+  `/api/data/*` route fails, only `Failed to upsert user` in the log. Fixed by the
+  email → preferred_username → upn fallback plus an error message that names the resolved email.
+- **Entra `groups` holds object GUIDs, not names**, so a name-based `groups.includes()` never
+  matched and nobody got admin. `matchesAdmin` now compares case-insensitively against merged
+  `groups`+`roles`, so a name, a GUID, or an App Role all work.
+- **Groups overage**: past ~150 memberships Entra drops `groups` for `_claim_names`/
+  `_claim_sources` (Graph lookup required). We detect and warn rather than resolve; App Roles
+  are immune, which is why the guide recommends them.
+- **Provider id is part of the callback URL** (`/api/auth/callback/<id>`), so it defaults to
+  `authentik` forever -- changing it invalidates already-registered redirect URIs.
+
+Testing trick: you can exercise the Entra *shape* without a tenant. Set
+`AUTH_OIDC_PROVIDER_NAME` + `AUTH_OIDC_SCOPES`, restart, then read the authorize URL out of the
+signin redirect:
+```
+CSRF=$(curl -s -c jar localhost:3000/api/auth/csrf | python -c "import json,sys;print(json.load(sys.stdin)['csrfToken'])")
+curl -s -b jar -c jar -i -X POST localhost:3000/api/auth/signin/authentik \
+  -H "Origin: http://localhost:3000" --data-urlencode "csrfToken=$CSRF" | grep -i ^location:
+```
+The `scope=` in that Location header is the ground truth. Far more reliable than clicking the
+button in a browser -- the first click after a page load frequently does not fire.
+

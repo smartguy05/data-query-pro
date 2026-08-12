@@ -34,6 +34,7 @@ it maps every route, feature, and component to its source path and doc.
 - [Deployment (Docker Self-Host)](./guides/deployment.md) - Docker Compose, production env vars, migrations, scaling caveats
 - [Performance](./guides/performance.md) - Tuning and scaling considerations
 - [Authentication Testing](./guides/authentication-testing.md) - Local Authentik setup for OIDC testing
+- [Azure Entra ID Setup](./guides/azure-entra-setup.md) - Configuring auth mode against Microsoft Entra ID
 - [Adding Database Support](./guides/adding-database-support.md) - Extending for new databases
 - [OpenAI Integration](./guides/openai-integration.md) - AI features and vector stores
 - [Common Tasks](./guides/common-tasks.md) - Frequent development workflows
@@ -43,6 +44,7 @@ it maps every route, feature, and component to its source path and doc.
 - [File Map](./reference/file-map.md) - Feature/route/component → source path → doc
 - [Lessons Learned & Gotchas](./reference/lessons-learned.md) - Non-obvious traps (postgres.js, introspection, SQL safety, auth testing, build)
 - [Testing Plan](./testing/README.md) - Phased Playwright MCP test plan
+- [NL→SQL Eval Harness](../evals/README.md) - Standalone `pnpm eval` harness: accuracy, latency, and cost across models and reasoning efforts
 
 ## Key Concepts
 
@@ -101,11 +103,13 @@ Queries:        Natural language → OpenAI API → SQL → Database adapter →
 ```bash
 # Required
 OPENAI_API_KEY=sk-...        # Required for AI features
-OPENAI_MODEL=gpt-5.4         # Model for query generation
+OPENAI_MODEL=gpt-5.6-sol     # Model for query generation
 
 # Optional
 DEMO_RATE_LIMIT=             # API requests per IP per 24h (empty = unlimited)
 TRUSTED_PROXIES=             # Comma-separated trusted proxy IPs
+OPENAI_REASONING_EFFORT=     # none|minimal|low|medium|high|xhigh|max (empty = provider default; gpt-5/o-series only)
+EVAL_ALLOW_MODEL_OVERRIDE=   # "true" lets /api/query/generate honor request-level model/effort (eval harness only)
 
 # Authentication (all 3 required to enable auth mode)
 AUTH_OIDC_ISSUER=            # e.g. https://auth.example.com/application/o/app/
@@ -113,7 +117,11 @@ AUTH_OIDC_CLIENT_ID=
 AUTH_OIDC_CLIENT_SECRET=
 AUTH_SECRET=                 # JWT signing key (openssl rand -hex 32)
 AUTH_URL=                    # e.g. http://localhost:3000
-AUTH_ADMIN_GROUP=            # Authentik group name for admin access
+AUTH_ADMIN_GROUP=            # Group name / group object ID / App Role granting admin
+AUTH_OIDC_PROVIDER_ID=       # optional, default "authentik" (forms the callback URL)
+AUTH_OIDC_PROVIDER_NAME=     # optional, default "Authentik" (sign-in button label)
+AUTH_OIDC_SCOPES=            # optional, default "openid email profile groups"
+                             # Entra: "openid email profile" (no groups scope)
 
 # App Database (required when auth enabled)
 APP_DATABASE_URL=            # e.g. postgres://user:pass@localhost:5432/app_db

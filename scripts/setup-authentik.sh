@@ -227,6 +227,21 @@ EXISTING_COUNT=$(jq_file "print(data.get('pagination',{}).get('count', data.get(
 if [ "$EXISTING_COUNT" != "0" ]; then
   warn "OAuth2 provider already exists, skipping creation"
   PROVIDER_PK=$(jq_file "print(data['results'][0]['pk'])")
+
+  # Reconcile the redirect URI. A provider created by an earlier run may still
+  # point at a stale port (e.g. localhost:3030), which fails the OIDC callback
+  # with a redirect_uri mismatch. Creation is skipped above, so patch it here.
+  CURRENT_URIS=$(jq_file "print(','.join(u.get('url','') for u in data['results'][0].get('redirect_uris') or []))")
+  if echo "$CURRENT_URIS" | grep -qF "$APP_CALLBACK_URL"; then
+    info "Redirect URI already registered: ${APP_CALLBACK_URL}"
+  else
+    warn "Redirect URI mismatch (found: ${CURRENT_URIS:-none})"
+    info "Patching provider to register ${APP_CALLBACK_URL}..."
+    api PATCH "/providers/oauth2/${PROVIDER_PK}/" "{
+      \"redirect_uris\": [{\"matching_mode\": \"strict\", \"url\": \"${APP_CALLBACK_URL}\"}]
+    }" >/dev/null
+    info "Redirect URI updated"
+  fi
 else
   api_to_file POST "/providers/oauth2/" "{
     \"name\": \"DataQuery Pro OIDC\",

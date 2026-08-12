@@ -19,6 +19,9 @@ yarn-error.log*
 # query audit log (file fallback when app DB is not configured)
 /logs/
 
+# eval harness run outputs
+evals/results/
+
 # env files
 .env*
 
