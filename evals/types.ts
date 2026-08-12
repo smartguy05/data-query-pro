@@ -22,8 +22,8 @@ export type FailureClass =
   | "generation-mock-fallback" // route's outer catch: HTTP 200 mock (warning contains "mock response")
   | "generation-error" // generate returned non-200 (e.g. OpenAI status !== "completed" → 500)
   | "json-parse-fallback" // sql === "SELECT 1 as parsing_error" or warning "Could not parse OpenAI response as JSON"
-  | "validation-rejection" // execute → HTTP 400 (AST read-only validator)
-  | "execution-error" // execute → other non-200
+  | "validation-rejection" // execute → errorCode SQL_VALIDATION_REJECTED (AST read-only validator)
+  | "execution-error" // execute → any other non-200, incl. 400s from sanitized DB user errors
   | "empty-result" // execute 200 but rowCount === 0
   | "result-mismatch"; // executed fine but result set does not match golden
 
@@ -43,6 +43,11 @@ export interface TokenUsage {
   totalTokens: number;
 }
 
+/**
+ * Body of /api/query/generate. Error responses use the same shape (`error` set,
+ * `sql` absent) and carry `usage` too whenever the OpenAI call was billed
+ * before it failed — the harness attributes that spend like any other.
+ */
 export interface GenerateResponse {
   sql?: string;
   explanation?: string;
@@ -60,7 +65,8 @@ export interface ExecuteSuccess {
   rows: string[][]; // cells stringified by the server; SQL NULL is the literal "NULL"
   rowCount: number;
   executionTime: number;
-  limitApplied?: boolean;
+  /** The injected row limit, present only when the route added one. */
+  limitApplied?: number;
 }
 
 export interface ResultSet {
@@ -84,13 +90,16 @@ export interface TrialResult {
   generatedSql: string | null;
   confidence: number | null;
   warnings: string[];
-  generateMs: number;
+  /** Null when no generation was timed (harness-level failure) — never 0. */
+  generateMs: number | null;
   executeMs: number | null;
   rowCount: number | null;
-  /** Token usage for this generation, when the route reported it. */
+  /** Token usage, summed over every billed attempt of this trial. */
   usage?: TokenUsage;
-  /** Cost of this generation in USD; null when the model has no configured rates. */
+  /** Cost in USD over every billed attempt; null when the model has no configured rates. */
   costUsd: number | null;
+  /** Attempts beyond the first, when the harness retried; usage/cost cover them all. */
+  retries?: number;
   pass: boolean;
   failureClass: FailureClass | null; // null when pass
   failureDetail: string | null; // sanitized error / mismatch description; never credentials

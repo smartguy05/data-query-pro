@@ -1,11 +1,11 @@
 // NL→SQL eval runner CLI. Run from repo root:
-//   npx tsx evals/run-eval.ts --models gpt-5.4 --trials 3
+//   npx tsx evals/run-eval.ts --models gpt-5.6-sol --trials 3
 //
 // Preflights the dev server + demo DB, uploads the schema to OpenAI (temporary
-// file + vector store, always cleaned up), verifies every golden, then sweeps
-// models × questions × trials. Streams JSONL per trial and writes a
-// self-contained HTML report at the end. No credentials ever reach stdout,
-// the JSONL, or the HTML.
+// file + vector store, cleaned up on every exit path including Ctrl+C),
+// verifies every golden, then sweeps models × questions × trials. Streams
+// JSONL per trial and writes a self-contained HTML report at the end. No
+// credentials ever reach stdout, the JSONL, or the HTML.
 
 import { parseArgs } from "node:util";
 import { spawnSync } from "node:child_process";
@@ -20,6 +20,7 @@ import type {
   ModelVariant,
   ResultSet,
   RunConfig,
+  TokenUsage,
   TrialResult,
 } from "./types";
 import {
@@ -39,19 +40,67 @@ const RESULTS_DIR = path.join(__dirname, "results");
 const ENV_LOCAL_PATH = path.join(__dirname, "..", ".env.local");
 const SEED_SQL_PATH = path.join(__dirname, "..", "scripts", "demo-database.sql");
 
-// Set when the runner itself starts the demo DB container; the exit handler
-// below stops it again so every exit path (including crashes) cleans up.
-// Containers the user already had running are never touched.
+// ── Teardown ────────────────────────────────────────────────────────────────
+// Everything this run must tear down, tracked at module scope so the normal
+// finally, a crash, and a Ctrl+C all reach the same idempotent cleanup.
+
+// Set when the runner itself starts the demo DB container; containers the user
+// already had running are never touched.
 let containerStartedByRunner: string | null = null;
-process.on("exit", () => {
-  if (containerStartedByRunner !== null) {
-    console.log(`Stopping demo DB container "${containerStartedByRunner}" (started by this run)...`);
-    const stop = spawnSync("podman", ["stop", containerStartedByRunner], { encoding: "utf8" });
-    if (stop.status !== 0) {
-      console.warn(`podman stop failed: ${(stop.stderr ?? "").trim() || stop.error?.message || "unknown error"}`);
-    }
+// EVERY OpenAI resource this run created or adopted. Sets, not single ids: a
+// --concurrency > 1 run can adopt several server-side schema re-uploads, and
+// overwriting the ids would leak all but the last.
+const createdFileIds = new Set<string>();
+const createdVectorStoreIds = new Set<string>();
+let openAiClient: OpenAI | null = null;
+let cleanupPromise: Promise<void> | null = null;
+
+/** Record an OpenAI resource the moment it exists; ids are only ever added. */
+function trackResource(resource: { fileId?: string; vectorStoreId?: string }): void {
+  if (resource.fileId) createdFileIds.add(resource.fileId);
+  if (resource.vectorStoreId) createdVectorStoreIds.add(resource.vectorStoreId);
+}
+
+/** Synchronous half of teardown — the only kind an 'exit' handler can do. */
+function stopRunnerContainer(): void {
+  if (containerStartedByRunner === null) return;
+  const container = containerStartedByRunner;
+  containerStartedByRunner = null;
+  console.log(`Stopping demo DB container "${container}" (started by this run)...`);
+  const stop = spawnSync("podman", ["stop", container], { encoding: "utf8" });
+  if (stop.status !== 0) {
+    console.warn(`podman stop failed: ${(stop.stderr ?? "").trim() || stop.error?.message || "unknown error"}`);
   }
-});
+}
+
+async function performCleanup(): Promise<void> {
+  if (openAiClient !== null && (createdFileIds.size > 0 || createdVectorStoreIds.size > 0)) {
+    console.log("Cleaning up OpenAI eval resources...");
+    await cleanupEvalResources(openAiClient, [...createdFileIds], [...createdVectorStoreIds]);
+  }
+  stopRunnerContainer();
+}
+
+/**
+ * Full teardown, run at most once. The promise is memoized rather than guarded
+ * by a boolean so a second caller (a second Ctrl+C, or the finally racing a
+ * signal) waits for the in-flight deletes instead of exiting through them.
+ */
+function cleanupRun(): Promise<void> {
+  if (cleanupPromise === null) cleanupPromise = performCleanup();
+  return cleanupPromise;
+}
+
+process.on("exit", stopRunnerContainer);
+
+// Ctrl+C neither fires 'exit' handlers nor runs the async finally, so the
+// signals get their own teardown and then exit with the conventional 128+signo.
+for (const [signal, exitCode] of [["SIGINT", 130], ["SIGTERM", 143]] as const) {
+  process.on(signal, () => {
+    console.log(`\nReceived ${signal} — cleaning up before exit...`);
+    void cleanupRun().finally(() => process.exit(exitCode));
+  });
+}
 
 // Mirrors the openai SDK's Shared.ReasoningEffort union (gpt-5 / o-series only).
 const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -78,7 +127,7 @@ function parseCli(): RunConfig {
   const { values } = parseArgs({
     args,
     options: {
-      models: { type: "string", default: "gpt-5.4" },
+      models: { type: "string", default: "gpt-5.6-sol" },
       trials: { type: "string", default: "3" },
       "base-url": { type: "string", default: "http://localhost:3000" },
       questions: { type: "string" },
@@ -201,6 +250,62 @@ function coerceWarnings(warnings: unknown[] | undefined): string[] {
   return warnings.map((w) => (typeof w === "string" ? w : String(w ?? "")));
 }
 
+/** One attempt's billed generation. A retried trial has one entry per attempt. */
+interface AttemptBilling {
+  usage?: TokenUsage;
+  costUsd: number | null;
+}
+
+/**
+ * Folds every attempt of a trial into one billing figure. A retry re-bills the
+ * generation, so the recorded trial must carry the sum — otherwise the report's
+ * totals understate what the run actually spent. `model` is the last one served.
+ */
+function sumBilling(attempts: AttemptBilling[]): AttemptBilling {
+  const billed = attempts.filter(
+    (a): a is AttemptBilling & { usage: TokenUsage } => a.usage !== undefined
+  );
+  const priced = attempts.filter((a) => a.costUsd !== null);
+  const usage =
+    billed.length === 0
+      ? undefined
+      : billed.reduce<TokenUsage>(
+          (acc, a) => ({
+            model: a.usage.model,
+            inputTokens: acc.inputTokens + a.usage.inputTokens,
+            cachedInputTokens: acc.cachedInputTokens + a.usage.cachedInputTokens,
+            cacheWriteTokens: acc.cacheWriteTokens + a.usage.cacheWriteTokens,
+            outputTokens: acc.outputTokens + a.usage.outputTokens,
+            reasoningTokens: acc.reasoningTokens + a.usage.reasoningTokens,
+            totalTokens: acc.totalTokens + a.usage.totalTokens,
+          }),
+          {
+            model: billed[0].usage.model,
+            inputTokens: 0,
+            cachedInputTokens: 0,
+            cacheWriteTokens: 0,
+            outputTokens: 0,
+            reasoningTokens: 0,
+            totalTokens: 0,
+          }
+        );
+  return {
+    ...(usage ? { usage } : {}),
+    costUsd: priced.length === 0 ? null : priced.reduce((sum, a) => sum + (a.costUsd ?? 0), 0),
+  };
+}
+
+/** Stamps the accumulated usage/cost (and retry count) onto a trial record. */
+function applyBilling(result: TrialResult, attempts: AttemptBilling[], retries: number): TrialResult {
+  const total = sumBilling(attempts);
+  return {
+    ...result,
+    ...(total.usage ? { usage: total.usage } : {}),
+    costUsd: total.costUsd,
+    ...(retries > 0 ? { retries } : {}),
+  };
+}
+
 /** Tiny promise pool: `width` workers pulling tasks off a shared index. */
 async function runPool<T>(tasks: Array<() => Promise<T>>, width: number): Promise<T[]> {
   const results = new Array<T>(tasks.length);
@@ -280,7 +385,7 @@ async function main(): Promise<void> {
         probe = await executeSql(baseUrl, "SELECT 1", db);
       }
       if (probe.status === 200) {
-        containerStartedByRunner = container; // stopped again by the exit handler
+        containerStartedByRunner = container; // stopped again during teardown
         console.log(`Container "${container}" started; it will be stopped when the run finishes.`);
         if (!reseedDemoDb(container, db)) {
           process.exitCode = 1;
@@ -334,12 +439,9 @@ async function main(): Promise<void> {
     }
   }
 
-  // 4. Upload schema to OpenAI (cleaned up in the finally below, always).
   const client = new OpenAI({ apiKey });
-  const uploaded = await uploadSchemaForEval(client, schema);
-  let vectorStoreId = uploaded.vectorStoreId;
-  let cleanupFileId = uploaded.fileId;
-  let cleanupVectorStoreId = uploaded.vectorStoreId;
+  openAiClient = client;
+  let vectorStoreId = "";
 
   const timestamp = new Date().toISOString();
   const runId = `run-${timestamp.replace(/[:.]/g, "-")}`;
@@ -357,17 +459,27 @@ async function main(): Promise<void> {
     fs.appendFileSync(jsonlPath, JSON.stringify(t) + "\n");
   };
 
-  /** Adopt a re-uploaded vector store for subsequent calls + cleanup. */
+  /**
+   * Adopt a re-uploaded vector store for subsequent calls. The new ids are
+   * ADDED to the teardown set, never swapped in: several concurrent generate
+   * calls can each trigger a server-side re-upload, so every pair this run ever
+   * touched — including the original — has to be deleted at the end.
+   */
   const adoptReupload = (body: { newFileId?: string; newVectorStoreId?: string }): void => {
     if (body.newVectorStoreId) {
       console.warn(`Schema was re-uploaded by the server; adopting new vector store.`);
       vectorStoreId = body.newVectorStoreId;
-      cleanupVectorStoreId = body.newVectorStoreId;
-      if (body.newFileId) cleanupFileId = body.newFileId;
+      trackResource({ fileId: body.newFileId, vectorStoreId: body.newVectorStoreId });
     }
   };
 
   try {
+    // 4. Upload schema to OpenAI. Both ids are tracked the moment they exist,
+    // so an ingestion failure or a Ctrl+C mid-wait still tears them down.
+    console.log("Uploading schema to OpenAI...");
+    const uploaded = await uploadSchemaForEval(client, schema, trackResource);
+    vectorStoreId = uploaded.vectorStoreId;
+
     // 2. Model-override canary (needs the vector store, hence after upload).
     console.log("Checking server model override (canary)...");
     const canary = await generateSql(baseUrl, {
@@ -410,7 +522,12 @@ async function main(): Promise<void> {
     console.log("All goldens verified.");
 
     // 6. Sweep (variants sequential; question-trials pooled within a variant).
-    const runTrial = async (v: ModelVariant, q: EvalQuestion, trial: number): Promise<TrialResult> => {
+    const runTrial = async (
+      v: ModelVariant,
+      q: EvalQuestion,
+      trial: number,
+      billing: AttemptBilling[]
+    ): Promise<TrialResult> => {
       const gen = await generateSql(baseUrl, {
         query: q.question,
         vectorStoreId,
@@ -419,8 +536,15 @@ async function main(): Promise<void> {
         effort: v.effort,
       });
       adoptReupload(gen.body);
-      // Cost is attributed even to failed generations — a wrong answer still bills.
+      // Cost is attributed even to failed generations — a wrong answer still
+      // bills, and error responses carry `usage` when the call was billed.
       const cost = computeCost(gen.body.usage, v.model);
+      // Pushed before anything else can throw, so a later failure (e.g. an
+      // execute timeout) cannot discard this attempt's spend.
+      billing.push({
+        ...(gen.body.usage ? { usage: gen.body.usage } : {}),
+        costUsd: cost.priced ? cost.usd : null,
+      });
 
       const result: TrialResult = {
         runId,
@@ -491,44 +615,54 @@ async function main(): Promise<void> {
 
     // A thrown fetch error (e.g. AbortSignal timeout) must fail the TRIAL, not
     // the run: retry once for transient network hiccups, then record a failure.
+    // Every attempt's usage is accumulated, so a discarded attempt still counts
+    // toward the run's reported spend.
     const runTrialSafe = async (v: ModelVariant, q: EvalQuestion, trial: number): Promise<TrialResult> => {
+      const billing: AttemptBilling[] = [];
       let lastError: unknown;
       for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-          return await runTrial(v, q, trial);
+          const result = await runTrial(v, q, trial, billing);
+          return applyBilling(result, billing, attempt - 1);
         } catch (err) {
           lastError = err;
           console.warn(`[${v.label}] ${q.id} trial ${trial}: attempt ${attempt} threw (${(err as Error).message}); ${attempt === 1 ? "retrying" : "recording as failure"}`);
         }
       }
-      return {
-        runId,
-        model: v.label,
-        baseModel: v.model,
-        ...(v.effort ? { effort: v.effort } : {}),
-        questionId: q.id,
-        trial,
-        question: q.question,
-        tags: q.tags,
-        mode: q.mode,
-        generatedSql: null,
-        confidence: null,
-        warnings: [],
-        generateMs: 0,
-        executeMs: null,
-        rowCount: null,
-        costUsd: null,
-        pass: false,
-        failureClass: "generation-error",
-        failureDetail: `harness request failed after retry: ${(lastError as Error)?.message ?? String(lastError)}`,
-        timestamp: new Date().toISOString(),
-      };
+      return applyBilling(
+        {
+          runId,
+          model: v.label,
+          baseModel: v.model,
+          ...(v.effort ? { effort: v.effort } : {}),
+          questionId: q.id,
+          trial,
+          question: q.question,
+          tags: q.tags,
+          mode: q.mode,
+          generatedSql: null,
+          confidence: null,
+          warnings: [],
+          // Null, never 0: a fabricated zero would drag the model's latency
+          // stats down and make a flaky model look faster.
+          generateMs: null,
+          executeMs: null,
+          rowCount: null,
+          costUsd: null,
+          pass: false,
+          failureClass: "generation-error",
+          failureDetail: `harness request failed after retry: ${(lastError as Error)?.message ?? String(lastError)}`,
+          timestamp: new Date().toISOString(),
+        },
+        billing,
+        1
+      );
     };
 
     const makeTask = (v: ModelVariant, q: EvalQuestion, trial: number) => async (): Promise<TrialResult> => {
       const t = await runTrialSafe(v, q, trial);
       record(t);
-      const ms = t.generateMs + (t.executeMs ?? 0);
+      const ms = (t.generateMs ?? 0) + (t.executeMs ?? 0);
       const status = t.pass ? "PASS" : `FAIL (${t.failureClass})`;
       console.log(`[${v.label}] ${t.questionId} trial ${trial}/${config.trials}: ${status} (${ms}ms)`);
       return t;
@@ -595,7 +729,10 @@ async function main(): Promise<void> {
       const mt = trials.filter((t) => t.model === model);
       const passed = mt.filter((t) => t.pass).length;
       const rate = mt.length > 0 ? `${passed}/${mt.length} (${((passed / mt.length) * 100).toFixed(1)}%)` : "— (no trials)";
-      const passingGen = mt.filter((t) => t.pass).map((t) => t.generateMs).sort((a, b) => a - b);
+      const passingGen = mt
+        .filter((t) => t.pass && t.generateMs !== null)
+        .map((t) => t.generateMs as number)
+        .sort((a, b) => a - b);
       const mid = Math.floor(passingGen.length / 2);
       const medianGen =
         passingGen.length === 0
@@ -618,8 +755,7 @@ async function main(): Promise<void> {
     console.log(`\nJSONL:  ${path.resolve(jsonlPath)}`);
     console.log(`Report: ${path.resolve(htmlPath)}`);
   } finally {
-    console.log("Cleaning up OpenAI eval resources...");
-    await cleanupEvalResources(client, cleanupFileId, cleanupVectorStoreId);
+    await cleanupRun();
   }
 }
 

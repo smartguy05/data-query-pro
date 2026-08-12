@@ -62,7 +62,7 @@ cp .env.example .env.local
 ```bash
 # .env.local
 OPENAI_API_KEY=sk-...    # Your OpenAI API key
-OPENAI_MODEL=gpt-5.4     # Model to use (optional)
+OPENAI_MODEL=gpt-5.6-sol # Model to use (optional)
 ```
 
 5. **Start development server:**

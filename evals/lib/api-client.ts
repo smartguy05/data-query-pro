@@ -14,7 +14,7 @@ export interface TimedResponse<T> {
   ms: number;
 }
 
-export type ExecuteErrorBody = { error?: string; code?: string; detail?: string };
+export type ExecuteErrorBody = { error?: string; code?: string; detail?: string; errorCode?: string };
 
 function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/+$/, "")}${path}`;
@@ -69,6 +69,10 @@ export async function introspectSchema(
  * Never throws on a non-200 response — the HTTP status is returned so the
  * caller can classify it (the route returns 500 when the OpenAI response
  * status !== "completed", and can return a 200 mock on internal errors).
+ *
+ * The body is parsed and returned whatever the status, because error responses
+ * carry `usage` too when the OpenAI call was billed before it failed — that
+ * spend is real and must reach the cost report.
  */
 export async function generateSql(
   baseUrl: string,
@@ -100,8 +104,10 @@ export async function generateSql(
 /**
  * POST /api/query/execute with a full no-auth-mode connection and
  * defaultLimit "none" (no injected row limit). Never throws on non-200:
- * 400 = validation rejection, 500 = execution error, body carries
- * { error, code, detail } in both failure cases.
+ * failure bodies carry { error, code, detail } plus a stable `errorCode`
+ * discriminator (SQL_VALIDATION_REJECTED, DB_USER_ERROR, ...) — HTTP 400
+ * alone does not imply a validator rejection, since sanitized DB user
+ * errors (e.g. a hallucinated column) are 400 too.
  */
 export async function executeSql(
   baseUrl: string,

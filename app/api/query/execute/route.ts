@@ -6,6 +6,21 @@ import { sanitizeDbError } from "@/utils/error-sanitizer"
 import { getAuthContext } from '@/lib/auth/require-auth';
 import { logQuery } from "@/lib/query-log"
 
+/**
+ * Stable, machine-readable discriminators on this route's error responses.
+ * Additive alongside the existing `error` / `code` / `detail` fields: a 400 can
+ * mean either "the AST validator rejected this SQL" or "the database rejected
+ * this SQL" (hallucinated column, syntax error), and those are different
+ * failures for anything analyzing the responses (see evals/lib/classify.ts).
+ */
+const EXECUTE_ERROR_CODES = {
+  sqlRequired: "SQL_REQUIRED",
+  connectionInvalid: "CONNECTION_INVALID",
+  sqlValidationRejected: "SQL_VALIDATION_REJECTED",
+  dbUserError: "DB_USER_ERROR",
+  dbError: "DB_ERROR",
+} as const
+
 export async function POST(request: NextRequest) {
   try {
     const auth = await getAuthContext(request);
@@ -20,7 +35,10 @@ export async function POST(request: NextRequest) {
       : { ...body.connection, schema };
 
     if (!sql) {
-      return NextResponse.json({ error: "SQL query is required" }, { status: 400 })
+      return NextResponse.json(
+        { error: "SQL query is required", errorCode: EXECUTE_ERROR_CODES.sqlRequired },
+        { status: 400 }
+      )
     }
 
     // Validate connection and get adapter (dbType is needed to pick the SQL dialect)
@@ -31,7 +49,7 @@ export async function POST(request: NextRequest) {
 
     if (!validationResult.success) {
       return NextResponse.json(
-        { error: validationResult.error },
+        { error: validationResult.error, errorCode: EXECUTE_ERROR_CODES.connectionInvalid },
         { status: validationResult.statusCode }
       )
     }
@@ -42,7 +60,10 @@ export async function POST(request: NextRequest) {
     // Fails closed (rejects on parse error) — see lib/database/sql-validator.ts.
     const sqlCheck = validateReadOnlySql(sql, dbType)
     if (!sqlCheck.valid) {
-      return NextResponse.json({ error: sqlCheck.error }, { status: 400 })
+      return NextResponse.json(
+        { error: sqlCheck.error, errorCode: EXECUTE_ERROR_CODES.sqlValidationRejected },
+        { status: 400 }
+      )
     }
 
     // Inject the user's default row limit when the SQL has none — an explicit
@@ -114,7 +135,14 @@ export async function POST(request: NextRequest) {
     const sanitized = sanitizeDbError(error)
 
     return NextResponse.json(
-      { error: sanitized.message, code: sanitized.code, detail: sanitized.detail },
+      {
+        error: sanitized.message,
+        code: sanitized.code,
+        detail: sanitized.detail,
+        errorCode: sanitized.isUserError
+          ? EXECUTE_ERROR_CODES.dbUserError
+          : EXECUTE_ERROR_CODES.dbError,
+      },
       { status: sanitized.isUserError ? 400 : 500 }
     )
   }

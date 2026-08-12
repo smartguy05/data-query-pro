@@ -126,7 +126,7 @@ latency, and cost. Full usage: [evals/README.md](../../evals/README.md).
 | Shared types | `evals/types.ts` | Result/run shapes used across the harness |
 | API client | `evals/lib/api-client.ts` | Typed fetch wrappers over the running dev server (`generate` sends `model` / `effort`, plus `execute` / `introspect`) |
 | Failure classification | `evals/lib/classify.ts` | Classifies generate + execute failures (incl. mock-fallback / JSON-parse-fallback signals) |
-| Result comparison | `evals/lib/compare.ts` (+ `compare.selfcheck.ts`) | Compares generated vs golden result sets per the question's comparison mode |
+| Result comparison | `evals/lib/compare.ts` (tests: `tests/unit/compare.test.ts`) | Compares generated vs golden result sets per the question's comparison mode |
 | Cost accounting | `evals/lib/pricing.ts` | Applies `pricing.json` rates to reported token usage (breakdowns are subsets, never additive) |
 | HTML report builder | `evals/lib/report.ts` | Builds the self-contained HTML report (no dependencies) |
 | Schema vector store | `evals/lib/vector-store.ts` | Standalone schema upload + ingestion wait; mirrors `lib/openai/schema-upload.ts` without importing it |

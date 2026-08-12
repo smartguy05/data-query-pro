@@ -13,8 +13,10 @@ and `/api/query/execute` routes. Built to compare `gpt-5.4` against newer models
    disables management):
 
    - **Not running?** The runner starts the container, waits for Postgres,
-     reseeds it, and **stops it again when the run finishes** (any exit path).
-     A container that was already running when the run began is left running.
+     reseeds it, and **stops it again when the run finishes** — on success, on
+     a crash, and on Ctrl+C (`SIGINT`/`SIGTERM` tear down first, then exit
+     128 + signal). A container that was already running when the run began is
+     left running.
    - **Running but stale?** The seed is time-anchored ("last 90 days" events),
      so the runner probes freshness (any `usage_events` in the last 7 days)
      and reseeds automatically when stale — a reseed **drops and recreates**
@@ -33,7 +35,7 @@ and `/api/query/execute` routes. Built to compare `gpt-5.4` against newer models
 
    ```
    OPENAI_API_KEY=sk-...
-   OPENAI_MODEL=gpt-5.4
+   OPENAI_MODEL=gpt-5.6-sol
    EVAL_ALLOW_MODEL_OVERRIDE=true    # lets the harness pick the model per request
    ```
 
@@ -47,14 +49,14 @@ and `/api/query/execute` routes. Built to compare `gpt-5.4` against newer models
 
 ```bash
 # smoke test (3 questions × 1 trial, ~3 OpenAI calls)
-pnpm eval -- --models gpt-5.4 --trials 1 --questions Q01,Q23,Q30
+pnpm eval -- --models gpt-5.6-sol --trials 1 --questions Q01,Q23,Q30
 
 # single-model default run (core 16 questions × 3 trials ≈ 48 generate calls,
 # roughly half the previous cost of the full set)
-pnpm eval -- --models gpt-5.4 --trials 3
+pnpm eval -- --models gpt-5.6-sol --trials 3
 
 # full 32-question run (core + extended, ≈ 96 generate calls, ~13 min)
-pnpm eval -- --models gpt-5.4 --trials 3 --extended
+pnpm eval -- --models gpt-5.6-sol --trials 3 --extended
 
 # multi-model comparison sweep
 pnpm eval -- --models gpt-5.4,gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol --trials 3
@@ -70,7 +72,10 @@ labelled `model@effort` (e.g. `gpt-5.6-sol@low`) that rank against each other
 like separate models — so the "equally accurate but faster wins" rule answers
 "which effort setting should we ship?" directly. Valid values: `none`,
 `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. Omitting `--efforts` sends
-no reasoning parameter at all (provider default), identical to earlier runs.
+no reasoning parameter at all — and because override-mode requests take the
+effort **only** from the request body, a bare variant does **not** inherit the
+server's `OPENAI_REASONING_EFFORT`. Bare variants are therefore always the
+provider default, whatever the dev server's env says.
 
 **Cost multiplies**: models × efforts × questions × trials. Two models at three
 efforts over the core 16 with 3 trials is 288 generate calls. Probe with
@@ -82,8 +87,8 @@ throws inside the route, which converts it to the HTTP 200 mock fallback, so
 the harness fail-fasts after the first question and names the effort value as a
 likely cause.
 
-In production, the same knob is set by `OPENAI_REASONING_EFFORT` in the
-environment (empty = omit the parameter). It currently applies to
+In production (override mode off), the knob is set by `OPENAI_REASONING_EFFORT`
+in the environment (empty = omit the parameter). It currently applies to
 `/api/query/generate` only, not the other OpenAI routes.
 
 The dataset is split into a **core** set of 16 questions (`QUESTIONS` — all 8
@@ -97,7 +102,7 @@ without `--extended`.
 
 | Flag | Default | Notes |
 |------|---------|-------|
-| `--models` | `gpt-5.4` | comma-separated list, run sequentially |
+| `--models` | `gpt-5.6-sol` | comma-separated list, run sequentially |
 | `--trials` | `3` | trials per question (generation is nondeterministic) |
 | `--questions` | core 16 | comma-separated ids for subset/smoke runs (matched against all 32) |
 | `--efforts` | none | reasoning efforts to cross with `--models` (gpt-5/o-series only) |
@@ -112,6 +117,15 @@ without `--extended`.
 Every run reports **total cost per model/effort variant** in the final console
 table and in the HTML report (ranking and per-model summary), alongside pass
 rate and median latency. Cost does not affect ranking order.
+
+Reported cost tracks **actual spend**, not just successful generations:
+
+- A generation that errors still bills, so `usage` is read from error responses
+  too whenever the route reports it.
+- When the harness retries a trial (a thrown fetch error, e.g. an execute
+  timeout after the generation already succeeded), the tokens and cost of
+  **every** attempt are summed into that trial's record; the record carries
+  `retries` when it took more than one attempt.
 
 Rates live in **`evals/pricing.json`** — USD per 1,000,000 tokens, keyed by
 model. Ship with `input` and `output` filled in per model; until both are set,
@@ -129,9 +143,10 @@ the harness still reports token counts but shows cost as `—`.
 tokens at the plain `input` rate.
 
 Lookup handles dated snapshots: OpenAI reports the model it actually served
-(e.g. `gpt-5.4-2026-03-05`), so the price table falls back to the longest
-matching prefix key (`gpt-5.4`). Unknown models report `priced: false` rather
-than silently costing zero.
+(e.g. `gpt-5.4-2026-03-05`), and a configured key covers its own dated
+snapshots (`gpt-5.4-2026-03-05` matches `gpt-5.4`). No other suffix matches —
+`gpt-5.4-mini` never inherits `gpt-5.4` rates. Unknown models report
+`priced: false` rather than silently costing zero.
 
 **Token semantics** (verified against openai@7.4.0 types): `reasoningTokens` is
 a subset of `outputTokens`, and `cachedInputTokens`/`cacheWriteTokens` are
@@ -149,7 +164,11 @@ A trial passes only if the generated SQL **executes without error, returns ≥ 1
 and its result set matches the question's authored golden SQL** (see `dataset.ts`;
 comparison modes: `scalar`, `ordered`, `unordered`, `row-count`, `non-empty`).
 The comparator (`lib/compare.ts`) ignores column names/aliases, tolerates numeric
-formatting differences, and allows extra columns.
+formatting differences, and allows extra columns. Because that tolerance is not
+transitive, "same rows in any order" is decided by an explicit bipartite matching
+rather than by sorting canonical keys. Its behaviour is pinned by
+`tests/unit/compare.test.ts` — run with `npm run test` (no database or dev server
+needed).
 
 Failures are classified (`lib/classify.ts`): `generation-mock-fallback` (the route
 swallows errors and returns HTTP 200 with mock SQL — detected explicitly),
@@ -160,11 +179,18 @@ swallows errors and returns HTTP 200 with mock SQL — detected explicitly),
 
 Each run writes two files to `evals/results/` (gitignored):
 
-- `run-<timestamp>.jsonl` — one record per trial (streamed, crash-safe)
+- `run-<timestamp>.jsonl` — one record per trial (streamed, crash-safe).
+  `generateMs` is `null` when the harness never completed a generation (a
+  request that threw twice), and such trials are excluded from every latency
+  statistic rather than counted as 0ms.
 - `run-<timestamp>.html` — self-contained report: **model ranking (pass count,
   ties broken by median generate latency of passing trials — equally accurate but
   faster ranks higher)**, per-model summary, confidence calibration, per-question
   matrix, and an appendix of every failing trial's SQL.
+
+The temporary OpenAI schema file and vector store are deleted on every exit
+path — including Ctrl+C, an ingestion failure, and each extra pair adopted when
+the server re-uploads an expired vector store mid-run.
 
 Baseline on record: **gpt-5.4 — 95/96 (99.0%), median generation 5.4s**
 (`run-2026-08-07T20-38-41-622Z`) — measured on the **full 32-question set**

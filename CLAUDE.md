@@ -356,9 +356,10 @@ config/                      # Server configuration
 - Only generates SELECT statements for safety
 - Returns: `{ sql, explanation, confidence, warnings }`, plus `usage` when OpenAI reports it
 - Handles non-JSON responses with fallback parsing
-- **Reasoning effort**: set server-side via `OPENAI_REASONING_EFFORT` (`none|minimal|low|medium|high|xhigh|max`). The `reasoning` parameter is **gpt-5 / o-series models only**, and not every reasoning model supports every value — the API validates, not the SDK. When nothing resolves, the `reasoning` key is omitted from the request entirely, so default behavior is unchanged
-- **Model / effort overrides (eval-only)**: the request body accepts optional `model` and `effort`. Both are honored **only** when `EVAL_ALLOW_MODEL_OVERRIDE=true`; otherwise they are ignored entirely. These exist for the eval harness, not for normal clients
+- **Reasoning effort**: set server-side via `OPENAI_REASONING_EFFORT` (`none|minimal|low|medium|high|xhigh|max`). The `reasoning` parameter is **gpt-5 / o-series models only**, and not every reasoning model supports every value — the API validates, not the SDK. When nothing resolves, the `reasoning` key is omitted from the request entirely, so default behavior is unchanged. Eval-override requests (flag on + body `model`) take effort **from the body only** — the env var is not consulted, so a bare eval variant measures the provider default
+- **Model / effort overrides (eval-only)**: the request body accepts optional `model` and `effort`. Both are honored **only** when `EVAL_ALLOW_MODEL_OVERRIDE=true`; otherwise they are ignored entirely. With the flag on, a supplied `model` failing `/^[a-zA-Z0-9._:-]{1,64}$/` returns HTTP 400 instead of silently falling back to `OPENAI_MODEL`. These exist for the eval harness, not for normal clients
 - **`usage` shape**: `{ model, inputTokens, cachedInputTokens, cacheWriteTokens, outputTokens, reasoningTokens, totalTokens }`. `model` is the model OpenAI *actually served* — typically a dated snapshot like `gpt-5.4-2026-03-05`, not the requested alias. Token semantics: `reasoningTokens` is a **subset** of `outputTokens`; `cachedInputTokens` and `cacheWriteTokens` are **subsets** of `inputTokens` — breakdowns, never additive
+- `usage` also rides **error responses** (e.g. the 500 when the OpenAI response status isn't `"completed"`) whenever OpenAI billed tokens before the failure — the eval harness reads it there for cost accounting
 - This applies to the **generate route only**. The other OpenAI routes (enhance, revise, followup, suggestions, generate-descriptions, chart) are unchanged and still discard usage
 
 ### Query Enhancement
@@ -495,7 +496,7 @@ config/                      # Server configuration
 Required in `.env.local`:
 ```
 OPENAI_API_KEY=sk-...        # Required for AI features
-OPENAI_MODEL=gpt-5.4        # Model for query generation
+OPENAI_MODEL=gpt-5.6-sol    # Model for query generation
 DEMO_RATE_LIMIT=             # Optional: number of free requests per 24h per IP (empty = unlimited)
 TRUSTED_PROXIES=             # Optional: comma-separated trusted proxy IPs for rate limiting
 OPENAI_REASONING_EFFORT=     # Optional: none|minimal|low|medium|high|xhigh|max (gpt-5 / o-series only)
@@ -643,6 +644,7 @@ Connection: `localhost:5432`, database: `cloudmetrics`, user: `demo`, password: 
 A standalone harness in `evals/` measures how well a model turns natural language into SQL, driving the app's real `/api/query/generate` and `/api/query/execute` routes against the CloudMetrics demo database.
 
 - **Run it**: `pnpm eval` (tsx CLI). Requires a running dev server, `EVAL_ALLOW_MODEL_OVERRIDE=true` in `.env.local`, and `DEMO_RATE_LIMIT` unset
+- **Its own demo DB**: the harness uses podman container `dataquery-demo-db` on port **5433** (defaults of `--db-container` / `--db-port`), which it auto-starts, reseeds when the time-anchored seed goes stale, and stops again **only if this run started it** (a container already running is left running) — separate from the `demo-postgres` container on port 5432 used by the Playwright testing plan above
 - **What a pass means**: the generated SQL executes without error, returns at least one row, and its result set matches the question's authored golden SQL (`evals/dataset.ts` — 32 questions: core 16 + extended 16)
 - **Ranking**: by pass count, ties broken by median generation latency of passing trials (equally accurate but faster ranks higher). **Cost is reported alongside but never affects ranking**
 - **Pricing caveat**: `evals/pricing.json` ships with **null rates**, so cost renders as `—` until per-model `input`/`output` rates are filled in; token counts are still reported

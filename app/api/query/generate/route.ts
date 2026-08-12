@@ -137,20 +137,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Query is required" }, { status: 400})
     }
 
-    // Eval-only escape hatch: honor a client-requested model only when explicitly enabled.
-    const modelOverride =
-      process.env.EVAL_ALLOW_MODEL_OVERRIDE === "true" &&
-      typeof model === "string" && /^[a-zA-Z0-9._:-]{1,64}$/.test(model)
-        ? model
-        : undefined;
+    // Eval-only escape hatch: honor a client-requested model only when explicitly
+    // enabled. A supplied-but-invalid model is rejected rather than silently
+    // falling back to OPENAI_MODEL, which would misattribute the result.
+    const evalOverrideEnabled = process.env.EVAL_ALLOW_MODEL_OVERRIDE === "true";
+    const modelSupplied = evalOverrideEnabled && model !== undefined && model !== null;
+    if (modelSupplied && !(typeof model === "string" && /^[a-zA-Z0-9._:-]{1,64}$/.test(model))) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid model override: must be a string of 1-64 characters using only letters, digits, '.', '_', ':' or '-'",
+        },
+        { status: 400 }
+      );
+    }
+    const modelOverride = modelSupplied ? (model as string) : undefined;
 
-    // Reasoning effort (gpt-5 / o-series models only). Configured via
-    // OPENAI_REASONING_EFFORT; the request-level override rides the same
-    // eval flag as the model override. When nothing resolves, the `reasoning`
-    // key is omitted entirely so the request is unchanged from the default.
-    const effortOverride =
-      process.env.EVAL_ALLOW_MODEL_OVERRIDE === "true" ? asReasoningEffort(effort) : undefined;
-    const resolvedEffort = effortOverride ?? asReasoningEffort(process.env.OPENAI_REASONING_EFFORT);
+    // Reasoning effort (gpt-5 / o-series models only). Normal requests read
+    // OPENAI_REASONING_EFFORT, with a request-level override riding the same eval
+    // flag as the model override. Eval-override requests (flag on AND a body-supplied
+    // model) take the effort ONLY from the body, so a variant is never silently run
+    // at the server's env effort. When nothing resolves, the `reasoning` key is
+    // omitted entirely so the request is unchanged from the default.
+    const effortOverride = evalOverrideEnabled ? asReasoningEffort(effort) : undefined;
+    const resolvedEffort = modelOverride
+      ? effortOverride
+      : effortOverride ?? asReasoningEffort(process.env.OPENAI_REASONING_EFFORT);
 
     // "Learn from previous queries": optional few-shot examples and failed->revised
     // corrections supplied by the client (device-local history). Rendered into the
@@ -308,23 +320,11 @@ Remember: Every table and column in your SQL must exactly match what exists in t
 
     console.log("OpenAI response status:", response.status)
 
-    if (response.status !== "completed") {
-      const errorText = response.error?.message;
-      console.error("OpenAI API error:", {
-        status: response.status,
-        statusText: response.error?.code,
-        body: errorText,
-      })
-      return NextResponse.json({ error: `OpenAI API request failed: ${response.status} ${response.error?.message} - ${errorText}` }, { status: 500});
-    }
-
-    const output = response.output_text;
-    console.log("OpenAI response content:", output);
-
     // Token usage for cost accounting. `reasoning` tokens are a subset of
     // `output`, and `cachedInput`/`cacheWrite` are subsets of `input` — they
     // are breakdowns, never additive. `model` is the ID OpenAI actually used,
-    // which may be a dated snapshot of the requested alias.
+    // which may be a dated snapshot of the requested alias. Resolved before the
+    // status check so incomplete responses still report the tokens they billed.
     const usage = response.usage
       ? {
           model: response.model,
@@ -337,6 +337,25 @@ Remember: Every table and column in your SQL must exactly match what exists in t
         }
       : undefined;
     const usageField = usage ? { usage } : {};
+
+    if (response.status !== "completed") {
+      const errorText = response.error?.message;
+      console.error("OpenAI API error:", {
+        status: response.status,
+        statusText: response.error?.code,
+        body: errorText,
+      })
+      return NextResponse.json(
+        {
+          error: `OpenAI API request failed: ${response.status} ${response.error?.message} - ${errorText}`,
+          ...usageField,
+        },
+        { status: 500 }
+      );
+    }
+
+    const output = response.output_text;
+    console.log("OpenAI response content:", output);
 
     try {
       let jsonContent = output;

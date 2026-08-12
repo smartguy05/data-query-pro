@@ -102,7 +102,7 @@ Queries:        Natural language → OpenAI API → SQL → Database adapter →
 ```bash
 # Required
 OPENAI_API_KEY=sk-...        # Required for AI features
-OPENAI_MODEL=gpt-5.4         # Model for query generation
+OPENAI_MODEL=gpt-5.6-sol     # Model for query generation
 
 # Optional
 DEMO_RATE_LIMIT=             # API requests per IP per 24h (empty = unlimited)

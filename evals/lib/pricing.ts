@@ -45,18 +45,24 @@ function loadPricing(): PricingFile {
   return cached;
 }
 
+/** Remainder that lets a configured key stand in for a dated snapshot of itself. */
+const SNAPSHOT_SUFFIX = /^-\d{4}-\d{2}-\d{2}$/;
+
 /**
- * Resolve rates for a model id. Tries the exact id first (which may be a dated
- * snapshot like "gpt-5.4-2026-03-17"), then the longest configured key that the
- * id starts with, so snapshots inherit their family's prices automatically.
+ * Resolve rates for a model id. Tries the exact id first, then a configured key
+ * the id is a dated snapshot of ("gpt-5.4" prices "gpt-5.4-2026-03-17"), so
+ * snapshots inherit their family's prices automatically. A bare prefix is NOT
+ * enough — "gpt-5.4-mini" is a different model with different prices, so it
+ * stays unpriced (cost renders "—") rather than silently billed at "gpt-5.4"
+ * rates.
  */
 function ratesFor(model: string): ModelRates | null {
   const models = loadPricing().models ?? {};
   if (models[model]) return models[model];
-  const prefixMatch = Object.keys(models)
-    .filter((key) => model.startsWith(key))
+  const snapshotOf = Object.keys(models)
+    .filter((key) => model.startsWith(key) && SNAPSHOT_SUFFIX.test(model.slice(key.length)))
     .sort((a, b) => b.length - a.length)[0];
-  return prefixMatch ? models[prefixMatch] : null;
+  return snapshotOf ? models[snapshotOf] : null;
 }
 
 /** True when at least one model in pricing.json has usable rates. */

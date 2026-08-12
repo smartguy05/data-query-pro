@@ -11,7 +11,9 @@
     "",
     "Lookup is keyed on the model OpenAI reports actually serving the request",
     "(often a dated snapshot such as 'gpt-5.4-2026-03-17'), then falls back to the",
-    "requested name, then to the longest matching prefix key below."
+    "requested name. A key below also covers its own dated snapshots",
+    "('gpt-5.4-2026-03-17' matches 'gpt-5.4'); no other suffix matches, so",
+    "'gpt-5.4-mini' never inherits 'gpt-5.4' rates."
   ],
   "currency": "USD",
   "per": 1000000,

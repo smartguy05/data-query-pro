@@ -118,7 +118,7 @@ Endpoints using OpenAI require:
 
 | Endpoint | `OPENAI_MODEL` fallback | Notes |
 |----------|-------------------------|-------|
-| `/api/query/generate` | **none — required** | Honors `OPENAI_REASONING_EFFORT`; accepts per-request `model`/`effort` overrides only when `EVAL_ALLOW_MODEL_OVERRIDE=true` |
+| `/api/query/generate` | **none — required** | Honors `OPENAI_REASONING_EFFORT` (not consulted on eval-override requests, which take effort from the body only); accepts per-request `model`/`effort` overrides only when `EVAL_ALLOW_MODEL_OVERRIDE=true` — an invalid `model` then returns 400 |
 | `/api/query/enhance` | **none — required** | |
 | `/api/query/revise` | **none — required** | |
 | `/api/query/followup` | `gpt-5.1` | |

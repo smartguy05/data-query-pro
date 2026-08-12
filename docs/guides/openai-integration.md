@@ -20,7 +20,7 @@ OPENAI_API_KEY=sk-...
 
 # Required by /api/query/generate, /enhance, /revise (no fallback);
 # other AI routes fall back to a per-route default
-OPENAI_MODEL=gpt-5.4
+OPENAI_MODEL=gpt-5.6-sol
 
 # Optional - reasoning effort for query generation (empty = provider default)
 OPENAI_REASONING_EFFORT=
@@ -30,7 +30,8 @@ EVAL_ALLOW_MODEL_OVERRIDE=
 ```
 
 ### Supported Models
-- `gpt-5.4` - Recommended default (best quality)
+- `gpt-5.6-sol` - Recommended default (best quality)
+- `gpt-5.4` - Previous default; faster generation at similar accuracy on the eval set
 - `gpt-5.1`, `gpt-5` - Earlier models, lower cost
 - `gpt-5-mini` - Fastest, lowest cost
 
@@ -68,6 +69,11 @@ honored only when the server env `EVAL_ALLOW_MODEL_OVERRIDE=true`; otherwise the
 entirely.** They exist so the eval harness can sweep models and reasoning efforts against one
 running server — normal clients should never send them, and the flag should stay off in
 production.
+
+With the flag on: a supplied `model` that fails `/^[a-zA-Z0-9._:-]{1,64}$/` returns **HTTP 400**
+(no silent fallback to `OPENAI_MODEL`), and an override request (body `model` present) takes its
+reasoning effort **from the body only** — `OPENAI_REASONING_EFFORT` is not consulted, so a
+variant sent without `effort` measures the provider default.
 
 ## Responses API
 
@@ -176,8 +182,8 @@ try {
 | `schemaData`, `existingFileId` | No | Used to re-upload and retry on a vector store 404 |
 | `examples`, `corrections` | No | Learning context (see below) |
 | `defaultLimit` | No | User-chosen row limit (`number` or `'none'`) that shapes prompt rule 4 |
-| `model` | No | **Eval only** — ignored unless `EVAL_ALLOW_MODEL_OVERRIDE=true` |
-| `effort` | No | **Eval only** — ignored unless `EVAL_ALLOW_MODEL_OVERRIDE=true` |
+| `model` | No | **Eval only** — ignored unless `EVAL_ALLOW_MODEL_OVERRIDE=true`; invalid value → HTTP 400 when the flag is on |
+| `effort` | No | **Eval only** — ignored unless `EVAL_ALLOW_MODEL_OVERRIDE=true`; on override requests the env effort is not consulted |
 
 ### Response Body
 
@@ -482,7 +488,7 @@ try {
 - Cache suggestions in localStorage
 
 ### Model Selection
-- Use `gpt-5.4` for complex queries
+- Use `gpt-5.6-sol` for complex queries
 - Use a smaller model (e.g. `gpt-5-mini`) for simple descriptions
 - Consider model per endpoint
 

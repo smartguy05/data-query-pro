@@ -41,6 +41,20 @@ export function classifyGeneration(
   return null;
 }
 
+// /api/query/execute answers 400 for two very different failures: the AST
+// read-only validator refusing the SQL, and the database rejecting it (missing
+// column/table, syntax error — sanitized to a user error by
+// utils/error-sanitizer.ts). Only the first is a "validation-rejection"; the
+// second is the model's most common failure mode and belongs in
+// "execution-error". The route tags each response with `errorCode`.
+const VALIDATION_REJECTION_CODE = "SQL_VALIDATION_REJECTED";
+
+// Fallback for responses from servers predating `errorCode`: the exact strings
+// lib/database/sql-validator.ts returns. Deliberately narrow — anything that
+// does not match is treated as a database rejection.
+const VALIDATOR_MESSAGE =
+  /only a single read-only select statement is allowed|only read-only select queries are allowed|only a single statement is allowed|no sql statement found/i;
+
 /**
  * Classifies a /api/query/execute response. Returns null when the query ran
  * and returned rows — the result comparison then decides pass or
@@ -48,9 +62,15 @@ export function classifyGeneration(
  */
 export function classifyExecution(
   status: number,
-  body: { rowCount?: number; error?: string }
+  body: { rowCount?: number; error?: string; errorCode?: string }
 ): FailureClass | null {
-  if (status === 400) return "validation-rejection";
+  if (status === 400) {
+    const rejectedByValidator =
+      typeof body.errorCode === "string"
+        ? body.errorCode === VALIDATION_REJECTION_CODE
+        : VALIDATOR_MESSAGE.test(body.error ?? "");
+    return rejectedByValidator ? "validation-rejection" : "execution-error";
+  }
   if (status !== 200) return "execution-error";
   if (body.rowCount === 0) return "empty-result";
   return null;

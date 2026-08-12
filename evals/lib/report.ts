@@ -82,7 +82,8 @@ function fmtLatency(ms: number | null): string {
 /**
  * Sum of `costUsd` over trials that carried a price, plus the token totals over
  * trials that reported usage. `totalCostUsd` is null when NO trial for the model
- * was priced (the model has no rates in evals/pricing.json).
+ * was priced (the model has no rates in evals/pricing.json). Each trial's own
+ * figures already cover every attempt the harness made, retries included.
  *
  * Token semantics (see evals/types.ts): reasoning tokens are a SUBSET of output
  * tokens and cached input tokens are a SUBSET of input tokens — these totals are
@@ -171,7 +172,9 @@ function computeModelStats(model: string, trials: TrialResult[]): ModelStats {
     if (t.pass) passed++;
     if (t.failureClass !== null) failureCounts[t.failureClass]++;
     if (t.confidence !== null) confidences.push(t.confidence);
-    generateMs.push(t.generateMs);
+    // Harness-level failures have no timing at all — counting them as 0ms would
+    // make a flaky model look faster than it is.
+    if (t.generateMs !== null) generateMs.push(t.generateMs);
     if (t.executeMs !== null) executeMs.push(t.executeMs);
   }
   return {
@@ -210,7 +213,11 @@ function rankingSection(models: string[], byModel: Map<string, TrialResult[]>): 
   const entries = models.map((model) => {
     const trials = byModel.get(model) ?? [];
     const passing = trials.filter((t) => t.pass);
-    const medianGen = median(passing.map((t) => t.generateMs));
+    const medianGen = median(
+      passing
+        .filter((t) => t.generateMs !== null)
+        .map((t) => t.generateMs as number)
+    );
     const medianExec = median(
       passing
         .filter((t) => t.executeMs !== null)
@@ -398,7 +405,11 @@ export function renderHtmlReport(opts: {
               detail = `<br><span class="fc-note">${escapeHtml(FAILURE_LABELS[dom])}</span>`;
             }
           }
-          const cellMedianGen = median(cellTrials.map((t) => t.generateMs));
+          const cellMedianGen = median(
+            cellTrials
+              .filter((t) => t.generateMs !== null)
+              .map((t) => t.generateMs as number)
+          );
           const latency =
             cellMedianGen !== null
               ? `<br><span class="lat-note">${escapeHtml(fmtLatency(cellMedianGen))}</span>`

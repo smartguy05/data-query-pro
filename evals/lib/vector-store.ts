@@ -38,12 +38,22 @@ function filterHiddenItems(schemaData: EvalSchema): EvalSchema {
   };
 }
 
+/** A 404 means the resource is already gone — that is a successful cleanup. */
+function isAlreadyDeleted(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { status?: number }).status === 404
+  );
+}
+
 /** Best-effort file delete; logs and swallows failures. */
 async function bestEffortDeleteFile(client: OpenAI, fileId: string): Promise<void> {
   try {
     await client.files.delete(fileId);
     console.log(`[eval:openai] Deleted file: ${fileId}`);
   } catch (error) {
+    if (isAlreadyDeleted(error)) return;
     console.warn(
       `[eval:openai] Unable to delete file ${fileId}:`,
       error instanceof Error ? error.message : error
@@ -57,6 +67,7 @@ async function bestEffortDeleteVectorStore(client: OpenAI, vectorStoreId: string
     await client.vectorStores.delete(vectorStoreId);
     console.log(`[eval:openai] Deleted vector store: ${vectorStoreId}`);
   } catch (error) {
+    if (isAlreadyDeleted(error)) return;
     console.warn(
       `[eval:openai] Unable to delete vector store ${vectorStoreId}:`,
       error instanceof Error ? error.message : error
@@ -101,12 +112,17 @@ async function waitForIngestion(client: OpenAI, vectorStoreId: string): Promise<
  * Uploads a database schema to OpenAI, creates a vector store containing it,
  * and waits for ingestion to complete before returning.
  *
- * On vector-store creation failure, best-effort deletes the orphaned file
- * and rethrows.
+ * Nothing is left behind on failure: a vector-store creation failure deletes
+ * the orphaned file, and an ingestion failure (status "failed" or the poll
+ * timeout) deletes BOTH the store and the file before rethrowing.
+ *
+ * `onCreated` fires as soon as each resource exists, so a caller can track
+ * ids for its own teardown even if the process is interrupted mid-ingestion.
  */
 export async function uploadSchemaForEval(
   client: OpenAI,
-  schema: unknown
+  schema: unknown,
+  onCreated?: (resource: { fileId?: string; vectorStoreId?: string }) => void
 ): Promise<{ fileId: string; vectorStoreId: string }> {
   const filteredData = filterHiddenItems(schema as EvalSchema);
 
@@ -122,6 +138,7 @@ export async function uploadSchemaForEval(
   });
 
   console.log(`[eval:openai] Created file: ${file.id}`);
+  onCreated?.({ fileId: file.id });
 
   let vectorStore;
   try {
@@ -136,8 +153,15 @@ export async function uploadSchemaForEval(
   }
 
   console.log(`[eval:openai] Created vector store: ${vectorStore.id}; waiting for ingestion...`);
+  onCreated?.({ vectorStoreId: vectorStore.id });
 
-  await waitForIngestion(client, vectorStore.id);
+  try {
+    await waitForIngestion(client, vectorStore.id);
+  } catch (error) {
+    console.error("[eval:openai] Ingestion failed, cleaning up vector store and file...");
+    await cleanupEvalResources(client, [file.id], [vectorStore.id]);
+    throw error;
+  }
 
   console.log(`[eval:openai] Vector store ${vectorStore.id} ingestion completed`);
 
@@ -148,20 +172,18 @@ export async function uploadSchemaForEval(
 }
 
 /**
- * Best-effort parallel cleanup of eval OpenAI resources. Failures are logged
- * via console.warn; never throws.
+ * Best-effort parallel cleanup of every OpenAI resource an eval run created or
+ * adopted. Takes lists, not single ids: a run can adopt several server-side
+ * schema re-uploads, and each one has to be deleted. Already-deleted resources
+ * (404) count as cleaned. Failures are logged via console.warn; never throws.
  */
 export async function cleanupEvalResources(
   client: OpenAI,
-  fileId?: string,
-  vectorStoreId?: string
+  fileIds: string[],
+  vectorStoreIds: string[]
 ): Promise<void> {
-  const tasks: Promise<void>[] = [];
-  if (vectorStoreId) {
-    tasks.push(bestEffortDeleteVectorStore(client, vectorStoreId));
-  }
-  if (fileId) {
-    tasks.push(bestEffortDeleteFile(client, fileId));
-  }
-  await Promise.all(tasks);
+  await Promise.all([
+    ...vectorStoreIds.map((id) => bestEffortDeleteVectorStore(client, id)),
+    ...fileIds.map((id) => bestEffortDeleteFile(client, id))
+  ]);
 }

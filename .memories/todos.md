@@ -1,6 +1,12 @@
 # TODO / Remaining Tasks
 
 ## Open
+- [ ] Surface the new per-trial `retries` count in the HTML report — retried trials sum
+      billing across attempts, so cost cells silently mix single- and double-billed trials.
+- [ ] Second Ctrl+C during eval cleanup re-awaits the same in-flight promise — a hung
+      OpenAI delete blocks exit. Consider hard-exit (or container-stop-first) on 2nd signal.
+- [ ] `CONNECTION_INVALID` 400s from execute bucket as `execution-error` (model-failure
+      bucket) — arguably needs a harness-error FailureClass in evals/types.ts.
 - [ ] **Run the 4-model eval sweep** once 5.6 API access is confirmed:
       `pnpm eval -- --models gpt-5.4,gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol --trials 3`
       (needs: dev server up, `dataquery-demo-db` container running + freshly reseeded so

@@ -33,15 +33,18 @@ to `/api/query/execute`, which enforces it independently.
 
 **`model` / `effort` are for the eval harness, not for normal clients.** Both are honored
 **only** when the server env `EVAL_ALLOW_MODEL_OVERRIDE=true`; otherwise they are ignored
-entirely and the route uses `OPENAI_MODEL`. `model` must additionally match
-`/^[a-zA-Z0-9._:-]{1,64}$/`. See [evals/README.md](../../evals/README.md).
+entirely and the route uses `OPENAI_MODEL`. When the flag is on, a supplied `model` must
+match `/^[a-zA-Z0-9._:-]{1,64}$/` — anything else returns **HTTP 400** rather than silently
+falling back to `OPENAI_MODEL`. See [evals/README.md](../../evals/README.md).
 
 ### Reasoning Effort
 
 Reasoning effort is configured server-side via the optional `OPENAI_REASONING_EFFORT` env
 variable. Accepted values: `none | minimal | low | medium | high | xhigh | max`. The
-per-request `effort` override rides the same `EVAL_ALLOW_MODEL_OVERRIDE` flag and takes
-precedence over the env variable.
+per-request `effort` override rides the same `EVAL_ALLOW_MODEL_OVERRIDE` flag. On an
+eval-override request (flag on + body `model` present) the env variable is **not consulted
+at all** — effort comes from the body alone, so a variant sent without `effort` measures the
+provider default. All other requests keep the env fallback.
 
 The `reasoning` parameter applies to **gpt-5 / o-series models only**, and not every
 reasoning model supports every value — the OpenAI API validates the combination, not the
@@ -77,8 +80,9 @@ interface GenerateResponse {
   rateLimit?: { remaining: number | null; limit: number | null };
 }
 
-// Error
-{ "error": "Error message" }
+// Error — `usage` (same shape as above) is included when OpenAI billed tokens
+// before the failure, e.g. the 500 returned when the response status is not "completed"
+{ "error": "Error message", "usage": { /* optional */ } }
 ```
 
 ### Token Usage (`usage`)

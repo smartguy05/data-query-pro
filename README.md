@@ -422,7 +422,7 @@ Create a `.env.local` file with:
 
 ```bash
 OPENAI_API_KEY=sk-...    # Required for AI features
-OPENAI_MODEL=gpt-5.4     # Required by query generation (no fallback); other AI endpoints default per-route
+OPENAI_MODEL=gpt-5.6-sol # Required by query generation (no fallback); other AI endpoints default per-route
 OPENAI_REASONING_EFFORT= # Optional: none|minimal|low|medium|high|xhigh|max for query generation (gpt-5/o-series only; empty = provider default)
 EVAL_ALLOW_MODEL_OVERRIDE= # Optional (default off): set to "true" to let the eval harness override model/effort per request
 DEMO_RATE_LIMIT=         # Optional: limit API requests per IP per 24h (empty = unlimited)

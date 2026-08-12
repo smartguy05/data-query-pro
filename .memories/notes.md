@@ -94,3 +94,21 @@
   page compile > 10s). Warm the server (curl /) before running the eval.
 - Live smoke (gpt-5.4, Q01/Q23/Q30, 1 trial): 3/3 PASS; JSONL + HTML written; HTML has
   no credentials; tsc clean.
+
+## 2026-08-12: Eval comparator — tolerant equality is not transitive
+- `evals/lib/compare.ts` used to decide "same rows in any order" by sorting canonical
+  string keys (numbers rounded to 6 significant digits). That is wrong: cell equality is
+  tolerant (0.01 absolute), and tolerant equality is NOT transitive, so it cannot serve
+  as a hash/sort key -- "4.16" ~= "4.17" ~= "4.18" but "4.16" !~= "4.18". Rounding also
+  disagreed with the tolerance at bucket boundaries, so the same pair compared equal in
+  scalar mode but unequal in unordered mode.
+- Fix: multiset equality is now decided by an explicit bipartite perfect matching
+  (Kuhn's augmenting path) over the tolerant predicate, so every comparison mode shares
+  one definition of "equal". Result sets are tens of rows, so the cubic cost is free.
+- The old canonical keys were joined with literal control characters (`\0`, `\x01`).
+  The `\0` made git classify `evals/lib/compare.ts` as a BINARY file -- `git diff` showed
+  only "Binary files differ" for a .ts source file. If that ever happens again, look for
+  a NUL byte in a string literal. Removing it restored normal text diffs.
+- Coverage moved from `evals/lib/compare.selfcheck.ts` (a hand-rolled
+  `node --experimental-strip-types` script, never run by CI) to `tests/unit/compare.test.ts`,
+  which `npm run test` picks up. All 14 original assertions were preserved.
