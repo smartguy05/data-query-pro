@@ -23,8 +23,25 @@ export interface ShareInfo {
 
 // ---- Connection Sharing ----
 
-export async function getSharesForConnection(connectionId: string): Promise<ShareInfo[]> {
+/**
+ * List who a connection is shared with. Owner-only.
+ *
+ * The ownership check mirrors shareConnection/removeConnectionShare. Without it,
+ * any authenticated user who knew (or guessed — ids are `Date.now()` strings) a
+ * connection id could enumerate the emails and names it is shared with.
+ *
+ * @returns the shares, or null when the caller does not own the connection
+ */
+export async function getSharesForConnection(
+  connectionId: string,
+  ownerId: string
+): Promise<ShareInfo[] | null> {
   const sql = getAppDb()!;
+
+  const [conn] = await sql`
+    SELECT id FROM database_connections WHERE id = ${connectionId} AND owner_id = ${ownerId}
+  `;
+  if (!conn) return null;
 
   const rows = await sql<DbShare[]>`
     SELECT cs.*, u.email, u.name
@@ -89,8 +106,21 @@ export async function removeConnectionShare(
 
 // ---- Report Sharing ----
 
-export async function getSharesForReport(reportId: string): Promise<ShareInfo[]> {
+/**
+ * List who a report is shared with. Owner-only — see getSharesForConnection.
+ *
+ * @returns the shares, or null when the caller does not own the report
+ */
+export async function getSharesForReport(
+  reportId: string,
+  ownerId: string
+): Promise<ShareInfo[] | null> {
   const sql = getAppDb()!;
+
+  const [report] = await sql`
+    SELECT id FROM saved_reports WHERE id = ${reportId} AND owner_id = ${ownerId}
+  `;
+  if (!report) return null;
 
   const rows = await sql<DbShare[]>`
     SELECT rs.*, u.email, u.name
