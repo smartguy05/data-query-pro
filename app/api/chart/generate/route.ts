@@ -108,11 +108,16 @@ Call the appropriate chart creation function with the proper configuration.`
       ? `Create a ${preferredChartType} chart from this data. Choose the most appropriate columns and provide meaningful labels.`
       : `Analyze this dataset and create the most appropriate visualization. Consider the data types and relationships between columns.`
 
-    console.log("[Chart Generation] Calling OpenAI Chat Completions API...")
+    console.log("[Chart Generation] Calling OpenAI Responses API...")
 
-    const response = await client.chat.completions.create({
-      model: process.env.OPENAI_MODEL || "gpt-5-mini",
-      messages: [
+    // Use the Responses API, not Chat Completions: reasoning models (gpt-5*)
+    // reject function tools on /v1/chat/completions unless reasoning_effort is
+    // 'none'. Every other OpenAI route here already uses responses.create.
+    const response = await client.responses.create({
+      model: process.env.OPENAI_MODEL || "gpt-5.6-terra",
+      tools: CHART_TOOLS,
+      tool_choice: "auto",
+      input: [
         {
           role: "system",
           content: systemPrompt,
@@ -122,46 +127,27 @@ Call the appropriate chart creation function with the proper configuration.`
           content: userMessage,
         },
       ],
-      tools: CHART_TOOLS as any,
-      tool_choice: "auto",
     })
 
     console.log("[Chart Generation] Response received")
 
-    const message = response.choices[0]?.message
+    // Responses API returns a flat `output` array; the model may emit reasoning
+    // items alongside the call, so find the function_call rather than index [0].
+    const toolCall = response.output?.find(
+      (item): item is typeof item & { type: "function_call"; name: string; arguments: string } =>
+        item.type === "function_call"
+    )
 
-    if (!message) {
-      console.error("[Chart Generation] No message in response")
-      return NextResponse.json({ error: "No response from AI" }, { status: 500 })
-    }
-
-    // Check if AI used a tool call
-    const toolCalls = message.tool_calls
-
-    if (!toolCalls || toolCalls.length === 0) {
-      console.error("[Chart Generation] No tool calls in response")
+    if (!toolCall) {
+      console.error("[Chart Generation] No function call in response output")
       return NextResponse.json({ error: "AI did not generate a chart configuration" }, { status: 500 })
     }
 
-    const toolCall = toolCalls[0] as {
-      type: "function"
-      function: {
-        name: string
-        arguments: string
-      }
-    }
-
-    // Type assertion for OpenAI tool call structure
-    if (toolCall.type !== "function" || !toolCall.function) {
-      console.error("[Chart Generation] Invalid tool call type")
-      return NextResponse.json({ error: "Invalid tool call from AI" }, { status: 500 })
-    }
-
-    console.log("[Chart Generation] Tool called:", toolCall.function.name)
-    console.log("[Chart Generation] Arguments:", toolCall.function.arguments)
+    console.log("[Chart Generation] Tool called:", toolCall.name)
+    console.log("[Chart Generation] Arguments:", toolCall.arguments)
 
     // Parse the function arguments to get chart config
-    const args = JSON.parse(toolCall.function.arguments)
+    const args = JSON.parse(toolCall.arguments)
 
     // Map function name to chart type
     const chartTypeMap: Record<string, ChartConfig["type"]> = {
@@ -173,10 +159,10 @@ Call the appropriate chart creation function with the proper configuration.`
       create_composed_chart: "composed",
     }
 
-    const chartType = chartTypeMap[toolCall.function.name]
+    const chartType = chartTypeMap[toolCall.name]
 
     if (!chartType) {
-      return NextResponse.json({ error: `Unknown chart type: ${toolCall.function.name}` }, { status: 500 })
+      return NextResponse.json({ error: `Unknown chart type: ${toolCall.name}` }, { status: 500 })
     }
 
     // Build the chart config with the correct type
