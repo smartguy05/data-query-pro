@@ -1,12 +1,15 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Database, LogIn } from "lucide-react"
 
 export default function LoginPage() {
   const router = useRouter()
+  // The provider id is configurable (it forms the callback URL), so it comes from
+  // the server rather than being hardcoded here.
+  const [provider, setProvider] = useState<{ id: string; name: string } | null>(null)
 
   useEffect(() => {
     // If auth is not enabled, redirect to home
@@ -15,14 +18,17 @@ export default function LoginPage() {
       .then(data => {
         if (!data.authEnabled) {
           router.replace("/")
+          return
         }
+        setProvider({ id: data.providerId, name: data.providerName })
       })
       .catch(() => router.replace("/"))
   }, [router])
 
   const handleSignIn = async () => {
+    if (!provider) return
     const { signIn } = await import("next-auth/react")
-    signIn("authentik", { callbackUrl: "/" })
+    signIn(provider.id, { callbackUrl: "/" })
   }
 
   return (
@@ -39,11 +45,12 @@ export default function LoginPage() {
         <div className="bg-card border border-border rounded-lg p-6 shadow-sm">
           <Button
             onClick={handleSignIn}
+            disabled={!provider}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white"
             size="lg"
           >
             <LogIn className="h-4 w-4 mr-2" />
-            Sign in with Authentik
+            {provider ? `Sign in with ${provider.name}` : "Loading…"}
           </Button>
           <p className="text-xs text-muted-foreground text-center mt-4">
             You will be redirected to your organization&apos;s identity provider.

@@ -23,6 +23,8 @@ interface AuthState {
 export function useAuth(): AuthState {
   const [authEnabled, setAuthEnabled] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  // Configurable provider id, resolved from the server (see /api/config/auth-status).
+  const [providerId, setProviderId] = useState<string | null>(null)
   const [session, setSession] = useState<{
     user: AuthUser | null
     isAdmin: boolean
@@ -46,6 +48,7 @@ export function useAuth(): AuthState {
         }
 
         setAuthEnabled(true)
+        setProviderId(authData.providerId ?? null)
 
         // Dynamically import next-auth to get session
         const { getSession } = await import("next-auth/react")
@@ -77,9 +80,10 @@ export function useAuth(): AuthState {
   }, [])
 
   const signIn = useCallback(async () => {
+    if (!providerId) return
     const { signIn: authSignIn } = await import("next-auth/react")
-    authSignIn("authentik", { callbackUrl: "/" })
-  }, [])
+    authSignIn(providerId, { callbackUrl: "/" })
+  }, [providerId])
 
   const signOut = useCallback(async () => {
     const { signOut: authSignOut } = await import("next-auth/react")

@@ -23,10 +23,47 @@ Auth mode additionally requires `AUTH_SECRET`, `AUTH_URL`, `APP_DATABASE_URL`, a
 
 ## Authentication Flow (Auth.js v5 + OIDC)
 
-- **Library:** `next-auth` v5 with a generic OIDC provider (Authentik), JWT session
-  strategy (no DB sessions). Config in `lib/auth/auth-options.ts`.
+- **Library:** `next-auth` v5 with a generic OIDC provider, JWT session strategy (no DB
+  sessions). Config in `lib/auth/auth-options.ts`.
 - **Handler:** `app/api/auth/[...nextauth]/route.ts` exposes sign-in/callback/session/sign-out.
-- **Admin detection:** from the OIDC `groups` claim, matched against `AUTH_ADMIN_GROUP`.
+- **Providers:** one at a time, configured entirely by env. Verified against **Authentik**
+  and **Azure Entra ID** — see [Azure Entra Setup](../guides/azure-entra-setup.md).
+
+### Provider-neutral claim mapping
+
+Authentik and Entra describe the same concepts with different claims, so all
+provider-specific logic is isolated in `lib/auth/oidc-profile.ts` as pure functions
+(covered by `tests/unit/oidc-profile.test.ts`):
+
+| Function | Purpose |
+|---|---|
+| `resolveEmail()` | `email` → `preferred_username` → `upn`. Entra often omits `email`. |
+| `resolveName()` | `name` → `preferred_username` |
+| `extractClaimIdentities()` | merges `groups` (Authentik names / Entra GUIDs) with `roles` (Entra App Roles) |
+| `hasGroupsOverage()` | detects Entra dropping `groups` for `_claim_names`/`_claim_sources` |
+| `matchesAdmin()` | case-insensitive match against the comma-separated `AUTH_ADMIN_GROUP` |
+
+**Admin detection** therefore accepts a group name, a group object GUID, *or* an App Role
+value, with no code change per deployment.
+
+Shape is configured through `lib/auth/config.ts`, whose defaults reproduce the original
+Authentik-only behavior so existing deployments upgrade untouched:
+
+| Accessor | Env var | Default |
+|---|---|---|
+| `getProviderId()` | `AUTH_OIDC_PROVIDER_ID` | `authentik` |
+| `getProviderName()` | `AUTH_OIDC_PROVIDER_NAME` | `Authentik` |
+| `getScopes()` | `AUTH_OIDC_SCOPES` | `openid email profile groups` |
+| `getAdminSpec()` | `AUTH_ADMIN_GROUP` | `dataquery-admins` |
+
+The provider id forms the callback URL (`/api/auth/callback/<id>`), which is why it defaults
+to `authentik` — changing it requires re-registering the redirect URI at the IdP. Clients
+never hardcode it: `/api/config/auth-status` returns `providerId` and `providerName`, which
+`app/auth/login/page.tsx` and `hooks/use-auth.ts` use to call `signIn()`.
+
+> **Group changes require re-login.** The JWT callback only reads claims when
+> `account && profile` — true on initial sign-in only. Promoting someone to the admin group
+> has no effect until they sign out and back in.
 
 ### `getAuthContext()`
 

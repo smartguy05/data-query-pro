@@ -34,6 +34,7 @@ it maps every route, feature, and component to its source path and doc.
 - [Deployment (Docker Self-Host)](./guides/deployment.md) - Docker Compose, production env vars, migrations, scaling caveats
 - [Performance](./guides/performance.md) - Tuning and scaling considerations
 - [Authentication Testing](./guides/authentication-testing.md) - Local Authentik setup for OIDC testing
+- [Azure Entra ID Setup](./guides/azure-entra-setup.md) - Configuring auth mode against Microsoft Entra ID
 - [Adding Database Support](./guides/adding-database-support.md) - Extending for new databases
 - [OpenAI Integration](./guides/openai-integration.md) - AI features and vector stores
 - [Common Tasks](./guides/common-tasks.md) - Frequent development workflows
@@ -116,7 +117,11 @@ AUTH_OIDC_CLIENT_ID=
 AUTH_OIDC_CLIENT_SECRET=
 AUTH_SECRET=                 # JWT signing key (openssl rand -hex 32)
 AUTH_URL=                    # e.g. http://localhost:3000
-AUTH_ADMIN_GROUP=            # Authentik group name for admin access
+AUTH_ADMIN_GROUP=            # Group name / group object ID / App Role granting admin
+AUTH_OIDC_PROVIDER_ID=       # optional, default "authentik" (forms the callback URL)
+AUTH_OIDC_PROVIDER_NAME=     # optional, default "Authentik" (sign-in button label)
+AUTH_OIDC_SCOPES=            # optional, default "openid email profile groups"
+                             # Entra: "openid email profile" (no groups scope)
 
 # App Database (required when auth enabled)
 APP_DATABASE_URL=            # e.g. postgres://user:pass@localhost:5432/app_db

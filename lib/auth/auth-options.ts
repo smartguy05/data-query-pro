@@ -1,5 +1,19 @@
 import type { NextAuthConfig } from 'next-auth';
-import { isAuthEnabled } from './config';
+import {
+  isAuthEnabled,
+  getProviderId,
+  getProviderName,
+  getScopes,
+  getAdminSpec,
+} from './config';
+import {
+  resolveEmail,
+  resolveName,
+  extractClaimIdentities,
+  hasGroupsOverage,
+  matchesAdmin,
+  type OidcProfileClaims,
+} from './oidc-profile';
 
 function getAuthOptions(): NextAuthConfig {
   if (!isAuthEnabled()) {
@@ -16,22 +30,24 @@ function getAuthOptions(): NextAuthConfig {
     trustHost: true,
     providers: [
       {
-        id: 'authentik',
-        name: 'Authentik',
+        id: getProviderId(),
+        name: getProviderName(),
         type: 'oidc',
         issuer: process.env.AUTH_OIDC_ISSUER,
         clientId: process.env.AUTH_OIDC_CLIENT_ID,
         clientSecret: process.env.AUTH_OIDC_CLIENT_SECRET,
         authorization: {
           params: {
-            scope: 'openid email profile groups',
+            scope: getScopes(),
           },
         },
         profile(profile) {
           return {
             id: profile.sub,
-            name: profile.name || profile.preferred_username,
-            email: profile.email,
+            // Entra often omits `email` and carries the UPN in
+            // `preferred_username`; see lib/auth/oidc-profile.ts.
+            name: resolveName(profile as OidcProfileClaims),
+            email: resolveEmail(profile as OidcProfileClaims),
             image: profile.picture,
           };
         },
@@ -46,31 +62,54 @@ function getAuthOptions(): NextAuthConfig {
     callbacks: {
       async jwt({ token, profile, account }) {
         if (account && profile) {
+          const claims = profile as OidcProfileClaims;
+          const email = resolveEmail(claims);
+          const name = resolveName(claims);
+
           token.sub = profile.sub ?? undefined;
-          token.email = profile.email as string;
-          token.name = (profile.name || profile.preferred_username) as string;
+          token.email = email;
+          token.name = name ?? undefined;
 
-          // Extract groups from Authentik profile
-          const groups = (profile.groups as string[]) || [];
+          // Merge `groups` (Authentik names / Entra GUIDs) with `roles` (Entra
+          // App Roles) so one AUTH_ADMIN_GROUP value works on either provider.
+          const groups = extractClaimIdentities(claims);
           token.groups = groups;
+          token.isAdmin = matchesAdmin(groups, getAdminSpec());
 
-          // Check admin status
-          const adminGroup = process.env.AUTH_ADMIN_GROUP || 'dataquery-admins';
-          token.isAdmin = groups.includes(adminGroup);
+          if (hasGroupsOverage(claims)) {
+            console.warn(
+              '[auth] Identity provider reported a groups overage (_claim_names/_claim_sources) ' +
+                'instead of a groups claim, so no group membership could be read. This user will ' +
+                'not receive admin rights or any group-based server-connection assignments. ' +
+                'Resolving it requires a Microsoft Graph lookup, which this app does not perform — ' +
+                'use an App Role (the `roles` claim) for admin instead, as roles are never subject ' +
+                'to overage.'
+            );
+          }
 
           // Upsert user in app database
           try {
             const { upsertUser } = await import('@/lib/db/repositories/user-repository');
             const user = await upsertUser({
               oidcId: profile.sub as string,
-              email: profile.email as string,
-              name: (profile.name || profile.preferred_username) as string,
+              email,
+              name: name ?? undefined,
               groups,
               isAdmin: token.isAdmin as boolean,
             });
             token.userId = user.id;
           } catch (error) {
-            console.error('Failed to upsert user:', error);
+            // users.email is NOT NULL, so an identity provider that sends neither
+            // `email` nor `preferred_username` nor `upn` lands here. Without
+            // token.userId the session looks signed in but every /api/data/* route
+            // fails, so name the cause rather than logging a bare error.
+            console.error(
+              `[auth] Failed to upsert user (oidcId=${profile.sub}, resolved email=${
+                email || '<empty>'
+              }). The session will have no userId and authenticated API routes will fail. ` +
+                'If the email is empty, the identity provider sent no email/preferred_username/upn claim.',
+              error
+            );
           }
         }
 
@@ -80,6 +119,8 @@ function getAuthOptions(): NextAuthConfig {
             const { getUserByOidcId, upsertUser } = await import('@/lib/db/repositories/user-repository');
             let user = await getUserByOidcId(token.sub);
             if (!user) {
+              // Recovery path: the claims are already normalized onto the token by
+              // the branch above, so reuse them rather than re-reading raw claims.
               user = await upsertUser({
                 oidcId: token.sub,
                 email: token.email as string || '',

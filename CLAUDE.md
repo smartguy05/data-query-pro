@@ -309,7 +309,8 @@ config/                      # Server configuration
   - All credentials encrypted with AES-256-GCM (`lib/db/encryption.ts`)
 - **Auth context**: All API routes call `getAuthContext(request)` — returns `null` when auth disabled (pass-through), or `{ userId, isAdmin, groups }` when enabled
 - **Connection credential resolution**: When auth enabled, `connection-validator.ts` resolves credentials from app DB instead of trusting client-supplied passwords
-- **Admin detection**: From Authentik OIDC groups claim, configurable via `AUTH_ADMIN_GROUP` env var
+- **Provider-neutral OIDC**: works with **Authentik** and **Azure Entra ID**, one provider per deployment, selected entirely by env. All claim differences are isolated in `lib/auth/oidc-profile.ts` (pure functions, `tests/unit/oidc-profile.test.ts`); shape comes from `lib/auth/config.ts` (`getProviderId`/`getProviderName`/`getScopes`/`getAdminSpec`), whose defaults reproduce the original Authentik behavior. See [docs/guides/azure-entra-setup.md](./docs/guides/azure-entra-setup.md)
+- **Admin detection**: `AUTH_ADMIN_GROUP` is matched case-insensitively against the merged `groups` + `roles` claims, so it accepts an Authentik group name, an Entra group object GUID, or an Entra App Role value. Group changes only take effect after the user signs out and back in (claims are read only when the JWT is minted)
 - **Sharing**: Connections and reports can be shared with other users (view/edit/admin permissions)
 - **Data migration**: First-login dialog imports localStorage data into user's account
 
@@ -512,7 +513,16 @@ AUTH_OIDC_CLIENT_ID=
 AUTH_OIDC_CLIENT_SECRET=
 AUTH_SECRET=                   # JWT signing key (openssl rand -hex 32)
 AUTH_URL=                      # e.g. http://localhost:3000 (required by Auth.js v5)
-AUTH_ADMIN_GROUP=dataquery-admins  # Authentik group for admin access
+AUTH_ADMIN_GROUP=dataquery-admins  # Comma-separated group names / group object IDs /
+                               # App Role values granting admin (matched against the
+                               # merged `groups` + `roles` claims, case-insensitive)
+
+# Provider shape (optional; defaults reproduce the original Authentik behavior)
+AUTH_OIDC_PROVIDER_ID=         # default: authentik. Forms /api/auth/callback/<id> —
+                               # changing it requires re-registering the redirect URI
+AUTH_OIDC_PROVIDER_NAME=       # default: Authentik. Sign-in button label
+AUTH_OIDC_SCOPES=              # default: openid email profile groups
+                               # Entra has NO groups scope: use "openid email profile"
 
 # App Database (required when auth is enabled)
 APP_DATABASE_URL=              # e.g. postgres://user:pass@localhost:5432/dataquery_app
@@ -670,6 +680,7 @@ A standalone harness in `evals/` measures how well a model turns natural languag
 | Deployment (Docker Self-Host) | [docs/guides/deployment.md](./docs/guides/deployment.md) |
 | Performance | [docs/guides/performance.md](./docs/guides/performance.md) |
 | Authentication Testing | [docs/guides/authentication-testing.md](./docs/guides/authentication-testing.md) |
+| Azure Entra ID Setup | [docs/guides/azure-entra-setup.md](./docs/guides/azure-entra-setup.md) |
 | OpenAI Integration | [docs/guides/openai-integration.md](./docs/guides/openai-integration.md) |
 | Adding Database Support | [docs/guides/adding-database-support.md](./docs/guides/adding-database-support.md) |
 | Common Tasks | [docs/guides/common-tasks.md](./docs/guides/common-tasks.md) |
