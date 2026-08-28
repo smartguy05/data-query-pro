@@ -73,6 +73,8 @@ Features:
 - Edit descriptions inline
 - Generate AI descriptions
 - Hide/show tables and columns
+- Regenerate AI descriptions for one table and all its columns (sparkles button on the table card; user-written descriptions are kept)
+- Remove a table from the stored schema (trash button on the table card; the next "Update Schema" re-introspects it as NEW with a clean slate)
 - Bulk operations
 
 Props:

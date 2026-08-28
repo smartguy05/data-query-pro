@@ -1,5 +1,4 @@
 import { type NextRequest, NextResponse } from "next/server"
-import type { Column } from "@/models/column.interface"
 import { validateConnection } from "@/lib/database/connection-validator"
 import { sanitizeDbError } from "@/utils/error-sanitizer"
 import { getAuthContext } from '@/lib/auth/require-auth'
@@ -65,17 +64,12 @@ export async function POST(request: NextRequest) {
       // instead of introspecting a whole database for a request nobody is awaiting.
       const result = await adapter.introspectSchema(undefined, { signal: request.signal })
 
-      // Add default AI descriptions
-      const schema = {
-        tables: result.tables.map((table) => ({
-          ...table,
-          aiDescription: table.aiDescription || `Table containing ${table.name} data`,
-          columns: table.columns.map((col: Column) => ({
-            ...col,
-            aiDescription: col.aiDescription || `${col.name} field of type ${col.type}`,
-          })),
-        })),
-      }
+      // Return descriptions exactly as introspected (undefined). This route used to
+      // stamp placeholders ("Table containing X data" / "X field of type Y") here,
+      // which made "Update Schema" deliver new tables/columns that already *looked*
+      // described — so "Generate AI Descriptions" skipped them and the UI showed
+      // the placeholder under an "AI Generated" badge. Matches start-introspection.
+      const schema = { tables: result.tables }
 
       console.log("[v0] Schema introspection completed:", schema.tables.length, "tables found")
 

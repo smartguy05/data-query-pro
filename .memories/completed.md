@@ -4,6 +4,25 @@
 > **Historical (summarized)** — for full prose, see git history. Durable gotchas live in
 > [docs/reference/lessons-learned.md](../docs/reference/lessons-learned.md).
 
+## Fix: AI descriptions for tables/columns added by a schema update were low quality (2026-08-28)
+User report: after re-introspecting, descriptions for new tables/columns read worse than the originals, "as if the schema and other descriptions were not included". Root cause (verified via git history — the prompt has NEVER had it): the explorer POSTs `schema: { tables: [table] }` one table at a time and the route's prompts only listed that table's own columns — no neighbouring tables, no FK targets, none of the existing descriptions.
+- New pure module `utils/description-context.ts`: `toSchemaContext()` (client, strips hidden tables/columns, `description || aiDescription`), `findRelatedTables()` (FK out + FK in), `buildSchemaContextSection()` (RELATED TABLES with columns/descriptions + OTHER TABLES by name/description, bounded by `DESCRIPTION_CONTEXT_LIMITS`), `buildSiblingColumnsSection()`.
+- `schema-explorer.tsx` sends `schemaContext` on every generate request; the route injects it into both the table and column prompts, uses `table.description || table.aiDescription` as column TABLE CONTEXT (was aiDescription only → "Business data table" for user-described tables), and adds the owner's note to the table prompt.
+- Tests: `tests/unit/description-context.test.ts` (16). Docs: `docs/api/schema-endpoints.md`, CLAUDE.md.
+
+## Per-table "Regenerate AI descriptions" button (2026-08-28)
+User request. `generateAIDescriptions(options?: { regenerateTable?: string })` in `components/schema-explorer.tsx`: with `regenerateTable`, the `baseSchema` map force-clears that table's + its columns' `aiDescription` (user `description` untouched), persists via `setSchema` + unsaved flag, and the table list is just that table (hidden or not). Completion reports via toast instead of the batch alert. UI: Sparkles button in the table-card action row (spinner while it's the `batchProgress.currentTableName`), gated by a `ConfirmationModal` (`regenerateTarget` state) because it overwrites existing AI text. The top-level button now calls `generateAIDescriptions()` explicitly (it used to be passed as the onClick handler and would have received the event as `options`).
+
+## Fix: "Update Schema" stamped placeholder AI descriptions (2026-08-28) — THE real cause of bad descriptions
+User screenshot showed "Table containing call_transcript_segments data" / "id field of type text" under an "AI Generated" badge. Those are not model output: `app/api/schema/introspect/route.ts` (sync route, used ONLY by Update Schema) stamped them as `aiDescription`; `start-introspection` (first load) leaves them null. Because `generateAIDescriptions` filters on `description || aiDescription`, new tables were skipped and the model never called.
+- Route now returns `{ tables: result.tables }` untouched (unused `Column` import removed).
+- `utils/description-context.ts`: `isPlaceholderDescription()` + `realAiDescription()`; `toSchemaContext` treats placeholders as absent.
+- `schema-explorer.tsx` `generateAIDescriptions`: builds `baseSchema` with placeholder aiDescriptions cleared (tables + columns), persists via `setSchema` + unsaved flag when anything was cleared, and uses it for the filter / context / `updatedSchema` — so legacy stored placeholders self-heal on the next click.
+- Tests +4 (32 total in description-context + compare-schemas). Docs: CLAUDE.md, `docs/api/schema-endpoints.md` introspect response.
+
+## Remove a table from the stored schema (2026-08-28)
+User report: a table with wrong stored info couldn't be dropped and re-introspected. Added a trash button on each table card in `components/schema-explorer.tsx` (`handleDeleteTable` → shared `ConfirmationModal` with `deleteTarget.columnName === undefined` meaning "whole table" → `removeTableFromSchema`). Removes the table from the schema via `setSchema`, clears expanded/sample-data/editing UI state for it, aborts any in-flight sample-data fetch, sets unsaved changes. No new backend: `compareSchemas` already flags a table absent from the stored schema as NEW on the next "Update Schema", so it comes back clean.
+
 ## Group-based sign-in restriction — AUTH_ALLOWED_GROUPS (2026-08-12)
 User-requested access gate: when set (comma-separated group names / Entra GUIDs / App Role values, same matching as AUTH_ADMIN_GROUP), only members may log in. Empty/unset = everyone (opt-in, backward compatible). Works on both providers.
 - **Helpers**: `matchesAnyIdentity()` extracted from `matchesAdmin` (now a wrapper) + `isSignInAllowed()` in `lib/auth/oidc-profile.ts` — the empty-spec semantics INVERT between the two (admin: empty ⇒ nobody; gate: empty ⇒ everyone), which is why the gate is a separate function, not a flag. `getAllowedGroupsSpec()` in `lib/auth/config.ts` (no default, blank ⇒ undefined).
@@ -324,3 +343,15 @@ sslmode=require works but Microsoft recommends verify-full. Also added: ACR pull
 `az webapp config appsettings set` command, pick-hostname-first step, KV creation in the
 numbered steps, expected-migration-failure note before firewall opens, health check is
 liveness-only caveat.
+
+### Azure guide revised for shared Postgres + cost model (2026-08-18)
+Revised `docs/guides/azure-deployment-guide.html` so the app DB is a NEW database on an
+EXISTING/shared PG Flexible Server (no server provisioned): §1 row → "Reuse existing"; §4 rewritten
+with dedicated `dqapp` login scoped to `dataquery_app` (CREATE ROLE + GRANT, NOT server admin),
+networking/backup/blast-radius inherited from the shared server; §5 step 2 → `db create` on
+existing server + scoped-login SQL; env sample `APP_DATABASE_URL` uses `dqapp`; step 8 softened to
+"confirm reachability" not "open firewall". Updated the cost-model Artifact in place (same URL
+85b8ff66-3aca-47ae-9dec-45b36726cf94, label "shared-postgres"): removed all 3 Postgres line items,
+fixed Azure now $17.52/mo (B1 $12.41 + Basic ACR $5.07 + KV $0.01 + build $0.03); prod-grade ~$77;
+dropped the Burstable + backup-retention findings, added a "cost moved, not removed" shared-server
+finding. OpenAI numbers unchanged ($528/mo 10-person on sol).

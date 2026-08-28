@@ -8,6 +8,22 @@
 >
 > This file holds only **cross-session, project-specific** state not yet filed into docs.
 
+## Two introspection routes must return the same description shape (2026-08-28)
+- `/api/schema/introspect` (sync; Update Schema) and `/api/schema/start-introspection`
+  (background; first load) both wrap `adapter.introspectSchema()`. Any "default" text put into
+  `aiDescription` by either route is indistinguishable from real AI output downstream — the
+  generate filter (`description || aiDescription`) skips it and the UI badges it "AI Generated".
+  Leave descriptions undefined; `isPlaceholderDescription()` exists only to clean up legacy data.
+
+## AI description prompts (2026-08-28)
+- `/api/schema/generate-descriptions` is called **one table per request** (concurrency 3,
+  since e6ee735). Anything the prompt should know about the rest of the schema has to ride
+  along in `schemaContext` — the route cannot see the other tables otherwise. Later columns
+  of the same table are described with the *pre-request* sibling descriptions (from
+  `schemaContext`), not the ones generated moments earlier in the same loop; acceptable.
+- Prompt size scales O(tables) per request, O(tables²) per full run; bounded by
+  `DESCRIPTION_CONTEXT_LIMITS` (12 related tables × 25 cols, 150 other table names).
+
 ## Cancellation & dirty reads — gotchas (2026-08-12)
 - **An abort listener must never throw and must never be awaited.** An exception raised
   synchronously inside an `addEventListener('abort', ...)` callback is an uncaught

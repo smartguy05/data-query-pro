@@ -251,6 +251,7 @@ models/                      # TypeScript interfaces
 utils/                       # Utility functions
 ├── generate-descriptions.ts  # Fallback description generators
 ├── compare-schemas.ts        # Schema change detection
+├── description-context.ts    # Whole-schema context sections for AI description prompts
 ├── rate-limiter.ts           # IP-based rate limiting
 ├── error-sanitizer.ts        # Database/OpenAI error sanitization
 ├── schema-fingerprint.ts     # Stable fingerprint of a schema (learning scope key)
@@ -351,8 +352,12 @@ config/                      # Server configuration
 - Schema introspection via POST to `/api/schema/introspect` or WebSocket to `/api/schema/start-introspection`
 - Schema data includes tables, columns, data types, constraints, foreign keys
 - AI descriptions are generated for tables and columns to improve query accuracy
+- **No placeholder descriptions**: `POST /api/schema/introspect` (the "Update Schema" path) returns `aiDescription` undefined, like `start-introspection`. It used to stamp `"Table containing X data"` / `"X field of type Y"`, which made new tables look already described so "Generate AI Descriptions" skipped them. `generateAIDescriptions` now clears any such stored placeholders first (`isPlaceholderDescription()` / `realAiDescription()` in `utils/description-context.ts`), so legacy schemas self-heal on the next generate
+- **Description prompts get whole-schema context**: the schema explorer describes one table per `/api/schema/generate-descriptions` request, but sends `schemaContext` (built by `toSchemaContext()` in `utils/description-context.ts`: every non-hidden table + existing descriptions). The route adds RELATED TABLES (FK-linked, with columns), OTHER TABLES and OTHER COLUMNS IN THIS TABLE sections to the prompts, so tables/columns added by a later schema update are described consistently with the originals instead of in isolation. Caps in `DESCRIPTION_CONTEXT_LIMITS`
 - Tables/columns can be marked `hidden` to exclude from OpenAI uploads
 - Schema change detection marks new/modified items after re-introspection
+- **Regenerate one table's AI descriptions**: sparkles button on each table card → `ConfirmationModal` → `generateAIDescriptions({ regenerateTable })`. Clears the table's and all its columns' `aiDescription` (never user `description`), then runs the same single-table generation pipeline with whole-schema context; toast on completion, marks unsaved changes. The bare `generateAIDescriptions()` (top button) still only fills in missing descriptions
+- **Remove a table from the schema**: trash button on each table card in the schema explorer (`removeTableFromSchema`) drops the table — descriptions, hidden flags and all — from the stored schema only (the database is untouched). Because `compareSchemas` treats any table missing from the stored schema as NEW, the next "Update Schema" re-introspects it with a clean slate; this is the escape hatch for a table whose stored info is wrong. Marks unsaved changes like column deletion
 - **Copy descriptions between connections**: "Copy Descriptions" button in the schema explorer copies table/column descriptions (and optionally AI descriptions + hidden flags) from another connection's schema, matching by name (same DB across dev/staging/prod). Client-side only (`utils/copy-descriptions.ts` + `components/copy-descriptions-dialog.tsx`); applies via `setSchema` and is pushed to OpenAI via the normal "Save to OpenAI" flow
 - **Important**: Schema must be uploaded to OpenAI (creates file + vector store) before queries can be generated
 

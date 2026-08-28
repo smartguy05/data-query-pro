@@ -32,15 +32,13 @@ interface IntrospectRequest {
     "tables": [
       {
         "name": "customers",
-        "aiDescription": "Table containing customers data",
         "columns": [
           {
             "name": "id",
             "type": "integer",
             "nullable": false,
             "primary_key": true,
-            "foreign_key": null,
-            "aiDescription": "id field of type integer"
+            "foreign_key": null
           }
         ]
       }
@@ -51,6 +49,8 @@ interface IntrospectRequest {
 // Error
 { "error": "Failed to introspect schema: <message>" }
 ```
+
+`description` / `aiDescription` are **not** set by this route (same as `start-introspection`). It previously stamped placeholders (`"Table containing X data"`, `"X field of type Y"`), which made tables added by "Update Schema" look already described so AI generation skipped them; the schema explorer now clears any stored placeholders via `isPlaceholderDescription()` (`utils/description-context.ts`) before generating.
 
 ### SQL Query
 
@@ -159,8 +159,15 @@ Generates AI descriptions for tables and columns.
 
 ```typescript
 interface GenerateDescriptionsRequest {
-  schema: Schema;
+  schema: Schema;                 // The table(s) to describe (the client sends ONE table per request)
   databaseDescription?: string;   // Business context
+  schemaContext?: {               // Compact overview of the WHOLE schema (see below)
+    tables: Array<{
+      name: string;
+      description?: string;       // description || aiDescription
+      columns: Array<{ name: string; type: string; primary_key?: boolean; foreign_key?: string; description?: string }>;
+    }>;
+  };
   batchInfo?: {
     current: number;
     total: number;
@@ -168,6 +175,8 @@ interface GenerateDescriptionsRequest {
   };
 }
 ```
+
+**`schemaContext`** — built client-side with `toSchemaContext()` (`utils/description-context.ts`) from every non-hidden table of the current schema, including the descriptions that already exist. The route uses it to add two prompt sections: *RELATED TABLES* (FK-linked in either direction, with columns + descriptions) and *OTHER TABLES IN THIS DATABASE* (name + description), plus *OTHER COLUMNS IN THIS TABLE* in column prompts. Without it each table is described in isolation, which made descriptions for tables/columns added by a schema update noticeably worse than the originals. Caps live in `DESCRIPTION_CONTEXT_LIMITS`.
 
 ### Response
 

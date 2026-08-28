@@ -37,6 +37,7 @@ import {
 import {useDatabaseOptions} from "@/lib/database-connection-options";
 import { useToast } from "@/hooks/use-toast";
 import { compareSchemas, hasSchemaChanges, getChangeSummary } from "@/utils/compare-schemas";
+import { toSchemaContext, isPlaceholderDescription } from "@/utils/description-context";
 import { useOpenAIFetch } from "@/hooks/use-openai-fetch";
 import { useOpenAIKey } from "@/hooks/use-openai-key";
 import { ApiKeyDialog } from "@/components/api-key-dialog";
@@ -58,7 +59,8 @@ export function SchemaExplorer() {
   const [generatingDescriptions, setGeneratingDescriptions] = useState(false);
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{ tableName: string; columnName: string } | null>(null);
+  // columnName undefined => the whole table is the delete target
+  const [deleteTarget, setDeleteTarget] = useState<{ tableName: string; columnName?: string } | null>(null);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [processProgress, setProcessProgress] = useState(0);
@@ -84,6 +86,7 @@ export function SchemaExplorer() {
   const [pendingSchemaUpdate, setPendingSchemaUpdate] = useState<Schema | null>(null);
   const [showDiscardAllConfirmation, setShowDiscardAllConfirmation] = useState(false);
   const [showCopyDialog, setShowCopyDialog] = useState(false);
+  const [regenerateTarget, setRegenerateTarget] = useState<string | null>(null);
 
   // Abort any in-flight sample-data scans when this view goes away.
   useEffect(() => {
@@ -232,15 +235,25 @@ export function SchemaExplorer() {
     setShowDeleteConfirmation(true)
   }
 
+  const handleDeleteTable = (tableName: string) => {
+    setDeleteTarget({ tableName })
+    setShowDeleteConfirmation(true)
+  }
+
   const confirmDeleteColumn = () => {
     if (!deleteTarget) return
 
     try {
-      removeColumnFromTable(deleteTarget.tableName, deleteTarget.columnName);
-      console.log(`Column ${deleteTarget.columnName} removed successfully`);
+      if (deleteTarget.columnName === undefined) {
+        removeTableFromSchema(deleteTarget.tableName);
+        console.log(`Table ${deleteTarget.tableName} removed from schema`);
+      } else {
+        removeColumnFromTable(deleteTarget.tableName, deleteTarget.columnName);
+        console.log(`Column ${deleteTarget.columnName} removed successfully`);
+      }
     } catch (error) {
-      console.error("Error removing column:", error);
-      alert("Failed to remove column. Please try again.");
+      console.error("Error removing item:", error);
+      alert(`Failed to remove ${deleteTarget.columnName === undefined ? "table" : "column"}. Please try again.`);
     }
 
     setDeleteTarget(null);
@@ -303,8 +316,16 @@ export function SchemaExplorer() {
     }
   }
 
-  const generateAIDescriptions = async () => {
+  /**
+   * Generates AI descriptions.
+   * - No options: every non-hidden table that is missing a table or column description.
+   * - `{ regenerateTable }`: ONLY that table — its existing AI descriptions (table +
+   *   all columns) are cleared first so the model produces fresh ones. User-written
+   *   `description`s are never touched.
+   */
+  const generateAIDescriptions = async (options?: { regenerateTable?: string }) => {
     if (!connectionInformation.currentSchema) return
+    const regenerateTable = options?.regenerateTable
 
     const activeConnection = connectionInformation.currentConnection;
     if (!activeConnection) {
@@ -320,8 +341,38 @@ export function SchemaExplorer() {
 
     const databaseDescription = activeConnection.description;
 
-    const tablesNeedingDescriptions = connectionInformation.currentSchema.tables
-        .filter((table) => {
+    // Older versions of "Update Schema" stamped placeholder aiDescriptions
+    // ("Table containing X data" / "X field of type Y") that made new tables look
+    // already described, so they were skipped here. Clear any that are still
+    // stored so they get real descriptions this time.
+    let placeholdersCleared = 0
+    const baseSchema: Schema = {
+      ...connectionInformation.currentSchema,
+      tables: connectionInformation.currentSchema.tables.map((table) => {
+        // Regenerate: wipe this table's AI text so the route re-describes all of it
+        const forceClear = table.name === regenerateTable
+        const tableIsPlaceholder = isPlaceholderDescription(table.aiDescription)
+        if (tableIsPlaceholder) placeholdersCleared++
+        return {
+          ...table,
+          aiDescription: forceClear || tableIsPlaceholder ? undefined : table.aiDescription,
+          columns: table.columns.map((col) => {
+            const colIsPlaceholder = isPlaceholderDescription(col.aiDescription)
+            if (colIsPlaceholder) placeholdersCleared++
+            return { ...col, aiDescription: forceClear || colIsPlaceholder ? undefined : col.aiDescription }
+          }),
+        }
+      }),
+    }
+    if (placeholdersCleared > 0 || regenerateTable) {
+      if (placeholdersCleared > 0) console.log(`Cleared ${placeholdersCleared} placeholder descriptions before generation`)
+      connectionInformation.setSchema(baseSchema)
+      setHasUnsavedChanges(true)
+    }
+
+    const tablesNeedingDescriptions = regenerateTable
+      ? baseSchema.tables.filter((table) => table.name === regenerateTable)
+      : baseSchema.tables.filter((table) => {
           const hasTableDescription = table.description || table.aiDescription;
           const hasAllColumnDescriptions = table.columns.every((col) => col.description || col.aiDescription);
           const isHidden = table.hidden;
@@ -329,20 +380,26 @@ export function SchemaExplorer() {
         });
 
     if (tablesNeedingDescriptions.length === 0) {
-      alert("All tables already have AI descriptions!");
+      alert(regenerateTable ? `Table "${regenerateTable}" was not found in the schema.` : "All tables already have AI descriptions!");
       return;
     }
 
     console.log(
-      `Processing ${tablesNeedingDescriptions.length} tables (${connectionInformation.currentSchema.tables.length - tablesNeedingDescriptions.length} already have descriptions)`,
+      `Processing ${tablesNeedingDescriptions.length} tables (${baseSchema.tables.length - tablesNeedingDescriptions.length} already have descriptions)`,
     )
 
     setGeneratingDescriptions(true)
     const total = tablesNeedingDescriptions.length
     setBatchProgress({ current: 0, total, currentTableName: "" })
 
+    // Compact overview of the WHOLE schema (every non-hidden table + existing
+    // descriptions). Each request describes a single table, so without this the
+    // model never sees related tables or the descriptions it should match —
+    // which made descriptions generated after a schema update noticeably worse.
+    const schemaContext = toSchemaContext(baseSchema.tables)
+
     try {
-      const updatedSchema = { ...connectionInformation.currentSchema }
+      const updatedSchema = { ...baseSchema }
       let completedCount = 0
       let failedCount = 0
       const concurrency = 3
@@ -355,6 +412,7 @@ export function SchemaExplorer() {
             body: JSON.stringify({
               schema: { tables: [table] },
               databaseDescription,
+              schemaContext,
             }),
           })
 
@@ -391,7 +449,16 @@ export function SchemaExplorer() {
 
       setBatchProgress({ current: total, total, currentTableName: "" })
 
-      const skippedCount = connectionInformation.currentSchema.tables.length - total
+      if (regenerateTable) {
+        toast(
+          failedCount === 0
+            ? { title: "Descriptions regenerated", description: `New AI descriptions for "${regenerateTable}" and its columns. Save to OpenAI to apply them to query generation.` }
+            : { variant: "destructive", title: "Regeneration failed", description: `Could not regenerate descriptions for "${regenerateTable}". Check the console for details.` },
+        )
+        return
+      }
+
+      const skippedCount = baseSchema.tables.length - total
       const parts = []
       parts.push(`${total - failedCount} tables processed`)
       if (skippedCount > 0) parts.push(`${skippedCount} already had descriptions`)
@@ -470,6 +537,43 @@ export function SchemaExplorer() {
       sampleDataInflightRef.current.delete(tableName)
       setSampleDataLoading((prev) => ({ ...prev, [tableName]: false }))
     }
+  }
+
+  /**
+   * Drops a table from the stored schema (descriptions, hidden flags and all).
+   * The table still exists in the database, so the next "Update Schema" will
+   * re-introspect it and bring it back flagged NEW with a clean slate — this is
+   * the escape hatch for a table whose stored information is wrong.
+   */
+  const removeTableFromSchema = (tableName: string) => {
+    if (!connectionInformation.currentSchema) return
+
+    const schemaData = connectionInformation.getSchema();
+    if (!schemaData) {
+      throw new Error("No schema data found! Be sure to parse database schema before trying to upload.");
+    }
+
+    const index = schemaData.tables.findIndex((t) => t.name === tableName);
+    if (index < 0) {
+      throw new Error("No table found for schema data!");
+    }
+    schemaData.tables.splice(index, 1);
+
+    connectionInformation.setSchema(schemaData);
+
+    // Drop any per-table UI state so a re-added table starts fresh
+    setExpandedTables((prev) => { const next = new Set(prev); next.delete(tableName); return next; })
+    setSampleDataVisible((prev) => { const next = new Set(prev); next.delete(tableName); return next; })
+    setSampleData((prev) => { const { [tableName]: _dropped, ...rest } = prev; return rest; })
+    sampleDataInflightRef.current.get(tableName)?.abort()
+    sampleDataInflightRef.current.delete(tableName)
+
+    if (editingTable === tableName) {
+      setEditingTable(null)
+      setEditingColumn(null)
+      setTempDescription("")
+    }
+    setHasUnsavedChanges(true);
   }
 
   const removeColumnFromTable = (tableName: string, columnName: string) => {
@@ -1042,7 +1146,7 @@ export function SchemaExplorer() {
               </Button>
             </>
           )}
-          <Button onClick={generateAIDescriptions} disabled={generatingDescriptions} className="flex items-center gap-2">
+          <Button onClick={() => generateAIDescriptions()} disabled={generatingDescriptions} className="flex items-center gap-2">
             {generatingDescriptions ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin mr-1" />
@@ -1146,10 +1250,31 @@ export function SchemaExplorer() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      title="Regenerate AI descriptions for this table and all of its columns"
+                      onClick={() => setRegenerateTarget(table.name)}
+                      disabled={generatingDescriptions}
+                    >
+                      {generatingDescriptions && batchProgress.currentTableName === table.name ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-4 h-4" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       title="Edit Table description"
                       onClick={() => startEditing(table.name, undefined, table.description || table.aiDescription)}
                     >
                       <Edit3 className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      title="Remove this table from the schema (re-introspect with Update Schema to re-add it fresh)"
+                      onClick={() => handleDeleteTable(table.name)}
+                    >
+                      <Trash className="w-4 h-4" />
                     </Button>
                   </div>
                 </div>
@@ -1450,12 +1575,30 @@ export function SchemaExplorer() {
       <ConfirmationModal
           open={showDeleteConfirmation}
           onOpenChange={setShowDeleteConfirmation}
-          title="Delete Column"
-          description={`Are you sure you want to delete the column "${deleteTarget?.columnName}" from table "${deleteTarget?.tableName}"? This action cannot be undone and will remove this column from future Query Generations.`}
-          confirmText="Delete"
+          title={deleteTarget?.columnName === undefined ? "Remove Table from Schema" : "Delete Column"}
+          description={
+            deleteTarget?.columnName === undefined
+              ? `Remove the table "${deleteTarget?.tableName}" and all of its descriptions from this schema? The table is NOT touched in the database. Until you re-add it, it will be excluded from Query Generation. To re-add it with a clean slate, run "Update Schema" — it will come back flagged NEW so you can regenerate its descriptions.`
+              : `Are you sure you want to delete the column "${deleteTarget?.columnName}" from table "${deleteTarget?.tableName}"? This action cannot be undone and will remove this column from future Query Generations.`
+          }
+          confirmText={deleteTarget?.columnName === undefined ? "Remove Table" : "Delete"}
           cancelText="Cancel"
           variant="destructive"
           onConfirm={confirmDeleteColumn}
+      />
+
+      <ConfirmationModal
+          open={regenerateTarget !== null}
+          onOpenChange={(open) => { if (!open) setRegenerateTarget(null) }}
+          title="Regenerate AI Descriptions"
+          description={`Regenerate the AI descriptions for table "${regenerateTarget}" and all of its columns? The current AI-generated text will be replaced. Descriptions you wrote yourself are kept.`}
+          confirmText="Regenerate"
+          cancelText="Cancel"
+          onConfirm={() => {
+            const tableName = regenerateTarget
+            setRegenerateTarget(null)
+            if (tableName) void generateAIDescriptions({ regenerateTable: tableName })
+          }}
       />
 
       <SchemaUpdateModal

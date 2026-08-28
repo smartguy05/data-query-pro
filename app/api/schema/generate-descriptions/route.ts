@@ -3,6 +3,11 @@ import OpenAI from "openai"
 import { generateTableDescription, generateColumnDescription } from "@/utils/generate-descriptions"
 import { checkRateLimit, getOpenAIKey } from "@/utils/rate-limiter"
 import { getAuthContext } from '@/lib/auth/require-auth'
+import {
+  buildSchemaContextSection,
+  buildSiblingColumnsSection,
+  type SchemaContext,
+} from "@/utils/description-context"
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,7 +28,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { schema, databaseDescription, batchInfo } = await request.json()
+    const { schema, databaseDescription, batchInfo, schemaContext } = await request.json()
+    // Compact overview of the WHOLE schema (all non-hidden tables, with any
+    // descriptions that already exist). Without it every table is described in
+    // isolation, which is why descriptions generated later for new tables /
+    // columns used to read worse than the originals.
+    const fullContext: SchemaContext | null =
+      schemaContext && Array.isArray(schemaContext.tables) ? (schemaContext as SchemaContext) : null
 
     console.log(`Processing AI descriptions for batch ${batchInfo?.current || 1}/${batchInfo?.total || 1}`)
     console.log(`Tables in this batch: ${batchInfo?.tableNames?.join(", ") || "Unknown"}`)
@@ -115,8 +126,21 @@ export async function POST(request: NextRequest) {
       const table = enhancedSchema.tables[i]
       console.log(`Processing table ${i + 1}/${enhancedSchema.tables.length}: ${table.name}`)
 
+      const schemaSection = buildSchemaContextSection(table.name, fullContext)
+      // This table's columns as known to the rest of the app (with existing
+      // descriptions) — so a newly added column is described like its siblings.
+      const contextColumns =
+        fullContext?.tables.find((t) => t.name === table.name)?.columns ??
+        table.columns.map((c: any) => ({
+          name: c.name,
+          type: c.type,
+          primary_key: c.primary_key || undefined,
+          foreign_key: c.foreign_key || undefined,
+          description: c.description || c.aiDescription || undefined,
+        }))
+
       if (!table.aiDescription) {
-        const tablePrompt = `You are a database analyst helping to document a business database. 
+        const tablePrompt = `You are a database analyst helping to document a business database.
 
 ${
   databaseDescription
@@ -124,9 +148,11 @@ ${
 
 `
     : ""
-}DATABASE TABLE ANALYSIS:
+}${schemaSection ? `${schemaSection}
+
+` : ""}DATABASE TABLE ANALYSIS:
 Table Name: ${table.name}
-Columns: ${table.columns.map((col: any) => `${col.name} (${col.type}${col.primary_key ? ", PRIMARY KEY" : ""}${col.foreign_key ? ", FOREIGN KEY → " + col.foreign_key : ""}${!col.nullable ? ", NOT NULL" : ""})`).join(", ")}
+${table.description ? `Note from the database owner: ${table.description}\n` : ""}Columns: ${table.columns.map((col: any) => `${col.name} (${col.type}${col.primary_key ? ", PRIMARY KEY" : ""}${col.foreign_key ? ", FOREIGN KEY → " + col.foreign_key : ""}${!col.nullable ? ", NOT NULL" : ""})`).join(", ")}
 
 TASK: Write a clear, business-focused description (1-2 sentences) explaining:
 1. What business data this table stores
@@ -155,7 +181,11 @@ ${
 
 `
     : ""
-}TABLE CONTEXT: ${table.name} - ${table.aiDescription || "Business data table"}
+}${schemaSection ? `${schemaSection}
+
+` : ""}TABLE CONTEXT: ${table.name} - ${table.description || table.aiDescription || "Business data table"}
+
+${buildSiblingColumnsSection(contextColumns, column.name)}
 
 COLUMN DETAILS:
 - Name: ${column.name}

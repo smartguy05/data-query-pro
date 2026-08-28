@@ -117,6 +117,8 @@ Schema exploration and AI description generation.
 - Generate AI descriptions
 - Edit descriptions manually
 - Hide/show tables and columns
+- Regenerate AI descriptions for one table and all its columns (sparkles button on the table card; user-written descriptions are kept)
+- Remove a table from the stored schema (trash button on the table card; the next "Update Schema" re-introspects it as NEW with a clean slate)
 - Schema change detection
 - **Copy descriptions from another connection** (`components/copy-descriptions-dialog.tsx` + `utils/copy-descriptions.ts`): name-matches tables/columns against a source connection's schema and copies `description` (and optionally `aiDescription` + `hidden` flags), in fill-empty or overwrite mode. Client-side; applied via `setSchema`, then pushed to OpenAI via the existing "Save to OpenAI" button. Ideal for the same DB across dev/staging/prod.
 
